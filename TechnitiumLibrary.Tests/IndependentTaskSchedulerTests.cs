@@ -130,6 +130,7 @@ namespace TechnitiumLibrary.Tests
         }
 
         [TestMethod]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "MSTEST0032:Assertion condition is always true", Justification = "Double Dispose must not throw")]
         public void Dispose_CanBeCalledMultipleTimes_Safely()
         {
             // GIVEN

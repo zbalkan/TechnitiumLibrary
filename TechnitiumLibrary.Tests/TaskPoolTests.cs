@@ -99,8 +99,8 @@ namespace TechnitiumLibrary.Tests
             var pool = new TaskPool(queueSize: 10, maximumConcurrencyLevel: -1);
 
             // THEN
-            Assert.IsTrue(pool.MaximumConcurrencyLevel >= 1,
-                "Concurrency must fallback to processor count.");
+            Assert.IsGreaterThanOrEqualTo(1,
+pool.MaximumConcurrencyLevel, "Concurrency must fallback to processor count.");
         }
 
         [TestMethod]
@@ -138,6 +138,7 @@ namespace TechnitiumLibrary.Tests
         }
 
         [TestMethod]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "MSTEST0032:Assertion condition is always true", Justification = "Multiple Dispose must not throw")]
         public void DisposeMustBeIdempotent()
         {
             // GIVEN

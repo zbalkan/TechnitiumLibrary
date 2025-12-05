@@ -261,7 +261,9 @@ namespace TechnitiumLibrary.Tests
         public void OperatorEquality_ShouldBeTrue_ForSameReference()
         {
             var bn = new BinaryNumber(Bytes(1, 2));
+#pragma warning disable CS1718 // Comparison made to same variable
             Assert.IsTrue(bn == bn);
+#pragma warning restore CS1718 // Comparison made to same variable
         }
 
         [TestMethod]
@@ -378,7 +380,7 @@ namespace TechnitiumLibrary.Tests
             bn.WriteTo(ms);
 
             var result = ms.ToArray();
-            Assert.AreEqual(3, result.Length);
+            Assert.HasCount(3, result);
             Assert.AreEqual(2, result[0]); // length prefix
             CollectionAssert.AreEqual(Bytes(0x11, 0x22), result[1..]);
         }
