@@ -61,6 +61,11 @@ namespace TechnitiumLibrary
 
         private static string Encode(Span<byte> data, char[] map, bool skipPadding)
         {
+            if (data == null)
+            {
+                throw new ArgumentNullException("data");
+            }
+
             StringBuilder sb = new StringBuilder();
 
             int r = data.Length % 5;
@@ -154,6 +159,19 @@ namespace TechnitiumLibrary
 
         private static byte[] Decode(string data, int[] rmap)
         {
+            if (data is null)
+            {
+                throw new ArgumentNullException(nameof(data));
+            }
+            if (data == string.Empty)
+            {
+                return Array.Empty<byte>();
+            }
+            if (data.Contains(' '))
+            {
+                throw new ArgumentException(nameof(data));
+            }
+
             byte[] buffer;
             int paddingCount = 0;
 
