@@ -2,10 +2,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
-using TechnitiumLibrary;
 using System.Threading;
 
-namespace TechnitiumLibrary.Tests
+namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 {
     [TestClass]
     public sealed class TaskPoolTests

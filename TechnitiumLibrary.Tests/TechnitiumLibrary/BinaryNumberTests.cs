@@ -1,9 +1,8 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.IO;
-using TechnitiumLibrary;
 
-namespace TechnitiumLibrary.Tests
+namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 {
     [TestClass]
     public class BinaryNumberTests

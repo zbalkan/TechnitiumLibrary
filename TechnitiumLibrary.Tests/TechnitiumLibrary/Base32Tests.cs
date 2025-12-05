@@ -1,9 +1,8 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text;
 using System;
-using TechnitiumLibrary;
 
-namespace TechnitiumLibrary.Tests
+namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 {
     [TestClass]
     public class Base32Tests
@@ -27,7 +26,7 @@ namespace TechnitiumLibrary.Tests
 
         // Arbitrary real-world binary sample from PHP tests
         private static readonly byte[] RandomBytes =
-            System.Convert.FromBase64String("HgxBl1kJ4souh+ELRIHm/x8yTc/cgjDmiCNyJR/NJfs=");
+            Convert.FromBase64String("HgxBl1kJ4souh+ELRIHm/x8yTc/cgjDmiCNyJR/NJfs=");
 
 
         // -------------------- RFC vectors --------------------
@@ -153,7 +152,7 @@ namespace TechnitiumLibrary.Tests
         };
 
         private static readonly byte[] RandomBytes =
-            System.Convert.FromBase64String("HgxBl1kJ4souh+ELRIHm/x8yTc/cgjDmiCNyJR/NJfs=");
+            Convert.FromBase64String("HgxBl1kJ4souh+ELRIHm/x8yTc/cgjDmiCNyJR/NJfs=");
 
 
         // ---------------- RFC vectors ----------------

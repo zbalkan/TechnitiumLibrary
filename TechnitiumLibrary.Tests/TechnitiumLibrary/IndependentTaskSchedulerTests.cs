@@ -3,7 +3,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace TechnitiumLibrary.Tests
+namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 {
     [TestClass]
     public sealed class IndependentTaskSchedulerTests

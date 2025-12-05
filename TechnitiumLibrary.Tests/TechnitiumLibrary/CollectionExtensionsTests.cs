@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 
-namespace TechnitiumLibrary.Tests
+namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 {
     [TestClass]
     public sealed class CollectionExtensionsTests
