@@ -103,7 +103,7 @@ pool.MaximumConcurrencyLevel, "Concurrency must fallback to processor count.");
         }
 
         [TestMethod]
-        public void TryQueueTask_ShouldReturnFalse_WhenTaskIsNull()
+        public void TryQueueTask_ShouldThrow_WhenTaskIsNull()
         {
             // GIVEN
             var pool = new TaskPool();

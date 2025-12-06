@@ -69,7 +69,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             // WHEN + THEN
             Assert.ThrowsExactly<ArgumentException>(() =>
             {
-                var reader = new BinaryReader(unreadableStream);
+                using var reader = new BinaryReader(unreadableStream);
                 _ = new BinaryNumber(reader); // will not be reached
             });
         }

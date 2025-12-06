@@ -55,8 +55,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
                 });
 
             // WHEN
-            var t1 = Task.Factory.StartNew(() => Body(), CancellationToken.None, TaskCreationOptions.None, scheduler).Unwrap();
-            var t2 = Task.Factory.StartNew(() => Body(), CancellationToken.None, TaskCreationOptions.None, scheduler).Unwrap();
+            _ = Task.Factory.StartNew(() => Body(), CancellationToken.None, TaskCreationOptions.None, scheduler).Unwrap();
+            _ = Task.Factory.StartNew(() => Body(), CancellationToken.None, TaskCreationOptions.None, scheduler).Unwrap();
 
             // THEN
             Assert.IsTrue(await parallelStarted.Task);

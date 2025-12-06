@@ -45,7 +45,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Shuffle_ShouldNotThrow_WhenEmpty()
         {
             // GIVEN
-            var input = new int[] { };
+            var input = Array.Empty<int>();
 
             // WHEN
             input.Shuffle();
@@ -75,6 +75,18 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         }
 
         [TestMethod]
+        public void Convert_List_ShouldThrow_WhenArrayIsNull()
+        {
+            // GIVEN
+            IReadOnlyList<int>? input = null;
+
+            // WHEN + THEN
+            Assert.ThrowsExactly<ArgumentNullException>(
+                () => input.Convert<int, int>(x => x * 10)
+            );
+        }
+
+        [TestMethod]
         public void Convert_List_ShouldThrow_WhenConverterIsNull()
         {
             // GIVEN
@@ -101,6 +113,18 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 
             // THEN
             Assert.HasCount(3, result);
+        }
+
+        [TestMethod]
+        public void Convert_Collection_ShouldThrow_WhenCollectionIsNull()
+        {
+            // GIVEN
+            IReadOnlyCollection<int> input = null;
+
+            // WHEN + THEN
+            Assert.ThrowsExactly<ArgumentNullException>(
+                () => input.Convert<int, int>(x => x * 10)
+            );
         }
 
         [TestMethod]

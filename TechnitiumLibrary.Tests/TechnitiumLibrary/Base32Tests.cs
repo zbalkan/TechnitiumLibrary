@@ -1,6 +1,7 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Text;
 using System;
+using System.Text;
+using TechnitiumLibrary;
 
 namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 {
@@ -70,7 +71,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ToBase32String_RandomBytes_MatchesExpectedEncoding()
         {
             // Given test fixture from PHP
-            var expected = "DYGEDF2ZBHRMULUH4EFUJAPG74PTETOP3SBDBZUIENZCKH6NEX5Q====";
+            const string expected = "DYGEDF2ZBHRMULUH4EFUJAPG74PTETOP3SBDBZUIENZCKH6NEX5Q====";
 
             // Act
             var actual = Base32.ToBase32String(RandomBytes);
@@ -82,7 +83,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void FromBase32String_RandomBytes_ReturnsOriginalInput()
         {
             // Arrange
-            var encoded = "DYGEDF2ZBHRMULUH4EFUJAPG74PTETOP3SBDBZUIENZCKH6NEX5Q====";
+            const string encoded = "DYGEDF2ZBHRMULUH4EFUJAPG74PTETOP3SBDBZUIENZCKH6NEX5Q====";
 
             // Act
             var decoded = Base32.FromBase32String(encoded);
@@ -128,10 +129,34 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             var result = Base32.ToBase32String(Array.Empty<byte>());
             Assert.IsEmpty(result);
         }
+
+        [TestMethod]
+        public void FromBase32String_GivenNullString_ThrowsException()
+        {
+            Assert.ThrowsExactly<ArgumentNullException>(() => Base32.FromBase32String(null));
+
+        }
+
+        [TestMethod]
+        public void FromBase32HexString_GivenNullString_ThrowsException()
+        {
+            Assert.ThrowsExactly<ArgumentNullException>(() => Base32.FromBase32HexString(null));
+
+        }
+
+        [TestMethod]
+        public void FromBase32String_GivenStringWithSpace_ThrowsException()
+        {
+            Assert.ThrowsExactly<ArgumentException>(() => Base32.FromBase32String("MZXW6YTBOI====== "));
+
+        }
+
+        [TestMethod]
+        public void FromBase32HexString_GivenNullStringSpace_ThrowsException()
+        {
+            Assert.ThrowsExactly<ArgumentException>(() => Base32.FromBase32HexString("MZXW6YTBOI====== "));
+        }
     }
-
-
-
 
     [TestClass]
     public class Base32HexTests
@@ -185,7 +210,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void ToBase32HexString_RandomBytes_MatchesExpectedEncoding()
         {
-            var expected = "3O6435QP17HCKBK7S45K90F6VSFJ4JEFRI131PK84DP2A7UD4NTG====";
+            const string expected = "3O6435QP17HCKBK7S45K90F6VSFJ4JEFRI131PK84DP2A7UD4NTG====";
             var result = Base32.ToBase32HexString(RandomBytes);
             Assert.AreEqual(expected, result);
         }
@@ -193,7 +218,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void FromBase32HexString_RandomBytes_ReturnsOriginalInput()
         {
-            var encoded = "3O6435QP17HCKBK7S45K90F6VSFJ4JEFRI131PK84DP2A7UD4NTG====";
+            const string encoded = "3O6435QP17HCKBK7S45K90F6VSFJ4JEFRI131PK84DP2A7UD4NTG====";
             var decoded = Base32.FromBase32HexString(encoded);
             CollectionAssert.AreEqual(RandomBytes, decoded);
         }
