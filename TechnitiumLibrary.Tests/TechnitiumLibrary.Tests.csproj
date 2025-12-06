@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TechnitiumLibrary.ByteTree\TechnitiumLibrary.ByteTree.csproj" />
+    <ProjectReference Include="..\TechnitiumLibrary.IO\TechnitiumLibrary.IO.csproj" />
     <ProjectReference Include="..\TechnitiumLibrary\TechnitiumLibrary.csproj" />
   </ItemGroup>
 
@@ -17,7 +18,6 @@
     <Folder Include="TechnitiumLibrary.Security.OTP\" />
     <Folder Include="TechnitiumLibrary.Net.Firewall\" />
     <Folder Include="TechnitiumLibrary.Net\" />
-    <Folder Include="TechnitiumLibrary.IO\" />
   </ItemGroup>
 
 </Project>
