@@ -165,7 +165,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             var result = json.ReadArrayAsMap("values", el =>
             {
                 var key = el.GetProperty("k").GetString();
+#pragma warning disable CS8604 // Possible null reference argument.
                 var val = int.Parse(el.GetProperty("v").GetString());
+#pragma warning restore CS8604 // Possible null reference argument.
                 return Tuple.Create(key, val);
             });
 
@@ -182,12 +184,25 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             var json = ToElement("""{ "other": [] }""");
 
             // WHEN
-            var result = json.TryReadArrayAsMap<int,int>("values", el => null, out var map);
+            var result = json.TryReadArrayAsMap<int, int>("values", _ => null, out var map);
 
             // THEN
             Assert.IsFalse(result);
             Assert.IsNull(map);
         }
+
+        [TestMethod]
+        public void ReadArrayAsMap_ShouldIgnoreNullReturnedPairs()
+        {
+            var json = ToElement("""
+        { "arr": [123, 456] }
+    """);
+
+            var result = json.ReadArrayAsMap<string, string>("arr", _ => null);
+
+            Assert.IsEmpty(result);
+        }
+
 
         // ------------------------------
         // GET PROPERTY VALUE
