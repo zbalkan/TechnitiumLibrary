@@ -1,24 +1,6 @@
-﻿/*
-Technitium Library
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-*/
-
-using System;
+﻿using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TechnitiumLibrary.IO
@@ -35,6 +17,9 @@ namespace TechnitiumLibrary.IO
 
         readonly Stream _stream1;
         readonly Stream _stream2;
+
+        // track copy completion
+        private int _pendingCopies = 2;
 
         #endregion
 
@@ -72,11 +57,8 @@ namespace TechnitiumLibrary.IO
                 {
                     Disposing?.Invoke(this, EventArgs.Empty);
 
-                    if (_stream1 != null)
-                        _stream1.Dispose();
-
-                    if (_stream2 != null)
-                        _stream2.Dispose();
+                    _stream1?.Dispose();
+                    _stream2?.Dispose();
                 }
             }
         }
@@ -84,6 +66,12 @@ namespace TechnitiumLibrary.IO
         #endregion
 
         #region private
+
+        private void OnCopyFinished()
+        {
+            if (Interlocked.Decrement(ref _pendingCopies) == 0)
+                Dispose();
+        }
 
         private async Task CopyToAsync(Stream src, Stream dst)
         {
@@ -93,7 +81,7 @@ namespace TechnitiumLibrary.IO
             }
             finally
             {
-                Dispose();
+                OnCopyFinished();
             }
         }
 
@@ -111,11 +99,9 @@ namespace TechnitiumLibrary.IO
 
         #region properties
 
-        public Stream Stream1
-        { get { return _stream1; } }
+        public Stream Stream1 => _stream1;
 
-        public Stream Stream2
-        { get { return _stream2; } }
+        public Stream Stream2 => _stream2;
 
         #endregion
     }
