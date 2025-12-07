@@ -11,13 +11,19 @@
   <ItemGroup>
     <ProjectReference Include="..\TechnitiumLibrary.ByteTree\TechnitiumLibrary.ByteTree.csproj" />
     <ProjectReference Include="..\TechnitiumLibrary.IO\TechnitiumLibrary.IO.csproj" />
+    <ProjectReference Include="..\TechnitiumLibrary.Net.Firewall\TechnitiumLibrary.Net.Firewall.csproj" />
     <ProjectReference Include="..\TechnitiumLibrary\TechnitiumLibrary.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="TechnitiumLibrary.Security.OTP\" />
-    <Folder Include="TechnitiumLibrary.Net.Firewall\" />
     <Folder Include="TechnitiumLibrary.Net\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Interop.NetFwTypeLib">
+      <HintPath>..\TechnitiumLibrary.Net.Firewall\obj\Debug\Interop.NetFwTypeLib.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>
