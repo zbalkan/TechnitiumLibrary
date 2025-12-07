@@ -208,8 +208,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Extract_ShouldBackupExisting_WhenOverwriteEnabled()
         {
-            string tempDir = Path.GetTempPath();
-            string target = Path.Combine(tempDir, Path.GetRandomFileName());
+            string target = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             string? originalBackupCandidate = null;
 
             var originalBytes = "c"u8.ToArray();
@@ -256,8 +255,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Extract_ShouldNotOverwrite_WhenFlagDisabled()
         {
-            string tempDir = Path.GetTempPath();
-            string target = Path.Combine(tempDir, Path.GetRandomFileName());
+            string target = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             var originalBytes = "X"u8.ToArray();
 
             // Create file securely
