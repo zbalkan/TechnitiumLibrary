@@ -156,16 +156,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         {
             using var backing = CreateWritableStream();
             using var pkg = new Package(backing, PackageMode.Create);
-            {
-                WriteItem(backing);
-                pkg.Close();
-                var len1 = backing.Length;
-
-                pkg.Close();
-                var len2 = backing.Length;
-
-                Assert.AreEqual(len1, len2);
-            }
+            WriteItem(backing);
+            pkg.Close();
+            var len1 = backing.Length;
+            pkg.Close();
+            var len2 = backing.Length;
+            Assert.AreEqual(len1, len2);
         }
 
         // -------------------------------------------------------------
