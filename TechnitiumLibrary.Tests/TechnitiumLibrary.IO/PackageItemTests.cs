@@ -59,7 +59,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
             File.SetLastWriteTimeUtc(
                 path,
-                new DateTime(2022, 5, 1, 12, 0, 0));
+                new DateTime(2022, 5, 1, 12, 0, 0, DateTimeKind.Utc));
 
             try
             {
