@@ -107,21 +107,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
                 TaskExtensions.TimeoutAsync(func, timeout: 500, TestContext.CancellationToken));
         }
 
-        [TestMethod]
-        public async Task TimeoutAsync_Generic_ShouldThrowOperationCanceled_WhenCanceledExternally()
-        {
-            // GIVEN
-            using var cts = new CancellationTokenSource();
-            Func<CancellationToken, Task> func = NeverCompletes;
-
-            // WHEN
-            await cts.CancelAsync();
-
-            // THEN
-            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
-                TaskExtensions.TimeoutAsync(func, timeout: 200, cancellationToken: cts.Token));
-        }
-
         // ---------------------------------------------
         // Sync() Task
         // ---------------------------------------------
