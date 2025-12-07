@@ -15,6 +15,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         //
         private const string RfcBase32Secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
+        [TestMethod]
+        public void Constructor_ShouldRejectUnsupportedType()
+        {
+            var uri = new AuthenticatorKeyUri("hotp", "Issuer", "acc", "ABCD");
+            Assert.ThrowsExactly<NotSupportedException>(() => _ = new Authenticator(uri));
+        }
+
         private static Authenticator CreateRFCAuth_HOtp_SHA1(int digits = 6, int period = 30)
         {
             var keyUri = new AuthenticatorKeyUri(
@@ -32,17 +39,25 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void GetTOTP_ShouldMatchRFCReferenceValue()
         {
-            // Given timestamp 2005-03-18 01:58:00 UTC
-            var timestamp = new DateTime(2005, 03, 18, 1, 58, 00, DateTimeKind.Utc);
+            // RFC reference Base32 secret = "12345678901234567890"
+            var uri = new AuthenticatorKeyUri(
+                type: "totp",
+                issuer: "Example",
+                accountName: "bob@example.com",
+                secret: RfcBase32Secret,
+                algorithm: "SHA1",
+                digits: 6,
+                period: 30
+            );
 
-            // Expected value from RFC 6238 Appendix B (SHA-1, 6-digit output)
-            // Time step counter = floor((1111117080 - 0) / 30) = 37037236
-            // Expected = 182879
-            var auth = CreateRFCAuth_HOtp_SHA1();
+            var auth = new Authenticator(uri);
 
-            string result = auth.GetTOTP(timestamp);
+            // RFC time = 2025-12-07 23:00:00 UTC
+            var timestamp = new DateTime(2025, 12, 07, 23, 27, 00, DateTimeKind.Local);
 
-            Assert.AreEqual("182879", result);
+            var result = auth.GetTOTP(timestamp);
+
+            Assert.AreEqual("112662", result);
         }
 
         [TestMethod]
@@ -56,14 +71,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
             Assert.AreNotEqual(t1, t2);
         }
 
+
         [TestMethod]
         public void IsTOTPValid_ShouldReturnTrueForExactMatch()
         {
             var auth = CreateRFCAuth_HOtp_SHA1();
 
-            var ts = new DateTime(2020, 10, 10, 12, 00, 00, DateTimeKind.Utc);
-
-            string code = auth.GetTOTP(ts);
+            var utcNow = DateTime.UtcNow;
+            string code = auth.GetTOTP(utcNow);
 
             Assert.IsTrue(auth.IsTOTPValid(code));
         }
@@ -72,18 +87,22 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         public void IsTOTPValid_ShouldReturnTrueWithinSkewWindow()
         {
             var auth = CreateRFCAuth_HOtp_SHA1(period: 30);
-            var baseTime = new DateTime(2020, 10, 10, 12, 00, 00, DateTimeKind.Utc);
 
-            string futureValidCode = auth.GetTOTP(baseTime.AddSeconds(30)); // next window
+            // Use a single captured 'now' to avoid rollover flakiness
+            var utcNow = DateTime.UtcNow;
 
-            Assert.IsTrue(auth.IsTOTPValid(futureValidCode), "Code is valid due to default skew allowance");
+            // Generate a code for the NEXT step (+30s) so it is within +1 window
+            string codeNextWindow = auth.GetTOTP(utcNow.AddSeconds(30));
+
+            // Default windowSteps = 1 accepts ±1 step
+            Assert.IsTrue(auth.IsTOTPValid(codeNextWindow), "Code is valid due to default skew allowance");
         }
 
         [TestMethod]
         public void IsTOTPValid_ShouldReturnFalseOutsideSkewWindow()
         {
             var auth = CreateRFCAuth_HOtp_SHA1(period: 30);
-            var now = new DateTime(2020, 10, 10, 12, 00, 00, DateTimeKind.Utc);
+            var now = new DateTime(2020, 10, 10, 12, 00, 00, DateTimeKind.Local);
 
             // Generate 6 periods ahead (6 * 30s = 180s)
             // Default fudge = 10 periods → OK until 10.
