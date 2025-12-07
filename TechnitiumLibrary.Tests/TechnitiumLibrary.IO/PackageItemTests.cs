@@ -226,14 +226,34 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Extract_ShouldNotOverwrite_WhenFlagDisabled()
         {
-            var target = Path.GetTempFileName();
-            File.WriteAllBytes(target, "X"u8.ToArray());
+            string tempDir = Path.GetTempPath();
+            string target = Path.Combine(tempDir, Path.GetRandomFileName());
+            var originalBytes = "X"u8.ToArray();
 
-            using var item = CreateMinimalWritable();
-            var log = item.Extract(target, overwrite: false);
+            // Create file securely
+            using (var fs = new FileStream(
+                target,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.None))
+            {
+                fs.Write(originalBytes, 0, originalBytes.Length);
+            }
 
-            Assert.IsNull(log);
-            CollectionAssert.AreEqual("X"u8.ToArray(), File.ReadAllBytes(target));
+            try
+            {
+                using var item = CreateMinimalWritable();
+                var log = item.Extract(target, overwrite: false);
+
+                Assert.IsNull(log, "Extract must return null when overwrite=false");
+                CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(target));
+            }
+            finally
+            {
+                // cleanup
+                if (File.Exists(target))
+                    File.Delete(target);
+            }
         }
 
         // ---------------------------------------------------------
