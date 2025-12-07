@@ -37,15 +37,35 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Constructor_FromFilePath_ShouldCaptureAttributesAndOwnStream()
         {
-            var path = Path.GetTempFileName();
-            File.WriteAllBytes(path, new byte[] { 9, 8, 7 });
+            string tempDir = Path.GetTempPath();
+            string path = Path.Combine(tempDir, Path.GetRandomFileName());
+
+            // Create securely as new, exclusive, single-writer
+            using (var file = new FileStream(
+                path,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.None))
+            {
+                file.Write(new byte[] { 9, 8, 7 });
+            }
+
             File.SetLastWriteTimeUtc(path, new DateTime(2022, 5, 1, 12, 0, 0));
 
-            using var item = new PackageItem(path, PackageItemAttributes.ExecuteFile);
+            try
+            {
+                using var item = new PackageItem(path, PackageItemAttributes.ExecuteFile);
 
-            Assert.AreEqual(Path.GetFileName(path), item.Name);
-            Assert.IsTrue(item.IsAttributeSet(PackageItemAttributes.ExecuteFile));
-            Assert.IsGreaterThanOrEqualTo(3, item.DataStream.Length);
+                Assert.AreEqual(Path.GetFileName(path), item.Name);
+                Assert.IsTrue(item.IsAttributeSet(PackageItemAttributes.ExecuteFile));
+                Assert.IsGreaterThanOrEqualTo(3, item.DataStream.Length);
+            }
+            finally
+            {
+                // Ensure no artifact leaks into developer machine or pipeline
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
         }
 
         // ---------------------------------------------------------
