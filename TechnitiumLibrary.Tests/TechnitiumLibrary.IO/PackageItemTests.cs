@@ -178,24 +178,49 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Extract_ShouldBackupExisting_WhenOverwriteEnabled()
         {
-            var target = Path.GetTempFileName();
+            string tempDir = Path.GetTempPath();
+            string target = Path.Combine(tempDir, Path.GetRandomFileName());
+            string? originalBackupCandidate = null;
+
             var originalBytes = "c"u8.ToArray();
-            File.WriteAllBytes(target, originalBytes);
 
-            using var item = CreateMinimalWritable();
-            var log = item.Extract(target, overwrite: true);
+            // Create target file securely and atomically
+            using (var fs = new FileStream(
+                target,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.None))
+            {
+                fs.Write(originalBytes, 0, originalBytes.Length);
+            }
 
-            Assert.IsNotNull(log);
-            Assert.IsTrue(File.Exists(log.FilePath), "Target file should exist");
-            Assert.IsTrue(File.Exists(log.OriginalFilePath), "Backup should remain available");
+            try
+            {
+                using var item = CreateMinimalWritable();
+                var log = item.Extract(target, overwrite: true);
 
-            // Verify backup has original content
-            var backupBytes = File.ReadAllBytes(log.OriginalFilePath);
-            CollectionAssert.AreEqual(originalBytes, backupBytes);
+                Assert.IsNotNull(log, "Extract must return log instance when overwriting");
+                Assert.IsTrue(File.Exists(log.FilePath), "Target file should exist after overwrite");
+                Assert.IsTrue(File.Exists(log.OriginalFilePath), "Original backup should remain available");
 
-            // Verify replaced content exists
-            var newBytes = File.ReadAllBytes(log.FilePath);
-            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, newBytes);
+                // Validate backup content
+                var backupBytes = File.ReadAllBytes(log.OriginalFilePath);
+                CollectionAssert.AreEqual(originalBytes, backupBytes);
+
+                // Validate replaced data
+                var newBytes = File.ReadAllBytes(log.FilePath);
+                CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, newBytes);
+            }
+            finally
+            {
+                // Always clean up
+                if (File.Exists(target))
+                    File.Delete(target);
+
+                // Delete backup if test created one
+                if (originalBackupCandidate != null && File.Exists(originalBackupCandidate))
+                    File.Delete(originalBackupCandidate);
+            }
         }
 
         [TestMethod]
