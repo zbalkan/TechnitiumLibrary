@@ -13,7 +13,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
         private static PackageItem CreateMinimalWritable()
         {
-            var ms = StreamOf(new byte[] { 1, 2, 3 });
+            var ms = StreamOf(1, 2, 3);
             return new PackageItem("file.bin", ms);
         }
 
