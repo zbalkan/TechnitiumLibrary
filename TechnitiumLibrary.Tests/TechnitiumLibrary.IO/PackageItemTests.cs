@@ -37,10 +37,19 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Constructor_FromFilePath_ShouldCaptureAttributesAndOwnStream()
         {
-            string tempDir = Path.GetTempPath();
-            string path = Path.Combine(tempDir, Path.GetRandomFileName());
+            // Create an isolated private subfolder under temp,
+            // because direct writes to global temp root are unsafe.
+            string secureTempRoot = Path.Combine(
+                Path.GetTempPath(),
+                "pkgtest_" + Guid.NewGuid().ToString("N"));
 
-            // Create securely as new, exclusive, single-writer
+            Directory.CreateDirectory(secureTempRoot);
+
+            string path = Path.Combine(
+                secureTempRoot,
+                Path.GetRandomFileName());
+
+            // Create securely using exclusive, non-shareable access
             using (var file = new FileStream(
                 path,
                 FileMode.CreateNew,
@@ -50,7 +59,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
                 file.Write(new byte[] { 9, 8, 7 });
             }
 
-            File.SetLastWriteTimeUtc(path, new DateTime(2022, 5, 1, 12, 0, 0));
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2022, 5, 1, 12, 0, 0));
 
             try
             {
@@ -62,11 +73,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
             }
             finally
             {
-                // Ensure no artifact leaks into developer machine or pipeline
+                // Secure cleanup: remove file then folder
                 if (File.Exists(path))
                     File.Delete(path);
+
+                if (Directory.Exists(secureTempRoot))
+                    Directory.Delete(secureTempRoot, recursive: true);
             }
         }
+
 
         // ---------------------------------------------------------
         // WRITE FORMAT + RE-PARSE
