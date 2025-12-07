@@ -146,15 +146,32 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void WriteThenParse_WithCustomLocation_ShouldRoundtrip()
         {
-            using var item = new PackageItem("x.txt", DateTime.UtcNow,
-                StreamOf(1, 2),
-                attributes: PackageItemAttributes.FixedExtractLocation,
-                extractTo: ExtractLocation.Custom,
-                extractToCustomLocation: "C:\\Temp");
+            // Create a private temp subfolder so location is not globally predictable
+            string secureTempRoot = Path.Combine(
+                Path.GetTempPath(),
+                "pkgtest_" + Guid.NewGuid().ToString("N"));
 
-            using var parsed = Roundtrip(item);
+            Directory.CreateDirectory(secureTempRoot);
 
-            Assert.AreEqual("C:\\Temp", parsed.ExtractToCustomLocation);
+            try
+            {
+                using var item = new PackageItem(
+                    "x.txt",
+                    DateTime.UtcNow,
+                    StreamOf(1, 2),
+                    attributes: PackageItemAttributes.FixedExtractLocation,
+                    extractTo: ExtractLocation.Custom,
+                    extractToCustomLocation: secureTempRoot);
+
+                using var parsed = Roundtrip(item);
+
+                Assert.AreEqual(secureTempRoot, parsed.ExtractToCustomLocation);
+            }
+            finally
+            {
+                if (Directory.Exists(secureTempRoot))
+                    Directory.Delete(secureTempRoot, recursive: true);
+            }
         }
 
         // ---------------------------------------------------------
