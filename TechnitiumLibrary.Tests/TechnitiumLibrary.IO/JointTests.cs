@@ -147,7 +147,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
             // GIVEN
             using var s1 = new MemoryStream();
             using var s2 = new MemoryStream();
-            using var joint = new Joint(s1, s2);
+            var joint = new Joint(s1, s2);
 
             bool raised = false;
             joint.Disposing += (_, __) => raised = true;
