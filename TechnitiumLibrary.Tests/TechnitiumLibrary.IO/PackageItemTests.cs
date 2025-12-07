@@ -1,8 +1,6 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.IO;
-using System.Linq;
-using System.Text;
 using TechnitiumLibrary.IO;
 
 namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
