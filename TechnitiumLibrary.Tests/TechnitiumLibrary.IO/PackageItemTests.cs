@@ -209,11 +209,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Extract_ShouldBackupExisting_WhenOverwriteEnabled()
         {
             string target = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            string? originalBackupCandidate = null;
-
             var originalBytes = "c"u8.ToArray();
 
-            // Create target file securely and atomically
+            // Securely create target
             using (var fs = new FileStream(
                 target,
                 FileMode.CreateNew,
@@ -223,32 +221,37 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
                 fs.Write(originalBytes, 0, originalBytes.Length);
             }
 
+            string? backupPath = null;
+
             try
             {
                 using var item = CreateMinimalWritable();
                 var log = item.Extract(target, overwrite: true);
 
-                Assert.IsNotNull(log, "Extract must return log instance when overwriting");
-                Assert.IsTrue(File.Exists(log.FilePath), "Target file should exist after overwrite");
-                Assert.IsTrue(File.Exists(log.OriginalFilePath), "Original backup should remain available");
+                Assert.IsNotNull(log);
+                Assert.IsTrue(File.Exists(log.FilePath));
 
-                // Validate backup content
-                var backupBytes = File.ReadAllBytes(log.OriginalFilePath);
-                CollectionAssert.AreEqual(originalBytes, backupBytes);
+                // Track for cleanup
+                backupPath = log.OriginalFilePath;
 
-                // Validate replaced data
-                var newBytes = File.ReadAllBytes(log.FilePath);
-                CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, newBytes);
+                Assert.IsTrue(File.Exists(backupPath), "Backup should exist");
+
+                CollectionAssert.AreEqual(
+                    originalBytes,
+                    File.ReadAllBytes(backupPath));
+
+                CollectionAssert.AreEqual(
+                    new byte[] { 1, 2, 3 },
+                    File.ReadAllBytes(target));
             }
             finally
             {
-                // Always clean up
                 if (File.Exists(target))
                     File.Delete(target);
 
-                // Delete backup if test created one
-                if (originalBackupCandidate != null && File.Exists(originalBackupCandidate))
-                    File.Delete(originalBackupCandidate);
+                // Now valid (conditional reachability eliminated)
+                if (!string.IsNullOrWhiteSpace(backupPath) && File.Exists(backupPath))
+                    File.Delete(backupPath);
             }
         }
 
