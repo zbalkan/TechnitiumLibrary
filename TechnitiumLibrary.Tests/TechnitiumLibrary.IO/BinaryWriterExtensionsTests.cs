@@ -141,7 +141,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void WriteShortString_ShouldThrow_WhenStringTooLong()
         {
             // GIVEN
-            var (bw, ms) = CreateWriter();
+            var (bw, _) = CreateWriter();
             var input = new string('x', 256); // UTF-8 => 256 bytes
 
             // WHEN–THEN
