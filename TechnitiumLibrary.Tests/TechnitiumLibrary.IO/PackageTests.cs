@@ -50,9 +50,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
         private static void WriteItem(Stream stream)
         {
-            var data = CreateMinimalItem();
-            stream.Write(data, 0, data.Length);
+            using var data = new MemoryStream(); // empty payload
+            using var item = new PackageItem("A", data);
+
+            item.WriteTo(stream);
         }
+
 
 
         // -------------------------------------------------------------
