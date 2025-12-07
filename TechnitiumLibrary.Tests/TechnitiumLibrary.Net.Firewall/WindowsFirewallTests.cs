@@ -11,29 +11,20 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Firewall
         public void AddPort_ShouldThrow_WhenUnsupportedProtocol()
         {
             // Protocol ICMPv4 cannot be added using AddPort
-            Assert.ThrowsExactly<Exception>(() =>
-            {
-                WindowsFirewall.AddPort("bad", Protocol.ICMPv4, port: 55, enable: true);
-            });
+            Assert.ThrowsExactly<Exception>(() => WindowsFirewall.AddPort("bad", Protocol.ICMPv4, port: 55, enable: true));
         }
 
         [TestMethod]
         public void RemovePort_ShouldThrow_WhenUnsupportedProtocol()
         {
             // RemovePort validates only TCP, UDP, ANY
-            Assert.ThrowsExactly<Exception>(() =>
-            {
-                WindowsFirewall.RemovePort(Protocol.IGMP, 123);
-            });
+            Assert.ThrowsExactly<Exception>(() => WindowsFirewall.RemovePort(Protocol.IGMP, 123));
         }
 
         [TestMethod]
         public void PortExists_ShouldThrow_WhenUnsupportedProtocol()
         {
-            Assert.ThrowsExactly<Exception>(() =>
-            {
-                WindowsFirewall.PortExists(Protocol.IGMP, 44);
-            });
+            Assert.ThrowsExactly<Exception>(() => WindowsFirewall.PortExists(Protocol.IGMP, 44));
         }
 
         [TestMethod]

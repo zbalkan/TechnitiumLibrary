@@ -49,10 +49,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             const string input = "10, BAD";
 
             // WHEN–THEN
-            Assert.ThrowsExactly<FormatException>(() =>
-            {
-                _ = input.Split(int.Parse, ',');
-            });
+            Assert.ThrowsExactly<FormatException>(() => _ = input.Split(int.Parse, ','));
         }
 
         [TestMethod]
