@@ -388,7 +388,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         //  Supporting Test Doubles
         // ---------------------------------------------------------------------
 
-        private class UnreadableStream : Stream
+        private sealed class UnreadableStream : Stream
         {
             public override bool CanRead => false;
             public override bool CanSeek => false;
