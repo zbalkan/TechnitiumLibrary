@@ -175,17 +175,32 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Dispose_ShouldCloseOwnedStream()
         {
-            var path = Path.GetTempFileName();
+            // secure temp file creation
+            string tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 
-            using (var pkg = new Package(path, PackageMode.Create))
-                pkg.Close();
+            // create file exclusively before passing to Package
+            using (var fs = new FileStream(
+                tempFile,
+                FileMode.CreateNew,          // guarantees file does not exist
+                FileAccess.ReadWrite,
+                FileShare.None))             // no external access allowed
+            {
+                fs.WriteByte(99); // write something so the file exists
+            }
 
-            // Must be readable because Close wrote EOF and flushed stream
-            using var fs = new FileStream(path, FileMode.Open);
-            Assert.IsGreaterThanOrEqualTo(3, fs.Length);
+            try
+            {
+                using (var pkg = new Package(tempFile, PackageMode.Create))
+                    pkg.Close(); // Close → flush EOF marker → close underlying stream
 
-            fs.Dispose();
-            File.Delete(path);
+                using var fs = new FileStream(tempFile, FileMode.Open, FileAccess.Read);
+                Assert.IsGreaterThanOrEqualTo(3, fs.Length);
+            }
+            finally
+            {
+                if (File.Exists(tempFile))
+                    File.Delete(tempFile);
+            }
         }
 
         [TestMethod]
