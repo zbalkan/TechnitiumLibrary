@@ -19,7 +19,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void ReadByteValue_ShouldReturnFirstByte()
         {
-            using var s = StreamOf(99);
+            using var s = StreamOf("c"u8.ToArray());
             Assert.AreEqual(99, s.ReadByteValue());
         }
 
@@ -33,13 +33,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public async Task WriteByteAsync_ShouldWriteByte()
         {
-            using var s = new MemoryStream(); // expandable stream
+            await using var s = new MemoryStream(); // expandable stream
 
-            await s.WriteByteAsync(42);
+            await s.WriteByteAsync(42, TestContext.CancellationToken);
 
             s.Position = 0;
 
-            Assert.AreEqual(42, s.ReadByteValue());
+            var value = await s.ReadByteValueAsync(TestContext.CancellationToken);
+
+            Assert.AreEqual(42, value);
         }
 
         // --------------------------------------------------------------------
@@ -65,8 +67,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public async Task ReadExactlyAsync_ShouldReturnRequestedBytes()
         {
-            using var s = StreamOf(10, 20, 30);
-            var result = await s.ReadExactlyAsync(2);
+            await using var s = StreamOf(10, 20, 30);
+            var result = await s.ReadExactlyAsync(2, TestContext.CancellationToken);
 
             CollectionAssert.AreEqual(new byte[] { 10, 20 }, result);
         }
@@ -74,8 +76,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public async Task ReadExactlyAsync_ShouldThrow_WhenStreamEnds()
         {
-            using var s = StreamOf(5);
-            await Assert.ThrowsExactlyAsync<EndOfStreamException>(() => s.ReadExactlyAsync(2));
+            await using var s = StreamOf(5);
+            await Assert.ThrowsExactlyAsync<EndOfStreamException>(() => s.ReadExactlyAsync(2, TestContext.CancellationToken));
         }
 
         // --------------------------------------------------------------------
@@ -114,12 +116,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public async Task WriteShortStringAsync_ShouldRoundtripWithUTF8()
         {
-            using var s = new MemoryStream(); // expandable
+            await using var s = new MemoryStream(); // expandable
 
-            await s.WriteShortStringAsync("test✓");
+            await s.WriteShortStringAsync("test✓", TestContext.CancellationToken);
 
             s.Position = 0;
-            var parsed = await s.ReadShortStringAsync();
+            var parsed = await s.ReadShortStringAsync(TestContext.CancellationToken);
 
             Assert.AreEqual("test✓", parsed);
         }
@@ -152,22 +154,22 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public async Task CopyToAsync_ShouldCopyExactBytes()
         {
-            using var src = StreamOf(99, 98, 97);
-            using var dst = new MemoryStream(); // expandable destination
+            await using var src = StreamOf("cba"u8.ToArray());
+            await using var dst = new MemoryStream(); // expandable destination
 
-            await src.CopyToAsync(dst, bufferSize: 10, length: 3);
+            await src.CopyToAsync(dst, bufferSize: 10, length: 3, TestContext.CancellationToken);
 
-            CollectionAssert.AreEqual(new byte[] { 99, 98, 97 }, dst.ToArray());
+            CollectionAssert.AreEqual("cba"u8.ToArray(), dst.ToArray());
         }
 
         [TestMethod]
         public async Task CopyToAsync_ShouldFailWhenEOSReachedPrematurely()
         {
-            using var src = StreamOf(9);
-            using var dst = new MemoryStream(); // expandable
+            await using var src = StreamOf("\t"u8.ToArray());
+            await using var dst = new MemoryStream(); // expandable
 
             await Assert.ThrowsExactlyAsync<EndOfStreamException>(async () =>
-                await src.CopyToAsync(dst, bufferSize: 8, length: 2));
+                await src.CopyToAsync(dst, bufferSize: 8, length: 2, TestContext.CancellationToken));
         }
 
         [TestMethod]
@@ -180,5 +182,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
             Assert.IsEmpty(dst.ToArray());
         }
+
+        public TestContext TestContext { get; set; }
     }
 }
