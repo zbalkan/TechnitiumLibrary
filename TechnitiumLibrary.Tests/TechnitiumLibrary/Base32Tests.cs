@@ -1,7 +1,6 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Text;
-using TechnitiumLibrary;
 
 namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 {

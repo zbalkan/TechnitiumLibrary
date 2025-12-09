@@ -1,8 +1,6 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
-using System.Collections.Concurrent;
 using System.Threading.Tasks;
-using System.Threading;
 
 namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 {

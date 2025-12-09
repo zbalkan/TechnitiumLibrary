@@ -1,6 +1,5 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
-using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using TechnitiumLibrary.Net;
