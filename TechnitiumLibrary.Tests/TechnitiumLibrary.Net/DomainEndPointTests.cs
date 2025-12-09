@@ -5,7 +5,7 @@ using System.Text;
 using TechnitiumLibrary.Net;
 using TechnitiumLibrary.Net.Dns;
 
-namespace TechnitiumLibrary.Tests.Net
+namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
 {
     [TestClass]
     public sealed class DomainEndPointTests
@@ -137,10 +137,12 @@ namespace TechnitiumLibrary.Tests.Net
         // ================================================================
 
         [TestMethod]
-        public void TryParse_ShouldThrow_WhenInputIsNull()
+        public void TryParse_ShouldFail_WhenInputIsNull()
         {
-            Assert.ThrowsExactly<NullReferenceException>(() => DomainEndPoint.TryParse(null!, out _),
-                "TryParse(null) must throw rather than succeed or produce null output, establishing null as illegal usage.");
+            var ok = DomainEndPoint.TryParse(null, out var ep);
+
+            Assert.IsFalse(ok, "Null value cannot represent valid domain endpoint.");
+            Assert.IsNull(ep, "Endpoint must remain null when parsing fails.");
         }
 
         [TestMethod]
