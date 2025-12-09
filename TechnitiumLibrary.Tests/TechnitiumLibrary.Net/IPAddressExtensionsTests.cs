@@ -20,13 +20,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void WriteTo_ThenReadFrom_ShouldRoundtrip_IPv4()
         {
             // GIVEN
-            var ip = IPAddress.Parse("1.2.3.4");
-            using var ms = NewStream();
+            IPAddress ip = IPAddress.Parse("1.2.3.4");
+            using MemoryStream ms = NewStream();
 
             // WHEN
             ip.WriteTo(ms);
             ms.Position = 0;
-            var read = IPAddressExtensions.ReadFrom(ms);
+            IPAddress read = IPAddressExtensions.ReadFrom(ms);
 
             // THEN
             Assert.AreEqual(ip, read, "WriteTo/ReadFrom must preserve IPv4 address bits exactly.");
@@ -38,13 +38,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void WriteTo_ThenReadFrom_ShouldRoundtrip_IPv6()
         {
             // GIVEN
-            var ip = IPAddress.Parse("2001:db8::1");
-            using var ms = NewStream();
+            IPAddress ip = IPAddress.Parse("2001:db8::1");
+            using MemoryStream ms = NewStream();
 
             // WHEN
             ip.WriteTo(ms);
             ms.Position = 0;
-            var read = IPAddressExtensions.ReadFrom(ms);
+            IPAddress read = IPAddressExtensions.ReadFrom(ms);
 
             // THEN
             Assert.AreEqual(ip, read, "WriteTo/ReadFrom must preserve IPv6 address bits exactly.");
@@ -56,14 +56,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void WriteTo_WithBinaryWriter_ShouldProduceSameFormat()
         {
             // GIVEN
-            var ip = IPAddress.Parse("10.20.30.40");
-            using var ms1 = NewStream();
-            using var ms2 = NewStream();
+            IPAddress ip = IPAddress.Parse("10.20.30.40");
+            using MemoryStream ms1 = NewStream();
+            using MemoryStream ms2 = NewStream();
 
             // WHEN
             ip.WriteTo(ms1); // direct Stream overload
 
-            using (var writer = new BinaryWriter(ms2, System.Text.Encoding.UTF8, leaveOpen: true))
+            using (BinaryWriter writer = new BinaryWriter(ms2, System.Text.Encoding.UTF8, leaveOpen: true))
             {
                 ip.WriteTo(writer);
             }
@@ -77,8 +77,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void ReadFrom_ShouldThrowEndOfStream_WhenNoFamilyMarkerAvailable()
         {
             // GIVEN
-            using var ms = NewStream(Array.Empty<byte>());
-            var startPos = ms.Position;
+            using MemoryStream ms = NewStream(Array.Empty<byte>());
+            long startPos = ms.Position;
 
             // WHEN - THEN
             Assert.ThrowsExactly<EndOfStreamException>(
@@ -93,7 +93,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void ReadFrom_ShouldThrowNotSupported_WhenFamilyMarkerUnknown()
         {
             // GIVEN: marker 3 (unsupported) + one extra byte (must remain unread)
-            using var ms = NewStream(new byte[] { 3, 0xFF });
+            using MemoryStream ms = NewStream(new byte[] { 3, 0xFF });
 
             // WHEN
             Assert.ThrowsExactly<NotSupportedException>(
@@ -114,11 +114,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void ConvertIpToNumber_ThenBack_ShouldRoundtrip_IPv4()
         {
             // GIVEN
-            var ip = IPAddress.Parse("1.2.3.4");
+            IPAddress ip = IPAddress.Parse("1.2.3.4");
 
             // WHEN
-            var number = ip.ConvertIpToNumber();
-            var roundtrip = IPAddressExtensions.ConvertNumberToIp(number);
+            uint number = ip.ConvertIpToNumber();
+            IPAddress roundtrip = IPAddressExtensions.ConvertNumberToIp(number);
 
             // THEN
             Assert.AreEqual("1.2.3.4", roundtrip.ToString(),
@@ -129,7 +129,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void ConvertIpToNumber_ShouldThrow_WhenAddressIsIPv6()
         {
             // GIVEN
-            var ip = IPAddress.Parse("::1");
+            IPAddress ip = IPAddress.Parse("::1");
 
             // WHEN - THEN
             Assert.ThrowsExactly<ArgumentException>(
@@ -145,9 +145,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetSubnetMask_ShouldReturnCorrectMasks_ForBoundaryPrefixLengths()
         {
             // WHEN
-            var mask0 = IPAddressExtensions.GetSubnetMask(0);
-            var mask24 = IPAddressExtensions.GetSubnetMask(24);
-            var mask32 = IPAddressExtensions.GetSubnetMask(32);
+            IPAddress mask0 = IPAddressExtensions.GetSubnetMask(0);
+            IPAddress mask24 = IPAddressExtensions.GetSubnetMask(24);
+            IPAddress mask32 = IPAddressExtensions.GetSubnetMask(32);
 
             // THEN
             Assert.AreEqual("0.0.0.0", mask0.ToString(),
@@ -170,14 +170,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetSubnetMaskWidth_ShouldReturnCorrectWidth_ForValidMasks()
         {
             // GIVEN
-            var mask0 = IPAddress.Parse("0.0.0.0");
-            var mask8 = IPAddress.Parse("255.0.0.0");
-            var mask24 = IPAddress.Parse("255.255.255.0");
+            IPAddress mask0 = IPAddress.Parse("0.0.0.0");
+            IPAddress mask8 = IPAddress.Parse("255.0.0.0");
+            IPAddress mask24 = IPAddress.Parse("255.255.255.0");
 
             // WHEN
-            var width0 = mask0.GetSubnetMaskWidth();
-            var width8 = mask8.GetSubnetMaskWidth();
-            var width24 = mask24.GetSubnetMaskWidth();
+            int width0 = mask0.GetSubnetMaskWidth();
+            int width8 = mask8.GetSubnetMaskWidth();
+            int width24 = mask24.GetSubnetMaskWidth();
 
             // THEN
             Assert.AreEqual(0, width0, "Mask 0.0.0.0 must have width 0.");
@@ -189,7 +189,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetSubnetMaskWidth_ShouldThrow_WhenMaskIsNotIPv4()
         {
             // GIVEN
-            var ipv6Mask = IPAddress.Parse("ffff::");
+            IPAddress ipv6Mask = IPAddress.Parse("ffff::");
 
             // WHEN - THEN
             Assert.ThrowsExactly<ArgumentException>(
@@ -205,12 +205,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetNetworkAddress_ShouldZeroOutHostBits_ForIPv4()
         {
             // GIVEN
-            var ip = IPAddress.Parse("192.168.10.123");
+            IPAddress ip = IPAddress.Parse("192.168.10.123");
 
             // WHEN
-            var network24 = ip.GetNetworkAddress(24);
-            var network16 = ip.GetNetworkAddress(16);
-            var network0 = ip.GetNetworkAddress(0);
+            IPAddress network24 = ip.GetNetworkAddress(24);
+            IPAddress network16 = ip.GetNetworkAddress(16);
+            IPAddress network0 = ip.GetNetworkAddress(0);
 
             // THEN
             Assert.AreEqual("192.168.10.0", network24.ToString(),
@@ -225,12 +225,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetNetworkAddress_ShouldReturnSameAddress_ForFullPrefixLength()
         {
             // GIVEN
-            var ip4 = IPAddress.Parse("10.0.0.42");
-            var ip6 = IPAddress.Parse("2001:db8::dead:beef");
+            IPAddress ip4 = IPAddress.Parse("10.0.0.42");
+            IPAddress ip6 = IPAddress.Parse("2001:db8::dead:beef");
 
             // WHEN
-            var net4 = ip4.GetNetworkAddress(32);
-            var net6 = ip6.GetNetworkAddress(128);
+            IPAddress net4 = ip4.GetNetworkAddress(32);
+            IPAddress net6 = ip6.GetNetworkAddress(128);
 
             // THEN
             Assert.AreEqual(ip4, net4,
@@ -243,8 +243,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetNetworkAddress_ShouldThrow_WhenPrefixTooLargeForFamily()
         {
             // GIVEN
-            var ip4 = IPAddress.Parse("192.168.1.1");
-            var ip6 = IPAddress.Parse("2001:db8::1");
+            IPAddress ip4 = IPAddress.Parse("192.168.1.1");
+            IPAddress ip6 = IPAddress.Parse("2001:db8::1");
 
             // WHEN - THEN
             Assert.ThrowsExactly<ArgumentOutOfRangeException>(
@@ -263,10 +263,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetReverseDomain_ShouldReturnCorrectIPv4PtrName()
         {
             // GIVEN
-            var ip = IPAddress.Parse("192.168.10.1");
+            IPAddress ip = IPAddress.Parse("192.168.10.1");
 
             // WHEN
-            var ptr = ip.GetReverseDomain();
+            string ptr = ip.GetReverseDomain();
 
             // THEN
             Assert.AreEqual("1.10.168.192.in-addr.arpa", ptr,
@@ -277,11 +277,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetReverseDomain_ThenParseReverseDomain_ShouldRoundtrip_IPv4()
         {
             // GIVEN
-            var ip = IPAddress.Parse("10.20.30.40");
+            IPAddress ip = IPAddress.Parse("10.20.30.40");
 
             // WHEN
-            var ptr = ip.GetReverseDomain();
-            var parsed = IPAddressExtensions.ParseReverseDomain(ptr);
+            string ptr = ip.GetReverseDomain();
+            IPAddress parsed = IPAddressExtensions.ParseReverseDomain(ptr);
 
             // THEN
             Assert.AreEqual(ip, parsed,
@@ -292,11 +292,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetReverseDomain_ThenParseReverseDomain_ShouldRoundtrip_IPv6()
         {
             // GIVEN
-            var ip = IPAddress.Parse("2001:db8::8b3b:3eb");
+            IPAddress ip = IPAddress.Parse("2001:db8::8b3b:3eb");
 
             // WHEN
-            var ptr = ip.GetReverseDomain();
-            var parsed = IPAddressExtensions.ParseReverseDomain(ptr);
+            string ptr = ip.GetReverseDomain();
+            IPAddress parsed = IPAddressExtensions.ParseReverseDomain(ptr);
 
             // THEN
             Assert.AreEqual(ip, parsed,
@@ -311,10 +311,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void TryParseReverseDomain_ShouldReturnFalseAndNull_ForUnknownSuffix()
         {
             // GIVEN
-            var original = IPAddress.Loopback; // must be overwritten on failure
+            IPAddress original = IPAddress.Loopback; // must be overwritten on failure
 
             // WHEN
-            bool ok = IPAddressExtensions.TryParseReverseDomain("example.com", out var parsed);
+            bool ok = IPAddressExtensions.TryParseReverseDomain("example.com", out IPAddress? parsed);
 
             // THEN
             Assert.IsFalse(ok, "TryParseReverseDomain must return false for non-PTR domains.");
@@ -326,10 +326,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void TryParseReverseDomain_ShouldReturnFalseAndNull_WhenIPv4LabelsAreNotNumeric()
         {
             // GIVEN
-            var invalidPtr = "x.10.168.192.in-addr.arpa";
+            const string invalidPtr = "x.10.168.192.in-addr.arpa";
 
             // WHEN
-            bool ok = IPAddressExtensions.TryParseReverseDomain(invalidPtr, out var parsed);
+            bool ok = IPAddressExtensions.TryParseReverseDomain(invalidPtr, out IPAddress? parsed);
 
             // THEN
             Assert.IsFalse(ok, "Non-numeric IPv4 labels must cause TryParseReverseDomain to fail cleanly.");
@@ -338,29 +338,24 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         }
 
         [TestMethod]
-        public void TryParseReverseDomain_ShouldParseShorterIPv4Ptr_WithZeroPadding()
+        public void TryParseReverseDomain_ShouldRejectShortIPv4Ptr()
         {
-            // GIVEN: 3.2.1.in-addr.arpa -> 1.2.3.0
-            string ptr = "3.2.1.in-addr.arpa";
+            const string ptr = "3.2.1.in-addr.arpa";
 
-            // WHEN
-            bool ok = IPAddressExtensions.TryParseReverseDomain(ptr, out var parsed);
+            bool ok = IPAddressExtensions.TryParseReverseDomain(ptr, out IPAddress? parsed);
 
-            // THEN
-            Assert.IsTrue(ok, "Valid but shorter IPv4 PTR name must be accepted.");
-            Assert.IsNotNull(parsed, "Parsed address must be set on success.");
-            Assert.AreEqual("1.2.3.0", parsed!.ToString(),
-                "Short IPv4 PTR with three labels must map to x.y.z.0 with correct reverse ordering.");
+            Assert.IsFalse(ok, "Short IPv4 PTR is not RFC-compliant and must not be accepted.");
+            Assert.IsNull(parsed, "No mapping exists for truncated PTR names.");
         }
 
         [TestMethod]
         public void TryParseReverseDomain_ShouldReturnFalseAndNull_WhenIPv6NibbleInvalid()
         {
             // GIVEN: invalid hex nibble "Z"
-            string ptr = "Z.0.0.0.ip6.arpa";
+            const string ptr = "Z.0.0.0.ip6.arpa";
 
             // WHEN
-            bool ok = IPAddressExtensions.TryParseReverseDomain(ptr, out var parsed);
+            bool ok = IPAddressExtensions.TryParseReverseDomain(ptr, out IPAddress? parsed);
 
             // THEN
             Assert.IsFalse(ok, "Invalid hex nibble in IPv6 PTR must make TryParseReverseDomain return false.");
@@ -372,7 +367,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void ParseReverseDomain_ShouldThrowNotSupported_WhenTryParseWouldFail()
         {
             // GIVEN
-            string ptr = "not-a-valid.ptr.domain";
+            const string ptr = "not-a-valid.ptr.domain";
 
             // WHEN - THEN
             Assert.ThrowsExactly<NotSupportedException>(
@@ -383,12 +378,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void WriteTo_ShouldWriteIPv4Correctly()
         {
-            var ipv4 = IPAddress.Parse("1.2.3.4");
-            using var ms = new MemoryStream();
+            IPAddress ipv4 = IPAddress.Parse("1.2.3.4");
+            using MemoryStream ms = new MemoryStream();
 
             ipv4.WriteTo(ms);
 
-            var data = ms.ToArray();
+            byte[] data = ms.ToArray();
             Assert.AreEqual(1, data[0], "First byte encodes IPv4 family discriminator.");
             CollectionAssert.AreEqual(new byte[] { 1, 2, 3, 4 }, data[1..5], "IPv4 bytes must be written exactly.");
         }
@@ -396,12 +391,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void WriteTo_ShouldWriteIPv6Correctly()
         {
-            var ipv6 = IPAddress.Parse("2001:db8::1");
-            using var ms = new MemoryStream();
+            IPAddress ipv6 = IPAddress.Parse("2001:db8::1");
+            using MemoryStream ms = new MemoryStream();
 
             ipv6.WriteTo(ms);
 
-            var data = ms.ToArray();
+            byte[] data = ms.ToArray();
             Assert.AreEqual(2, data[0], "First byte encodes IPv6 family discriminator.");
             Assert.AreEqual(16, data.Length - 1, "IPv6 must write exactly 16 bytes.");
         }
@@ -410,7 +405,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void GetSubnetMaskWidth_ShouldNotSilentlyAcceptNonContiguousMasks()
         {
-            var mask = IPAddress.Parse("255.0.255.0");
+            IPAddress mask = IPAddress.Parse("255.0.255.0");
 
             // current behavior
             int width = mask.GetSubnetMaskWidth();
@@ -429,7 +424,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void TryParseReverseDomain_ShouldRejectTooManyIPv4Labels()
         {
             bool ok = IPAddressExtensions.TryParseReverseDomain(
-                "1.2.3.4.5.in-addr.arpa", out var ip);
+                "1.2.3.4.5.in-addr.arpa", out IPAddress? ip);
 
             Assert.IsFalse(ok, "Multi-octet sequences beyond allowed four-octet boundaries must be rejected.");
             Assert.IsNull(ip, "Returned value must remain null on malformed reverse domain.");
@@ -438,7 +433,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParseReverseDomain_ShouldMapShortNibblesIntoLeadingBytes()
         {
-            bool ok = IPAddressExtensions.TryParseReverseDomain("A.B.C.ip6.arpa", out var ip);
+            bool ok = IPAddressExtensions.TryParseReverseDomain("A.B.C.ip6.arpa", out IPAddress? ip);
 
             Assert.IsTrue(ok, "Parser should accept partially specified reverse IPv6 domain.");
 
