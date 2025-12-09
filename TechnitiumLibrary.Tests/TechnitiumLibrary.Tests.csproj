@@ -12,12 +12,9 @@
     <ProjectReference Include="..\TechnitiumLibrary.ByteTree\TechnitiumLibrary.ByteTree.csproj" />
     <ProjectReference Include="..\TechnitiumLibrary.IO\TechnitiumLibrary.IO.csproj" />
     <ProjectReference Include="..\TechnitiumLibrary.Net.Firewall\TechnitiumLibrary.Net.Firewall.csproj" />
+    <ProjectReference Include="..\TechnitiumLibrary.Net\TechnitiumLibrary.Net.csproj" />
     <ProjectReference Include="..\TechnitiumLibrary.Security.OTP\TechnitiumLibrary.Security.OTP.csproj" />
     <ProjectReference Include="..\TechnitiumLibrary\TechnitiumLibrary.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="TechnitiumLibrary.Net\" />
   </ItemGroup>
 
   <ItemGroup>
