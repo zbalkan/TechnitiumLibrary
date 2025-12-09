@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using TechnitiumLibrary.ByteTree;
 
-namespace TechnitiumLibrary.Tests
+namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
 {
     [TestClass]
     public sealed class ByteTreeTests
@@ -276,7 +276,7 @@ namespace TechnitiumLibrary.Tests
 
             var values = tree.ToList();
 
-            Assert.AreEqual(3, values.Count);
+            Assert.HasCount(3, values);
             CollectionAssert.AreEquivalent(new[] { "x", "y", "z" }, values);
         }
 
@@ -290,7 +290,7 @@ namespace TechnitiumLibrary.Tests
 
             var result = tree.GetReverseEnumerable().ToList();
 
-            Assert.AreEqual(3, result.Count);
+            Assert.HasCount(3, result);
             Assert.AreEqual("c", result[0]); // last sorted key
             Assert.AreEqual("b", result[1]);
             Assert.AreEqual("a", result[2]);
