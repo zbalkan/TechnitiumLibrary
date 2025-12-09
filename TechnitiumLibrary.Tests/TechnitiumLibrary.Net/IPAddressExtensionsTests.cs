@@ -379,5 +379,72 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
                 () => IPAddressExtensions.ParseReverseDomain(ptr),
                 "ParseReverseDomain must throw NotSupportedException on invalid PTR names.");
         }
+
+        [TestMethod]
+        public void WriteTo_ShouldWriteIPv4Correctly()
+        {
+            var ipv4 = IPAddress.Parse("1.2.3.4");
+            using var ms = new MemoryStream();
+
+            ipv4.WriteTo(ms);
+
+            var data = ms.ToArray();
+            Assert.AreEqual(1, data[0], "First byte encodes IPv4 family discriminator.");
+            CollectionAssert.AreEqual(new byte[] { 1, 2, 3, 4 }, data[1..5], "IPv4 bytes must be written exactly.");
+        }
+
+        [TestMethod]
+        public void WriteTo_ShouldWriteIPv6Correctly()
+        {
+            var ipv6 = IPAddress.Parse("2001:db8::1");
+            using var ms = new MemoryStream();
+
+            ipv6.WriteTo(ms);
+
+            var data = ms.ToArray();
+            Assert.AreEqual(2, data[0], "First byte encodes IPv6 family discriminator.");
+            Assert.AreEqual(16, data.Length - 1, "IPv6 must write exactly 16 bytes.");
+        }
+
+
+        [TestMethod]
+        public void GetSubnetMaskWidth_ShouldNotSilentlyAcceptNonContiguousMasks()
+        {
+            var mask = IPAddress.Parse("255.0.255.0");
+
+            // current behavior
+            int width = mask.GetSubnetMaskWidth();
+
+            Assert.AreNotEqual(16, width,
+               "Non-contiguous masks produce incorrect CIDR; caller must not rely on width.");
+        }
+        [TestMethod]
+        public void GetNetworkAddress_ShouldNotAcceptInvalidIPAddressConstruction()
+        {
+            Assert.ThrowsExactly<ArgumentException>(() => _ = new IPAddress(Array.Empty<byte>()),
+                "IPAddress itself must reject invalid byte arrays at construction time.");
+        }
+
+        [TestMethod]
+        public void TryParseReverseDomain_ShouldRejectTooManyIPv4Labels()
+        {
+            bool ok = IPAddressExtensions.TryParseReverseDomain(
+                "1.2.3.4.5.in-addr.arpa", out var ip);
+
+            Assert.IsFalse(ok, "Multi-octet sequences beyond allowed four-octet boundaries must be rejected.");
+            Assert.IsNull(ip, "Returned value must remain null on malformed reverse domain.");
+        }
+
+        [TestMethod]
+        public void TryParseReverseDomain_ShouldMapShortNibblesIntoLeadingBytes()
+        {
+            bool ok = IPAddressExtensions.TryParseReverseDomain("A.B.C.ip6.arpa", out var ip);
+
+            Assert.IsTrue(ok, "Parser should accept partially specified reverse IPv6 domain.");
+
+            Assert.IsNotNull(ip);
+            Assert.AreEqual(IPAddress.Parse("cb00::"), ip,
+                "Input nibbles should be mapped to first IPv6 byte and remaining bytes must be zero.");
+        }
     }
 }

@@ -436,15 +436,24 @@ namespace TechnitiumLibrary.Net
         {
             if (ptrDomain.EndsWith(".in-addr.arpa", StringComparison.OrdinalIgnoreCase))
             {
-                //1.10.168.192.in-addr.arpa
-                //192.168.10.1
+                string[] segments = ptrDomain.Split('.');
 
-                string[] parts = ptrDomain.Split('.');
+                // Expected form: A.B.C.D.in-addr.arpa
+                // → exactly 7 segments
+                if (segments.Length != 6)
+                {
+                    address = null;
+                    return false;
+                }
+
                 Span<byte> buffer = stackalloc byte[4];
 
-                for (int i = 0, j = parts.Length - 3; (i < 4) && (j > -1); i++, j--)
+                // Extract forward as standard IPv4 order
+                // PTR:   A.B.C.D.in-addr.arpa
+                // IP:    D.C.B.A
+                for (int i = 0; i < 4; i++)
                 {
-                    if (!byte.TryParse(parts[j], out buffer[i]))
+                    if (!byte.TryParse(segments[3 - i], out buffer[i]))
                     {
                         address = null;
                         return false;
