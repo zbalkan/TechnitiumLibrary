@@ -182,35 +182,32 @@ namespace TechnitiumLibrary.Net
         public static bool TryParse(string value, out EndPoint ep)
         {
             ep = null;
-
             if (string.IsNullOrWhiteSpace(value))
                 return false;
 
-            // Try modern native parsing first
-            if (IPEndPoint.TryParse(value, out IPEndPoint ipv4Result))
+            // First handle IP:port
+            if (IPEndPoint.TryParse(value, out IPEndPoint ep1))
             {
-                ep = ipv4Result;
+                ep = ep1;
                 return true;
             }
 
-            // Manual parser for IPv4:port
-            var parts = value.Split(':');
-            if (parts.Length == 2 &&
-                IPAddress.TryParse(parts[0], out IPAddress ip) &&
-                int.TryParse(parts[1], out int port))
-            {
-                ep = new IPEndPoint(ip, port);
-                return true;
-            }
+            // Now handle domain:port
+            int idx = value.LastIndexOf(':');
+            if (idx <= 0) // must be >0 because first char cannot be colon
+                return false;
 
-            // Try domain parser
-            if (DomainEndPoint.TryParse(value, out DomainEndPoint dep))
-            {
-                ep = dep;
-                return true;
-            }
+            string host = value.Substring(0, idx);
+            string portText = value.Substring(idx + 1);
 
-            return false;
+            if (!int.TryParse(portText, out int port) || port < 0 || port > 65535)
+                return false;
+
+            if (!DomainEndPoint.TryParse(value, out DomainEndPoint ep2))
+                return false;
+
+            ep = ep2;
+            return true;
         }
 
         public static bool IsEquals(this EndPoint ep, EndPoint other)
