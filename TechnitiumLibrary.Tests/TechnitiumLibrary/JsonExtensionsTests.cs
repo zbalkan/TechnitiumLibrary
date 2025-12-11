@@ -10,7 +10,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
     {
         private static JsonElement ToElement(string json)
         {
-            using var doc = JsonDocument.Parse(json);
+            using JsonDocument doc = JsonDocument.Parse(json);
             return doc.RootElement.Clone();
         }
 
@@ -22,10 +22,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetArray_ShouldReturnStringArray_WhenArrayExists()
         {
             // GIVEN
-            var json = ToElement("""{ "values": ["a", "b", "c"] }""");
+            JsonElement json = ToElement("""{ "values": ["a", "b", "c"] }""");
 
             // WHEN
-            var result = json.ReadArray("values");
+            string[] result = json.ReadArray("values");
 
             // THEN
             Assert.HasCount(3, result);
@@ -38,10 +38,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetArray_ShouldReturnNull_WhenJsonContainsNull()
         {
             // GIVEN
-            var json = ToElement("""{ "values": null }""");
+            JsonElement json = ToElement("""{ "values": null }""");
 
             // WHEN
-            var result = json.ReadArray("values");
+            string[] result = json.ReadArray("values");
 
             // THEN
             Assert.IsNull(result);
@@ -51,7 +51,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetArray_ShouldThrow_WhenPropertyIsNotArrayOrNull()
         {
             // GIVEN
-            var json = ToElement("""{ "values": 123 }""");
+            JsonElement json = ToElement("""{ "values": 123 }""");
 
             // WHEN–THEN
             Assert.ThrowsExactly<InvalidOperationException>(() => json.ReadArray("values"));
@@ -65,10 +65,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ReadArray_WithConverter_ShouldReturnMappedArray()
         {
             // GIVEN
-            var json = ToElement("""{ "values": ["1","2","3"] }""");
+            JsonElement json = ToElement("""{ "values": ["1","2","3"] }""");
 
             // WHEN
-            var result = json.ReadArray("values", int.Parse);
+            int[] result = json.ReadArray("values", int.Parse);
 
             // THEN
             Assert.HasCount(3, result);
@@ -81,7 +81,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ReadArray_WithConverter_ShouldThrow_WhenConverterThrows()
         {
             // GIVEN
-            var json = ToElement("""{ "values": ["bad"] }""");
+            JsonElement json = ToElement("""{ "values": ["bad"] }""");
 
             // WHEN–THEN
             Assert.ThrowsExactly<FormatException>(() =>
@@ -92,10 +92,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void TryReadArray_WithConverter_ShouldReturnFalse_WhenPropertyMissing()
         {
             // GIVEN
-            var json = ToElement("""{ "other": [1,2] }""");
+            JsonElement json = ToElement("""{ "other": [1,2] }""");
 
             // WHEN
-            var result = json.TryReadArray("values", int.Parse, out var array);
+            bool result = json.TryReadArray("values", int.Parse, out int[]? array);
 
             // THEN
             Assert.IsFalse(result);
@@ -106,10 +106,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void TryReadArray_WithConverter_ShouldReturnTrue_WhenArrayExists()
         {
             // GIVEN
-            var json = ToElement("""{ "values": ["10","20"] }""");
+            JsonElement json = ToElement("""{ "values": ["10","20"] }""");
 
             // WHEN
-            var result = json.TryReadArray("values", int.Parse, out var array);
+            bool result = json.TryReadArray("values", int.Parse, out int[]? array);
 
             // THEN
             Assert.IsTrue(result);
@@ -126,10 +126,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ReadArrayAsSet_ShouldReturnHashSetOfUniqueValues()
         {
             // GIVEN
-            var json = ToElement("""{ "values": ["a","b","a"] }""");
+            JsonElement json = ToElement("""{ "values": ["a","b","a"] }""");
 
             // WHEN
-            var result = json.ReadArrayAsSet("values");
+            System.Collections.Generic.HashSet<string> result = json.ReadArrayAsSet("values");
 
             // THEN
             Assert.HasCount(2, result);
@@ -141,10 +141,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void TryReadArrayAsSet_ShouldReturnFalse_WhenNoProperty()
         {
             // GIVEN
-            var json = ToElement("""{ "other": [] }""");
+            JsonElement json = ToElement("""{ "other": [] }""");
 
             // WHEN
-            var result = json.TryReadArrayAsSet("values", out var set);
+            bool result = json.TryReadArrayAsSet("values", out System.Collections.Generic.HashSet<string>? set);
 
             // THEN
             Assert.IsFalse(result);
@@ -159,14 +159,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ReadArrayAsMap_ShouldReturnDictionary_WhenMappingReturnsPairs()
         {
             // GIVEN
-            var json = ToElement("""{ "values": [ { "k":"x","v":"1" }, { "k":"y","v":"2"} ] }""");
+            JsonElement json = ToElement("""{ "values": [ { "k":"x","v":"1" }, { "k":"y","v":"2"} ] }""");
 
             // WHEN
-            var result = json.ReadArrayAsMap("values", el =>
+            System.Collections.Generic.Dictionary<string?, int> result = json.ReadArrayAsMap("values", el =>
             {
-                var key = el.GetProperty("k").GetString();
+                string? key = el.GetProperty("k").GetString();
 #pragma warning disable CS8604 // Possible null reference argument.
-                var val = int.Parse(el.GetProperty("v").GetString());
+                int val = int.Parse(el.GetProperty("v").GetString());
 #pragma warning restore CS8604 // Possible null reference argument.
                 return Tuple.Create(key, val);
             });
@@ -181,10 +181,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void TryReadArrayAsMap_ShouldReturnFalse_WhenPropertyMissing()
         {
             // GIVEN
-            var json = ToElement("""{ "other": [] }""");
+            JsonElement json = ToElement("""{ "other": [] }""");
 
             // WHEN
-            var result = json.TryReadArrayAsMap<int, int>("values", _ => null, out var map);
+            bool result = json.TryReadArrayAsMap<int, int>("values", _ => null, out System.Collections.Generic.Dictionary<int, int>? map);
 
             // THEN
             Assert.IsFalse(result);
@@ -194,11 +194,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void ReadArrayAsMap_ShouldIgnoreNullReturnedPairs()
         {
-            var json = ToElement("""
+            JsonElement json = ToElement("""
         { "arr": [123, 456] }
     """);
 
-            var result = json.ReadArrayAsMap<string, string>("arr", _ => null);
+            System.Collections.Generic.Dictionary<string, string> result = json.ReadArrayAsMap<string, string>("arr", _ => null);
 
             Assert.IsEmpty(result);
         }
@@ -212,10 +212,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetPropertyValue_String_ShouldReturnDefault_WhenMissing()
         {
             // GIVEN
-            var json = ToElement("""{ "name": "test" }""");
+            JsonElement json = ToElement("""{ "name": "test" }""");
 
             // WHEN
-            var value = json.GetPropertyValue("missing", "default");
+            string value = json.GetPropertyValue("missing", "default");
 
             // THEN
             Assert.AreEqual("default", value);
@@ -225,10 +225,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetPropertyValue_Int_ShouldReturnStoredValue()
         {
             // GIVEN
-            var json = ToElement("""{ "value": 42 }""");
+            JsonElement json = ToElement("""{ "value": 42 }""");
 
             // WHEN
-            var value = json.GetPropertyValue("value", -1);
+            int value = json.GetPropertyValue("value", -1);
 
             // THEN
             Assert.AreEqual(42, value);
@@ -238,10 +238,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetPropertyEnumValue_ShouldReturnEnum()
         {
             // GIVEN
-            var json = ToElement("""{ "mode": "Friday" }""");
+            JsonElement json = ToElement("""{ "mode": "Friday" }""");
 
             // WHEN
-            var result = json.GetPropertyEnumValue("mode", DayOfWeek.Monday);
+            DayOfWeek result = json.GetPropertyEnumValue("mode", DayOfWeek.Monday);
 
             // THEN
             Assert.AreEqual(DayOfWeek.Friday, result);
@@ -251,10 +251,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetPropertyEnumValue_ShouldReturnDefault_WhenNotFound()
         {
             // GIVEN
-            var json = ToElement("""{ "val": 10 }""");
+            JsonElement json = ToElement("""{ "val": 10 }""");
 
             // WHEN
-            var result = json.GetPropertyEnumValue("missing", DayOfWeek.Sunday);
+            DayOfWeek result = json.GetPropertyEnumValue("missing", DayOfWeek.Sunday);
 
             // THEN
             Assert.AreEqual(DayOfWeek.Sunday, result);
@@ -268,9 +268,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void WriteStringArray_ShouldSerializeStrings_AsJsonArray()
         {
             // GIVEN
-            var input = new[] { "x", "y", "z" };
-            using var buffer = new System.IO.MemoryStream();
-            using var writer = new Utf8JsonWriter(buffer);
+            string[] input = new[] { "x", "y", "z" };
+            using System.IO.MemoryStream buffer = new System.IO.MemoryStream();
+            using Utf8JsonWriter writer = new Utf8JsonWriter(buffer);
 
             // WHEN
             writer.WriteStartObject();
@@ -278,10 +278,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             writer.WriteEndObject();
             writer.Flush();
 
-            var json = JsonDocument.Parse(buffer.ToArray()).RootElement;
+            JsonElement json = JsonDocument.Parse(buffer.ToArray()).RootElement;
 
             // THEN
-            var arr = json.GetProperty("values").EnumerateArray().Select(x => x.GetString()).ToArray();
+            string?[] arr = json.GetProperty("values").EnumerateArray().Select(x => x.GetString()).ToArray();
 
             Assert.HasCount(3, arr);
             Assert.AreEqual("x", arr[0]);

@@ -10,7 +10,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public void DefaultConstructor_SetsDefaultMessage()
         {
-            var ex = new HttpProxyAuthenticationFailedException();
+            HttpProxyAuthenticationFailedException ex = new HttpProxyAuthenticationFailedException();
 
             Assert.AreEqual(
                 expected: new HttpProxyAuthenticationFailedException().Message,
@@ -25,7 +25,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         public void MessageConstructor_PreservesMessage()
         {
             string msg = "Proxy auth failed.";
-            var ex = new HttpProxyAuthenticationFailedException(msg);
+            HttpProxyAuthenticationFailedException ex = new HttpProxyAuthenticationFailedException(msg);
 
             Assert.AreEqual(
                 expected: msg,
@@ -38,8 +38,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         public void MessageAndInnerConstructor_PreservesBoth()
         {
             string msg = "Proxy authentication failed.";
-            var inner = new InvalidOperationException("inner");
-            var ex = new HttpProxyAuthenticationFailedException(msg, inner);
+            InvalidOperationException inner = new InvalidOperationException("inner");
+            HttpProxyAuthenticationFailedException ex = new HttpProxyAuthenticationFailedException(msg, inner);
 
             Assert.AreEqual(
                 expected: msg,
@@ -57,7 +57,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public void ExceptionType_IsCorrect()
         {
-            var ex = new HttpProxyAuthenticationFailedException();
+            HttpProxyAuthenticationFailedException ex = new HttpProxyAuthenticationFailedException();
 
             Assert.AreEqual(
                 expected: typeof(HttpProxyAuthenticationFailedException),

@@ -13,7 +13,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
         private static PackageItem CreateMinimalWritable()
         {
-            var ms = StreamOf(1, 2, 3);
+            MemoryStream ms = StreamOf(1, 2, 3);
             return new PackageItem("file.bin", ms);
         }
 
@@ -24,8 +24,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Constructor_ShouldCreateItemFromStream()
         {
-            using var ms = StreamOf(10, 20, 30);
-            using var item = new PackageItem("abc.txt", ms);
+            using MemoryStream ms = StreamOf(10, 20, 30);
+            using PackageItem item = new PackageItem("abc.txt", ms);
 
             Assert.AreEqual("abc.txt", item.Name);
             Assert.IsFalse(item.IsAttributeSet(PackageItemAttributes.ExecuteFile));
@@ -48,7 +48,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
                 Path.GetRandomFileName());
 
             // Create securely using exclusive, non-shareable access
-            using (var file = new FileStream(
+            using (FileStream file = new FileStream(
                 path,
                 FileMode.CreateNew,
                 FileAccess.ReadWrite,
@@ -63,7 +63,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
             try
             {
-                using var item = new PackageItem(path, PackageItemAttributes.ExecuteFile);
+                using PackageItem item = new PackageItem(path, PackageItemAttributes.ExecuteFile);
 
                 Assert.AreEqual(Path.GetFileName(path), item.Name);
                 Assert.IsTrue(item.IsAttributeSet(PackageItemAttributes.ExecuteFile));
@@ -87,7 +87,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
         private static PackageItem Roundtrip(PackageItem source)
         {
-            var buffer = new MemoryStream(); // do NOT dispose here
+            MemoryStream buffer = new MemoryStream(); // do NOT dispose here
             source.WriteTo(buffer);
 
             buffer.Position = 0;
@@ -97,8 +97,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void WriteThenParse_ShouldReturnEquivalentName()
         {
-            using var item = CreateMinimalWritable();
-            using var parsed = Roundtrip(item);
+            using PackageItem item = CreateMinimalWritable();
+            using PackageItem parsed = Roundtrip(item);
 
             Assert.AreEqual(item.Name, parsed.Name);
         }
@@ -106,9 +106,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void WriteThenParse_ShouldPreserveTimestamp()
         {
-            var dt = new DateTime(2022, 10, 30, 11, 0, 0, DateTimeKind.Utc);
-            using var item = new PackageItem("f", dt, StreamOf(1, 2, 3));
-            using var parsed = Roundtrip(item);
+            DateTime dt = new DateTime(2022, 10, 30, 11, 0, 0, DateTimeKind.Utc);
+            using PackageItem item = new PackageItem("f", dt, StreamOf(1, 2, 3));
+            using PackageItem parsed = Roundtrip(item);
 
             Assert.AreEqual(dt, parsed.LastModifiedUTC);
         }
@@ -116,10 +116,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void WriteThenParse_ShouldPreserveAttributes()
         {
-            using var item = new PackageItem("a", DateTime.UtcNow, StreamOf(1),
+            using PackageItem item = new PackageItem("a", DateTime.UtcNow, StreamOf(1),
                 attributes: PackageItemAttributes.FixedExtractLocation);
 
-            using var parsed = Roundtrip(item);
+            using PackageItem parsed = Roundtrip(item);
 
             Assert.IsTrue(parsed.IsAttributeSet(PackageItemAttributes.FixedExtractLocation));
         }
@@ -127,12 +127,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void WriteThenParse_ShouldPreserveData()
         {
-            using var item = CreateMinimalWritable();
-            using var parsed = Roundtrip(item);
+            using PackageItem item = CreateMinimalWritable();
+            using PackageItem parsed = Roundtrip(item);
 
-            using var reader = new BinaryReader(parsed.DataStream);
+            using BinaryReader reader = new BinaryReader(parsed.DataStream);
 
-            var bytes = reader.ReadBytes(3);
+            byte[] bytes = reader.ReadBytes(3);
 
             CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, bytes);
         }
@@ -153,7 +153,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
             try
             {
-                using var item = new PackageItem(
+                using PackageItem item = new PackageItem(
                     "x.txt",
                     DateTime.UtcNow,
                     StreamOf(1, 2),
@@ -161,7 +161,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
                     extractTo: ExtractLocation.Custom,
                     extractToCustomLocation: secureTempRoot);
 
-                using var parsed = Roundtrip(item);
+                using PackageItem parsed = Roundtrip(item);
 
                 Assert.AreEqual(secureTempRoot, parsed.ExtractToCustomLocation);
             }
@@ -179,24 +179,24 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void GetExtractionFilePath_ShouldRespectFixedAttribute()
         {
-            using var item = new PackageItem("abc.dll", DateTime.UtcNow,
+            using PackageItem item = new PackageItem("abc.dll", DateTime.UtcNow,
                 StreamOf(1),
                 attributes: PackageItemAttributes.FixedExtractLocation,
                 extractTo: ExtractLocation.System);
 
-            var result = item.GetExtractionFilePath(ExtractLocation.Temp, null);
+            string result = item.GetExtractionFilePath(ExtractLocation.Temp, null);
 
             // path must be under System, not requested Temp
-            var expectedRoot = Package.GetExtractLocation(ExtractLocation.System, null);
+            string expectedRoot = Package.GetExtractLocation(ExtractLocation.System, null);
             Assert.StartsWith(expectedRoot, result);
         }
 
         [TestMethod]
         public void GetExtractionFilePath_ShouldUseSuppliedLocation_WhenNotFixed()
         {
-            using var item = new PackageItem("abc.dll", StreamOf(7));
+            using PackageItem item = new PackageItem("abc.dll", StreamOf(7));
 
-            var path = item.GetExtractionFilePath(ExtractLocation.Temp);
+            string path = item.GetExtractionFilePath(ExtractLocation.Temp);
 
             Assert.StartsWith(Path.GetTempPath(), path);
         }
@@ -209,10 +209,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Extract_ShouldBackupExisting_WhenOverwriteEnabled()
         {
             string target = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            var originalBytes = "c"u8.ToArray();
+            byte[] originalBytes = "c"u8.ToArray();
 
             // Securely create target
-            using (var fs = new FileStream(
+            using (FileStream fs = new FileStream(
                 target,
                 FileMode.CreateNew,
                 FileAccess.ReadWrite,
@@ -225,8 +225,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
             try
             {
-                using var item = CreateMinimalWritable();
-                var log = item.Extract(target, overwrite: true);
+                using PackageItem item = CreateMinimalWritable();
+                PackageItemTransactionLog log = item.Extract(target, overwrite: true);
 
                 Assert.IsNotNull(log);
                 Assert.IsTrue(File.Exists(log.FilePath));
@@ -259,10 +259,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Extract_ShouldNotOverwrite_WhenFlagDisabled()
         {
             string target = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            var originalBytes = "X"u8.ToArray();
+            byte[] originalBytes = "X"u8.ToArray();
 
             // Create file securely
-            using (var fs = new FileStream(
+            using (FileStream fs = new FileStream(
                 target,
                 FileMode.CreateNew,
                 FileAccess.ReadWrite,
@@ -273,8 +273,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
             try
             {
-                using var item = CreateMinimalWritable();
-                var log = item.Extract(target, overwrite: false);
+                using PackageItem item = CreateMinimalWritable();
+                PackageItemTransactionLog log = item.Extract(target, overwrite: false);
 
                 Assert.IsNull(log, "Extract must return null when overwrite=false");
                 CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(target));
@@ -294,20 +294,20 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Parse_ShouldThrow_WhenVersionIsUnsupported()
         {
-            using var buffer = StreamOf("\t"u8.ToArray() /* invalid version */);
+            using MemoryStream buffer = StreamOf("\t"u8.ToArray() /* invalid version */);
 
             Assert.ThrowsExactly<IOException>(() =>
             {
-                var _ = PackageItem.Parse(buffer);
+                PackageItem _ = PackageItem.Parse(buffer);
             });
         }
 
         [TestMethod]
         public void Parse_ShouldReturnNull_WhenEOFMarker()
         {
-            using var buffer = StreamOf(0);
+            using MemoryStream buffer = StreamOf(0);
 
-            var item = PackageItem.Parse(buffer);
+            PackageItem item = PackageItem.Parse(buffer);
 
             Assert.IsNull(item);
         }

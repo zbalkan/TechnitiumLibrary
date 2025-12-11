@@ -24,7 +24,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 _ => throw new NotSupportedException("Only IPv4 and IPv6 supported.")
             };
 
-            var listener = new TcpListener(addr, 0);
+            TcpListener listener = new TcpListener(addr, 0);
             listener.Start();
 
             EndPoint? ep = listener.LocalEndpoint;
@@ -42,8 +42,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public void Constructor_BindAddressExposedViaProperty()
         {
-            var bindAddress = IPAddress.Loopback;
-            var manager = new InterfaceBoundProxyServerConnectionManager(bindAddress);
+            IPAddress bindAddress = IPAddress.Loopback;
+            InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(bindAddress);
 
             Assert.AreEqual(
                 bindAddress,
@@ -57,7 +57,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         {
             TcpListener listener = StartLoopbackListener(AddressFamily.InterNetwork, out IPEndPoint serverEndPoint);
 
-            var manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
 
             Socket clientSocket = await manager.ConnectAsync(serverEndPoint, TestContext.CancellationToken);
 
@@ -73,8 +73,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             Assert.IsInstanceOfType<IPEndPoint>(localEp);
             Assert.IsInstanceOfType<IPEndPoint>(remoteEp);
 
-            var local = (IPEndPoint)localEp;
-            var remote = (IPEndPoint)remoteEp;
+            IPEndPoint local = (IPEndPoint)localEp;
+            IPEndPoint remote = (IPEndPoint)remoteEp;
 
             Assert.AreEqual(IPAddress.Loopback, local.Address);
             Assert.AreEqual(serverEndPoint.Address, remote.Address);
@@ -90,10 +90,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         {
             TcpListener listener = StartLoopbackListener(AddressFamily.InterNetwork, out IPEndPoint serverEndPoint);
 
-            var manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
 
             // localhost resolves to IPv4 + IPv6; requesting AddressFamily.InterNetwork forces a failure
-            var dnsEp = new DnsEndPoint("localhost", serverEndPoint.Port, AddressFamily.Unspecified);
+            DnsEndPoint dnsEp = new DnsEndPoint("localhost", serverEndPoint.Port, AddressFamily.Unspecified);
 
             await Assert.ThrowsExactlyAsync<NotSupportedException>(
                 () => manager.ConnectAsync(dnsEp, TestContext.CancellationToken),
@@ -106,8 +106,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectAsync_WithMismatchedFamily_ThrowsNetworkUnreachable()
         {
-            var manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
-            var v6Target = new IPEndPoint(IPAddress.IPv6Loopback, 9000);
+            InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            IPEndPoint v6Target = new IPEndPoint(IPAddress.IPv6Loopback, 9000);
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
                 () => manager.ConnectAsync(v6Target, TestContext.CancellationToken)
@@ -119,9 +119,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task GetBindHandlerAsync_WithMatchingFamily_ReturnsHandler()
         {
-            var mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            InterfaceBoundProxyServerConnectionManager mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
 
-            var handler = await mgr.GetBindHandlerAsync(AddressFamily.InterNetwork);
+            IProxyServerBindHandler handler = await mgr.GetBindHandlerAsync(AddressFamily.InterNetwork);
 
             Assert.IsNotNull(handler);
         }
@@ -129,7 +129,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task GetBindHandlerAsync_WithMismatchedFamily_Throws()
         {
-            var mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            InterfaceBoundProxyServerConnectionManager mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
                 () => mgr.GetBindHandlerAsync(AddressFamily.InterNetworkV6)
@@ -141,10 +141,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task GetUdpAssociateHandlerAsync_WithMatchingFamily_ReturnsHandler()
         {
-            var mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
-            var local = new IPEndPoint(IPAddress.Loopback, 0);
+            InterfaceBoundProxyServerConnectionManager mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            IPEndPoint local = new IPEndPoint(IPAddress.Loopback, 0);
 
-            var handler = await mgr.GetUdpAssociateHandlerAsync(local);
+            IProxyServerUdpAssociateHandler handler = await mgr.GetUdpAssociateHandlerAsync(local);
 
             Assert.IsNotNull(handler);
         }
@@ -152,8 +152,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task GetUdpAssociateHandlerAsync_WithMismatchedFamily_Throws()
         {
-            var mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
-            var localV6 = new IPEndPoint(IPAddress.IPv6Loopback, 0);
+            InterfaceBoundProxyServerConnectionManager mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            IPEndPoint localV6 = new IPEndPoint(IPAddress.IPv6Loopback, 0);
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
                 () => mgr.GetUdpAssociateHandlerAsync(localV6)

@@ -27,7 +27,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Constructor_ShouldThrow_WhenBaseStreamNotWritable()
         {
             // GIVEN
-            using var baseStream = new NonWritableStream();
+            using NonWritableStream baseStream = new NonWritableStream();
 
             // WHEN-THEN
             Assert.ThrowsExactly<NotSupportedException>(
@@ -38,10 +38,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Constructor_ShouldExposeCapabilitiesFromBaseStream()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
+            using MemoryStream baseStream = CreateBaseStream();
 
             // WHEN
-            using var buffered = new WriteBufferedStream(baseStream);
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
 
             // THEN
             Assert.IsTrue(buffered.CanWrite);
@@ -58,10 +58,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Write_ShouldBufferUntilFlushed()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            using var buffered = new WriteBufferedStream(baseStream, bufferSize: 8);
+            using MemoryStream baseStream = CreateBaseStream();
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream, bufferSize: 8);
 
-            var data = Encoding.ASCII.GetBytes("ABCD"); // 4 bytes
+            byte[] data = Encoding.ASCII.GetBytes("ABCD"); // 4 bytes
 
             // WHEN
             buffered.Write(data, 0, data.Length);
@@ -81,11 +81,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Write_ShouldFlushBufferWhenFull_AndKeepRemainderBuffered()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            using var buffered = new WriteBufferedStream(baseStream, bufferSize: 4);
+            using MemoryStream baseStream = CreateBaseStream();
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream, bufferSize: 4);
 
             // 6 bytes, buffer 4 -> first 4 flushed, last 2 remain buffered after Flush
-            var data = Encoding.ASCII.GetBytes("ABCDEF");
+            byte[] data = Encoding.ASCII.GetBytes("ABCDEF");
 
             // WHEN
             buffered.Write(data, 0, data.Length);
@@ -106,10 +106,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task WriteAsync_ShouldBufferAndFlushAsync()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            using var buffered = new WriteBufferedStream(baseStream, bufferSize: 8);
+            using MemoryStream baseStream = CreateBaseStream();
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream, bufferSize: 8);
 
-            var data = Encoding.UTF8.GetBytes("123456");
+            byte[] data = Encoding.UTF8.GetBytes("123456");
 
             // WHEN
             await buffered.WriteAsync(data, 0, data.Length, CancellationToken.None);
@@ -127,10 +127,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task WriteAsync_MemoryOverload_ShouldRespectBuffering()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            using var buffered = new WriteBufferedStream(baseStream, bufferSize: 4);
+            using MemoryStream baseStream = CreateBaseStream();
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream, bufferSize: 4);
 
-            var data = Encoding.ASCII.GetBytes("WXYZ12"); // 6 bytes
+            byte[] data = Encoding.ASCII.GetBytes("WXYZ12"); // 6 bytes
 
             // WHEN
             await buffered.WriteAsync(data.AsMemory(), CancellationToken.None);
@@ -148,14 +148,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Read_ShouldDelegateToBaseStream()
         {
             // GIVEN
-            var initial = Encoding.ASCII.GetBytes("HELLO");
-            using var baseStream = CreateBaseStream(initial);
-            using var buffered = new WriteBufferedStream(baseStream);
+            byte[] initial = Encoding.ASCII.GetBytes("HELLO");
+            using MemoryStream baseStream = CreateBaseStream(initial);
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
 
             // WHEN
-            var buffer = new byte[5];
+            byte[] buffer = new byte[5];
             baseStream.Position = 0; // ensure we read from start
-            var read = buffered.Read(buffer, 0, buffer.Length);
+            int read = buffered.Read(buffer, 0, buffer.Length);
 
             // THEN
             Assert.AreEqual(5, read);
@@ -170,12 +170,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Position_Get_ShouldMatchBaseStreamPosition()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream(new byte[10]);
+            using MemoryStream baseStream = CreateBaseStream(new byte[10]);
             baseStream.Position = 4;
-            using var buffered = new WriteBufferedStream(baseStream);
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
 
             // WHEN
-            var position = buffered.Position;
+            long position = buffered.Position;
 
             // THEN
             Assert.AreEqual(4L, position);
@@ -185,8 +185,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Position_Set_ShouldThrow_NotSupported()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            using var buffered = new WriteBufferedStream(baseStream);
+            using MemoryStream baseStream = CreateBaseStream();
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
 
             // WHEN-THEN
             Assert.ThrowsExactly<NotSupportedException>(() =>
@@ -197,8 +197,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Seek_ShouldThrow_NotSupported()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            using var buffered = new WriteBufferedStream(baseStream);
+            using MemoryStream baseStream = CreateBaseStream();
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
 
             // WHEN-THEN
             Assert.ThrowsExactly<NotSupportedException>(() =>
@@ -209,8 +209,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void SetLength_ShouldThrow_NotSupported()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            using var buffered = new WriteBufferedStream(baseStream);
+            using MemoryStream baseStream = CreateBaseStream();
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
 
             // WHEN-THEN
             Assert.ThrowsExactly<NotSupportedException>(() =>
@@ -225,8 +225,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Dispose_ShouldDisposeUnderlyingStream()
         {
             // GIVEN
-            var baseStream = CreateBaseStream();
-            var buffered = new WriteBufferedStream(baseStream);
+            MemoryStream baseStream = CreateBaseStream();
+            WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
 
             // WHEN
             buffered.Dispose();
@@ -240,8 +240,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Write_ShouldThrow_WhenDisposed()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            var buffered = new WriteBufferedStream(baseStream);
+            using MemoryStream baseStream = CreateBaseStream();
+            WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
             buffered.Dispose();
 
             // WHEN-THEN
@@ -253,8 +253,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task WriteAsync_ShouldThrow_WhenDisposed()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            var buffered = new WriteBufferedStream(baseStream);
+            using MemoryStream baseStream = CreateBaseStream();
+            WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
             buffered.Dispose();
 
             // WHEN-THEN
@@ -266,8 +266,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task FlushAsync_ShouldNotFlush_WhenNothingBuffered()
         {
             // GIVEN
-            using var baseStream = CreateBaseStream();
-            using var buffered = new WriteBufferedStream(baseStream);
+            using MemoryStream baseStream = CreateBaseStream();
+            using WriteBufferedStream buffered = new WriteBufferedStream(baseStream);
 
             // WHEN
             await buffered.FlushAsync(CancellationToken.None);

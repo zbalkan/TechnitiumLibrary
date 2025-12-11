@@ -48,7 +48,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void IsPrivateIP_ShouldMap_MappedIPv6_ToIPv4()
         {
-            var mapped = IPAddress.Parse("::ffff:192.168.1.10");
+            IPAddress mapped = IPAddress.Parse("::ffff:192.168.1.10");
 
             Assert.IsTrue(NetUtilities.IsPrivateIP(mapped),
                 "Mapped IPv6 pointing to private IPv4 must classify private.");
@@ -58,7 +58,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void IsPrivateIP_ShouldTreat_NonGlobalIPv6_AsPrivate()
         {
             // fd00::/8 → Unique local
-            var ula = IPAddress.Parse("fd00::1");
+            IPAddress ula = IPAddress.Parse("fd00::1");
 
             Assert.IsTrue(NetUtilities.IsPrivateIP(ula),
                 "Unique local must be private.");
@@ -75,21 +75,21 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void IsPrivateIP_ShouldNotThrow_ForIPv4()
         {
-            var ip = IPAddress.Parse("192.168.1.10");
+            IPAddress ip = IPAddress.Parse("192.168.1.10");
             Assert.IsTrue(NetUtilities.IsPrivateIP(ip));
         }
 
         [TestMethod]
         public void IsPrivateIP_ShouldNotThrow_ForIPv6()
         {
-            var ip = IPAddress.Parse("2001:db8::1");
+            IPAddress ip = IPAddress.Parse("2001:db8::1");
             Assert.IsFalse(NetUtilities.IsPrivateIP(ip));
         }
 
         [TestMethod]
         public void IsPublicIPv6_ShouldBeTrue_For2000Prefix()
         {
-            var ip = IPAddress.Parse("2001:db8::1");
+            IPAddress ip = IPAddress.Parse("2001:db8::1");
 
             Assert.IsTrue(NetUtilities.IsPublicIPv6(ip),
                 "2000::/3 must be classified public.");
@@ -98,7 +98,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void IsPublicIPv6_ShouldBeFalse_WhenNotUnderGlobalRange()
         {
-            var ip = IPAddress.Parse("fd00::1");
+            IPAddress ip = IPAddress.Parse("fd00::1");
 
             Assert.IsFalse(NetUtilities.IsPublicIPv6(ip),
                 "fd00:: is ULA and must not be public.");
@@ -115,11 +115,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void NetworkInfoIPv4_ShouldComputeBroadcastCorrectly()
         {
-            var nic = FakeInterface.GetDummy();
-            var local = IPAddress.Parse("192.168.5.10");
-            var mask = IPAddress.Parse("255.255.255.0");
+            System.Net.NetworkInformation.NetworkInterface nic = FakeInterface.GetDummy();
+            IPAddress local = IPAddress.Parse("192.168.5.10");
+            IPAddress mask = IPAddress.Parse("255.255.255.0");
 
-            var info = new NetworkInfo(nic, local, mask);
+            NetworkInfo info = new NetworkInfo(nic, local, mask);
 
             Assert.AreEqual(IPAddress.Parse("192.168.5.255"), info.BroadcastIP,
                 "Broadcast must OR mask inverse properly.");
@@ -128,7 +128,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void NetworkInfoIPv6_ShouldRejectIPv4()
         {
-            var nic = FakeInterface.GetDummy();
+            System.Net.NetworkInformation.NetworkInterface nic = FakeInterface.GetDummy();
 
             Assert.ThrowsExactly<NotSupportedException>(() =>
                 new NetworkInfo(nic, IPAddress.Parse("10.0.0.10")),
@@ -138,9 +138,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void NetworkInfoIPv4_ShouldRejectIPv6()
         {
-            var nic = FakeInterface.GetDummy();
-            var local = IPAddress.Parse("fd00::1");
-            var mask = IPAddress.Parse("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+            System.Net.NetworkInformation.NetworkInterface nic = FakeInterface.GetDummy();
+            IPAddress local = IPAddress.Parse("fd00::1");
+            IPAddress mask = IPAddress.Parse("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
 
             Assert.ThrowsExactly<NotSupportedException>(() =>
                 new NetworkInfo(nic, local, mask),
@@ -150,10 +150,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void NetworkInfoEquality_ShouldBeTrue_WhenIPAndInterfaceMatch()
         {
-            var nic = FakeInterface.GetDummy();
+            System.Net.NetworkInformation.NetworkInterface nic = FakeInterface.GetDummy();
 
-            var a = new NetworkInfo(nic, IPAddress.IPv6Loopback);
-            var b = new NetworkInfo(nic, IPAddress.IPv6Loopback);
+            NetworkInfo a = new NetworkInfo(nic, IPAddress.IPv6Loopback);
+            NetworkInfo b = new NetworkInfo(nic, IPAddress.IPv6Loopback);
 
             Assert.IsTrue(a.Equals(b),
                 "Equality must hold across semantically identical instances.");
@@ -162,10 +162,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void NetworkInfoEquality_ShouldFail_OnDifferentIPs()
         {
-            var nic = FakeInterface.GetDummy();
+            System.Net.NetworkInformation.NetworkInterface nic = FakeInterface.GetDummy();
 
-            var a = new NetworkInfo(nic, IPAddress.IPv6Loopback);
-            var b = new NetworkInfo(nic, IPAddress.Parse("2001:db8::1"));
+            NetworkInfo a = new NetworkInfo(nic, IPAddress.IPv6Loopback);
+            NetworkInfo b = new NetworkInfo(nic, IPAddress.Parse("2001:db8::1"));
 
             Assert.IsFalse(a.Equals(b),
                 "Different addresses cannot compare equal.");

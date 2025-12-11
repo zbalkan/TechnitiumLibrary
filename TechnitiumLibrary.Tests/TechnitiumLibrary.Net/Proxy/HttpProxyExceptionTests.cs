@@ -10,7 +10,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public void DefaultConstructor_ProvidesNonNullMessage()
         {
-            var ex = new HttpProxyException();
+            HttpProxyException ex = new HttpProxyException();
 
             Assert.IsFalse(
                 string.IsNullOrWhiteSpace(ex.Message),
@@ -33,7 +33,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         public void MessageConstructor_PreservesMessage()
         {
             string msg = "HTTP proxy operation failed.";
-            var ex = new HttpProxyException(msg);
+            HttpProxyException ex = new HttpProxyException(msg);
 
             Assert.AreEqual(
                 expected: msg,
@@ -46,9 +46,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         public void MessageAndInnerExceptionConstructor_PreservesBoth()
         {
             string msg = "Proxy protocol error.";
-            var inner = new InvalidOperationException("inner");
+            InvalidOperationException inner = new InvalidOperationException("inner");
 
-            var ex = new HttpProxyException(msg, inner);
+            HttpProxyException ex = new HttpProxyException(msg, inner);
 
             Assert.AreEqual(
                 expected: msg,
@@ -66,7 +66,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public void TypeIdentity_RemainsStable()
         {
-            var ex = new HttpProxyException();
+            HttpProxyException ex = new HttpProxyException();
 
             Assert.AreEqual(
                 expected: typeof(HttpProxyException),

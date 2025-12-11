@@ -10,7 +10,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void Constructor_ShouldAssignFieldsProperly()
         {
-            var uri = new AuthenticatorKeyUri(
+            AuthenticatorKeyUri uri = new AuthenticatorKeyUri(
                 "totp",
                 "ExampleCorp",
                 "user@example.com",
@@ -45,7 +45,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void Generate_ShouldProduceValidInstance()
         {
-            var uri = AuthenticatorKeyUri.Generate(
+            AuthenticatorKeyUri uri = AuthenticatorKeyUri.Generate(
                 issuer: "Corp",
                 accountName: "user@example.com",
                 keySize: 10);
@@ -60,7 +60,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void ToString_ShouldContainEncodedParameters()
         {
-            var uri = new AuthenticatorKeyUri(
+            AuthenticatorKeyUri uri = new AuthenticatorKeyUri(
                 "totp", "ACME", "alice@example.com", "SECRETKEY");
 
             string uriString = uri.ToString();
@@ -73,7 +73,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void Parse_ShouldRoundTripFromToString()
         {
-            var original = new AuthenticatorKeyUri(
+            AuthenticatorKeyUri original = new AuthenticatorKeyUri(
                 "totp",
                 "Example",
                 "bob@example.com",
@@ -83,7 +83,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
                 period: 45);
 
             string serialized = original.ToString();
-            var parsed = AuthenticatorKeyUri.Parse(serialized);
+            AuthenticatorKeyUri parsed = AuthenticatorKeyUri.Parse(serialized);
 
             Assert.AreEqual(original.Type, parsed.Type);
             Assert.AreEqual(original.Issuer, parsed.Issuer);
@@ -111,10 +111,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void GetQRCodePngImage_ShouldReturnNonEmptyByteArray()
         {
-            var uri = new AuthenticatorKeyUri(
+            AuthenticatorKeyUri uri = new AuthenticatorKeyUri(
                 "totp", "Issuer", "bob@example.com", "SECRETABC");
 
-            var result = uri.GetQRCodePngImage();
+            byte[] result = uri.GetQRCodePngImage();
 
             Assert.IsNotNull(result);
             Assert.IsGreaterThan(32, result.Length, "QR PNG must contain image bytes");

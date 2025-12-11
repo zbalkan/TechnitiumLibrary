@@ -52,7 +52,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public async Task TimeoutAsync_ShouldThrowOperationCanceled_WhenRootTokenCancelled()
         {
             // GIVEN
-            using var cts = new CancellationTokenSource();
+            using CancellationTokenSource cts = new CancellationTokenSource();
             Func<CancellationToken, Task> func = NeverCompletes;
 
             // WHEN
@@ -74,7 +74,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             Func<CancellationToken, Task<int>> func = _ => Task.FromResult(42);
 
             // WHEN
-            var result = await TaskExtensions.TimeoutAsync(func, timeout: 300, TestContext.CancellationToken);
+            int result = await TaskExtensions.TimeoutAsync(func, timeout: 300, TestContext.CancellationToken);
 
             // THEN
             Assert.AreEqual(42, result);
@@ -115,7 +115,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Sync_ShouldBlockUntilCompleted()
         {
             // GIVEN
-            var task = Task.Delay(50, TestContext.CancellationToken);
+            Task task = Task.Delay(50, TestContext.CancellationToken);
 
             // WHEN-THEN
             task.Sync();
@@ -125,7 +125,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Sync_ShouldRethrowOriginalException()
         {
             // GIVEN
-            var task = Task.FromException(new InvalidOperationException("bad"));
+            Task task = Task.FromException(new InvalidOperationException("bad"));
 
             // WHEN-THEN
             Assert.ThrowsExactly<InvalidOperationException>(() => task.Sync());
@@ -149,10 +149,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Sync_Generic_ShouldReturnValue()
         {
             // GIVEN
-            var task = Task.FromResult(123);
+            Task<int> task = Task.FromResult(123);
 
             // WHEN
-            var result = task.Sync();
+            int result = task.Sync();
 
             // THEN
             Assert.AreEqual(123, result);
@@ -162,7 +162,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Sync_Generic_ShouldSurfaceException()
         {
             // GIVEN
-            var task = Task.FromException<int>(new FormatException());
+            Task<int> task = Task.FromException<int>(new FormatException());
 
             // WHEN-THEN
             Assert.ThrowsExactly<FormatException>(() => task.Sync());
@@ -186,7 +186,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Sync_ValueTask_ShouldBlockUntilCompletion()
         {
             // GIVEN
-            var vt = new ValueTask(Task.Delay(50, TestContext.CancellationToken));
+            ValueTask vt = new ValueTask(Task.Delay(50, TestContext.CancellationToken));
 
             // WHEN-THEN
             vt.Sync();
@@ -196,10 +196,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Sync_ValueTask_Generic_ShouldReturnValue()
         {
             // GIVEN
-            var vt = new ValueTask<int>(987);
+            ValueTask<int> vt = new ValueTask<int>(987);
 
             // WHEN
-            var result = vt.Sync();
+            int result = vt.Sync();
 
             // THEN
             Assert.AreEqual(987, result);

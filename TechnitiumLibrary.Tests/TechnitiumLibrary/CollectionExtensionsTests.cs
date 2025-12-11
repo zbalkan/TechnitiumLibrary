@@ -17,8 +17,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Shuffle_ShouldRearrangeItems_WhenListHasMultipleElements()
         {
             // GIVEN
-            var input = new[] { 1, 2, 3, 4, 5 };
-            var original = input.ToArray();
+            int[] input = new[] { 1, 2, 3, 4, 5 };
+            int[] original = input.ToArray();
 
             // WHEN
             input.Shuffle();
@@ -32,7 +32,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Shuffle_ShouldNotChangeSingleElementList()
         {
             // GIVEN
-            var input = new[] { 42 };
+            int[] input = new[] { 42 };
 
             // WHEN
             input.Shuffle();
@@ -45,7 +45,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Shuffle_ShouldNotThrow_WhenEmpty()
         {
             // GIVEN
-            var input = Array.Empty<int>();
+            int[] input = Array.Empty<int>();
 
             // WHEN
             input.Shuffle();
@@ -65,7 +65,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             IReadOnlyList<int> input = new ReadOnlyCollection<int>(new[] { 1, 2, 3 });
 
             // WHEN
-            var result = input.Convert(x => x * 10);
+            IReadOnlyList<int> result = input.Convert(x => x * 10);
 
             // THEN
             Assert.HasCount(3, result);
@@ -109,7 +109,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             IReadOnlyCollection<string> input = new[] { "A", "BB", "CCC" };
 
             // WHEN
-            var result = input.Convert(str => str.Length);
+            IReadOnlyCollection<int> result = input.Convert(str => str.Length);
 
             // THEN
             Assert.HasCount(3, result);
@@ -147,11 +147,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ListEquals_ShouldReturnTrue_WhenSequencesMatchExactly()
         {
             // GIVEN
-            var a = new[] { 1, 2, 3 };
-            var b = new[] { 1, 2, 3 };
+            int[] a = new[] { 1, 2, 3 };
+            int[] b = new[] { 1, 2, 3 };
 
             // WHEN
-            var equal = a.ListEquals(b);
+            bool equal = a.ListEquals(b);
 
             // THEN
             Assert.IsTrue(equal);
@@ -161,11 +161,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ListEquals_ShouldReturnFalse_WhenLengthDiffers()
         {
             // GIVEN
-            var a = new[] { 1, 2 };
-            var b = new[] { 1, 2, 3 };
+            int[] a = new[] { 1, 2 };
+            int[] b = new[] { 1, 2, 3 };
 
             // WHEN
-            var equal = a.ListEquals(b);
+            bool equal = a.ListEquals(b);
 
             // THEN
             Assert.IsFalse(equal);
@@ -175,11 +175,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ListEquals_ShouldReturnFalse_WhenElementDiffers()
         {
             // GIVEN
-            var a = new[] { 1, 2, 3 };
-            var b = new[] { 1, 9, 3 };
+            int[] a = new[] { 1, 2, 3 };
+            int[] b = new[] { 1, 9, 3 };
 
             // WHEN
-            var equal = a.ListEquals(b);
+            bool equal = a.ListEquals(b);
 
             // THEN
             Assert.IsFalse(equal);
@@ -189,10 +189,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ListEquals_ShouldReturnFalse_WhenSecondIsNull()
         {
             // GIVEN
-            var a = new[] { "X" };
+            string[] a = new[] { "X" };
 
             // WHEN
-            var equal = a.ListEquals(null);
+            bool equal = a.ListEquals(null);
 
             // THEN
             Assert.IsFalse(equal);
@@ -206,11 +206,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void HasSameItems_ShouldReturnTrue_WhenSameElementsUnordered()
         {
             // GIVEN
-            var a = new[] { 3, 1, 2 };
-            var b = new[] { 2, 3, 1 };
+            int[] a = new[] { 3, 1, 2 };
+            int[] b = new[] { 2, 3, 1 };
 
             // WHEN
-            var equal = a.HasSameItems(b);
+            bool equal = a.HasSameItems(b);
 
             // THEN
             Assert.IsTrue(equal);
@@ -220,11 +220,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void HasSameItems_ShouldReturnFalse_WhenDifferentItemsPresent()
         {
             // GIVEN
-            var a = new[] { 1, 2, 3 };
-            var b = new[] { 1, 2, 4 };
+            int[] a = new[] { 1, 2, 3 };
+            int[] b = new[] { 1, 2, 4 };
 
             // WHEN
-            var equal = a.HasSameItems(b);
+            bool equal = a.HasSameItems(b);
 
             // THEN
             Assert.IsFalse(equal);
@@ -238,7 +238,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetArrayHashCode_ShouldReturnZero_WhenNull()
         {
             // WHEN
-            var hash = CollectionExtensions.GetArrayHashCode<int>(null);
+            int hash = CollectionExtensions.GetArrayHashCode<int>(null);
 
             // THEN
             Assert.AreEqual(0, hash);
@@ -248,12 +248,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void GetArrayHashCode_ShouldMatchRegardlessOfOrder()
         {
             // GIVEN
-            var a = new[] { 10, 20, 30 };
-            var b = new[] { 30, 10, 20 };
+            int[] a = new[] { 10, 20, 30 };
+            int[] b = new[] { 30, 10, 20 };
 
             // WHEN
-            var hashA = a.GetArrayHashCode();
-            var hashB = b.GetArrayHashCode();
+            int hashA = a.GetArrayHashCode();
+            int hashB = b.GetArrayHashCode();
 
             // THEN
             Assert.AreEqual(hashA, hashB, "XOR hash should not depend on order.");

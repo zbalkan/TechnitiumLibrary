@@ -23,7 +23,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         /// </summary>
         private async Task<TcpClient> ConnectClientAsync(HttpProxyServer server)
         {
-            var client = new TcpClient();
+            TcpClient client = new TcpClient();
             IPEndPoint ep = server.LocalEndPoint;
 
             Assert.IsNotNull(ep, "LocalEndPoint must be initialized before accepting connections.");
@@ -54,8 +54,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         /// </summary>
         private static async Task<string> ReadFromSocketAsync(Socket socket, CancellationToken cancellationToken)
         {
-            await using var ms = new MemoryStream();
-            using var networkStream = new NetworkStream(socket, ownsSocket: false);
+            await using MemoryStream ms = new MemoryStream();
+            using NetworkStream networkStream = new NetworkStream(socket, ownsSocket: false);
 
             byte[] buffer = new byte[4096];
 
@@ -102,7 +102,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public void Constructor_UsesLoopbackAndEphemeralPort()
         {
-            using var server = new HttpProxyServer();
+            using HttpProxyServer server = new HttpProxyServer();
 
             IPEndPoint ep = server.LocalEndPoint;
 
@@ -114,8 +114,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectMethod_ValidConnectRequest_RespondsWith200AndUsesConnectionManager()
         {
-            using var connectionManager = new RecordingConnectionManager();
-            using var server = new HttpProxyServer(connectionManager);
+            using RecordingConnectionManager connectionManager = new RecordingConnectionManager();
+            using HttpProxyServer server = new HttpProxyServer(connectionManager);
 
             using TcpClient client = await ConnectClientAsync(server);
             using NetworkStream clientStream = client.GetStream();
@@ -149,7 +149,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 typeof(IPEndPoint),
                 "CONNECT target must be resolved to an IPEndPoint.");
 
-            var ep = (IPEndPoint)connectionManager.ConnectedEndpoints[0];
+            IPEndPoint ep = (IPEndPoint)connectionManager.ConnectedEndpoints[0];
 
             Assert.AreEqual(
                 IPAddress.Parse(host),
@@ -165,8 +165,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectMethod_ConnectWithoutPort_Returns500InternalServerError()
         {
-            using var connectionManager = new RecordingConnectionManager();
-            using var server = new HttpProxyServer(connectionManager);
+            using RecordingConnectionManager connectionManager = new RecordingConnectionManager();
+            using HttpProxyServer server = new HttpProxyServer(connectionManager);
 
             using TcpClient client = await ConnectClientAsync(server);
             using NetworkStream clientStream = client.GetStream();
@@ -197,8 +197,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectMethod_InvalidTarget_Returns500InternalServerError()
         {
-            using var connectionManager = new RecordingConnectionManager();
-            using var server = new HttpProxyServer(connectionManager);
+            using RecordingConnectionManager connectionManager = new RecordingConnectionManager();
+            using HttpProxyServer server = new HttpProxyServer(connectionManager);
 
             using TcpClient client = await ConnectClientAsync(server);
             using NetworkStream clientStream = client.GetStream();
@@ -229,8 +229,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task Forwarding_NonConnectAbsoluteUri_RewritesPathAndStripsProxyHeaders()
         {
-            using var connectionManager = new CapturingConnectionManager();
-            using var server = new HttpProxyServer(connectionManager);
+            using CapturingConnectionManager connectionManager = new CapturingConnectionManager();
+            using HttpProxyServer server = new HttpProxyServer(connectionManager);
 
             using TcpClient client = await ConnectClientAsync(server);
             using NetworkStream clientStream = client.GetStream();
@@ -274,7 +274,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public void Dispose_MultipleCalls_AreIdempotentAndCloseListener()
         {
-            var server = new HttpProxyServer();
+            HttpProxyServer server = new HttpProxyServer();
 
             IPEndPoint ep = server.LocalEndPoint;
 
@@ -309,14 +309,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
                 // Create a loopback-connected socket pair so that the proxy has
                 // a valid, connected socket to work with.
-                var listener = new TcpListener(IPAddress.Loopback, 0);
+                TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
                 listener.Start();
 
-                var epObj = listener.Server.LocalEndPoint;
+                EndPoint? epObj = listener.Server.LocalEndPoint;
                 Assert.IsNotNull(epObj, "Listener.LocalEndPoint must not be null after Start().");
-                var listenerEp = (IPEndPoint)epObj;
+                IPEndPoint listenerEp = (IPEndPoint)epObj;
 
-                var clientSocket = new Socket(listenerEp.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                Socket clientSocket = new Socket(listenerEp.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
                 await clientSocket.ConnectAsync(listenerEp, cancellationToken);
                 Socket serverSocket = await listener.AcceptSocketAsync(cancellationToken);
@@ -381,15 +381,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             {
                 _endpoints.Add(remoteEP);
 
-                var listener = new TcpListener(IPAddress.Loopback, 0);
+                TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
                 listener.Start();
                 _listeners.Add(listener);
 
-                var epObj = listener.Server.LocalEndPoint;
+                EndPoint? epObj = listener.Server.LocalEndPoint;
                 Assert.IsNotNull(epObj, "Listener.LocalEndPoint must not be null after Start().");
-                var listenerEp = (IPEndPoint)epObj;
+                IPEndPoint listenerEp = (IPEndPoint)epObj;
 
-                var clientSocket = new Socket(listenerEp.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                Socket clientSocket = new Socket(listenerEp.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                 _clientSockets.Add(clientSocket);
 
                 await clientSocket.ConnectAsync(listenerEp, cancellationToken);

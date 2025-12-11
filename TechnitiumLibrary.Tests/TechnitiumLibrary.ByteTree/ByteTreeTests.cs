@@ -18,7 +18,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         public void Add_ShouldInsertValue_WhenKeyDoesNotExist()
         {
             // GIVEN
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
 
             // WHEN
             tree.Add(Key(1, 2, 3), "value");
@@ -31,7 +31,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         public void Add_ShouldThrow_WhenKeyExists()
         {
             // GIVEN
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(4), "first");
 
             // WHEN – THEN
@@ -42,7 +42,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void Add_ShouldThrow_WhenKeyNull()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             Assert.ThrowsExactly<ArgumentNullException>(() => tree.Add(null, "x"));
         }
 
@@ -52,18 +52,18 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryAdd_ShouldReturnTrue_WhenKeyAdded()
         {
-            var tree = new ByteTree<string>();
-            var result = tree.TryAdd(Key(1), "v");
+            ByteTree<string> tree = new ByteTree<string>();
+            bool result = tree.TryAdd(Key(1), "v");
             Assert.IsTrue(result);
         }
 
         [TestMethod]
         public void TryAdd_ShouldReturnFalse_WhenKeyExists()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(5), "initial");
 
-            var result = tree.TryAdd(Key(5), "other");
+            bool result = tree.TryAdd(Key(5), "other");
 
             Assert.IsFalse(result);
             Assert.AreEqual("initial", tree[Key(5)]);
@@ -72,7 +72,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryAdd_ShouldThrow_WhenKeyNull()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             Assert.ThrowsExactly<ArgumentNullException>(() => tree.TryAdd(null, "x"));
         }
 
@@ -82,10 +82,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryGet_ShouldReturnTrue_WhenKeyExists()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(1, 2), "data");
 
-            var found = tree.TryGet(Key(1, 2), out var value);
+            bool found = tree.TryGet(Key(1, 2), out string? value);
 
             Assert.IsTrue(found);
             Assert.AreEqual("data", value);
@@ -94,9 +94,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryGet_ShouldReturnFalse_WhenMissing()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
 
-            var result = tree.TryGet(Key(9), out var value);
+            bool result = tree.TryGet(Key(9), out string? value);
 
             Assert.IsFalse(result);
             Assert.IsNull(value);
@@ -105,7 +105,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryGet_ShouldThrow_WhenNull()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             Assert.ThrowsExactly<ArgumentNullException>(() => tree.TryGet(null, out _));
         }
 
@@ -115,7 +115,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void ContainsKey_ShouldReturnTrue_WhenKeyPresent()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(3, 3), "v");
 
             Assert.IsTrue(tree.ContainsKey(Key(3, 3)));
@@ -124,14 +124,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void ContainsKey_ShouldReturnFalse_WhenKeyMissing()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             Assert.IsFalse(tree.ContainsKey(Key(3, 100)));
         }
 
         [TestMethod]
         public void ContainsKey_ShouldThrow_WhenNull()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             Assert.ThrowsExactly<ArgumentNullException>(() => tree.ContainsKey(null));
         }
 
@@ -141,10 +141,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryRemove_ShouldReturnTrue_WhenKeyExists()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(10), "v");
 
-            var result = tree.TryRemove(Key(10), out var removed);
+            bool result = tree.TryRemove(Key(10), out string? removed);
 
             Assert.IsTrue(result);
             Assert.AreEqual("v", removed);
@@ -154,8 +154,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryRemove_ShouldReturnFalse_WhenMissing()
         {
-            var tree = new ByteTree<string>();
-            var result = tree.TryRemove(Key(11), out var removed);
+            ByteTree<string> tree = new ByteTree<string>();
+            bool result = tree.TryRemove(Key(11), out string? removed);
 
             Assert.IsFalse(result);
             Assert.IsNull(removed);
@@ -164,7 +164,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryRemove_ShouldThrow_WhenNull()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             Assert.ThrowsExactly<ArgumentNullException>(() => tree.TryRemove(null, out _));
         }
 
@@ -174,10 +174,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryUpdate_ShouldReplaceValue_WhenComparisonMatches()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(5), "old");
 
-            var updated = tree.TryUpdate(Key(5), "new", "old");
+            bool updated = tree.TryUpdate(Key(5), "new", "old");
 
             Assert.IsTrue(updated);
             Assert.AreEqual("new", tree[Key(5)]);
@@ -186,10 +186,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void TryUpdate_ShouldReturnFalse_WhenComparisonDoesNotMatch()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(7), "original");
 
-            var updated = tree.TryUpdate(Key(7), "attempt", "different");
+            bool updated = tree.TryUpdate(Key(7), "attempt", "different");
 
             Assert.IsFalse(updated);
             Assert.AreEqual("original", tree[Key(7)]);
@@ -201,9 +201,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void AddOrUpdate_ShouldInsert_WhenMissing()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
 
-            var val = tree.AddOrUpdate(
+            string val = tree.AddOrUpdate(
                 Key(1, 1),
                 _ => "create",
                 (_, old) => old + "update");
@@ -214,10 +214,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void AddOrUpdate_ShouldModify_WhenExists()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(1, 2), "first");
 
-            var updated = tree.AddOrUpdate(
+            string updated = tree.AddOrUpdate(
                 Key(1, 2),
                 _ => "ignored",
                 (_, old) => old + "_changed");
@@ -231,7 +231,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void Indexer_Get_ShouldReturnExactValue()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(99), "stored");
 
             Assert.AreEqual("stored", tree[Key(99)]);
@@ -240,7 +240,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void Indexer_Set_ShouldOverwriteFormerValue()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree[Key(5, 5)] = "initial";
 
             tree[Key(5, 5)] = "updated";
@@ -251,7 +251,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void Indexer_Get_ShouldThrow_WhenMissingKey()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             Assert.ThrowsExactly<KeyNotFoundException>(() =>
                 _ = tree[Key(8, 8)]);
         }
@@ -259,7 +259,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void Indexer_ShouldThrow_WhenNullKey()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             Assert.ThrowsExactly<ArgumentNullException>(() => tree[null] = "x");
         }
 
@@ -269,12 +269,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void Enumerator_ShouldYieldExistingValues()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(1), "x");
             tree.Add(Key(2), "y");
             tree.Add(Key(3), "z");
 
-            var values = tree.ToList();
+            List<string> values = tree.ToList();
 
             Assert.HasCount(3, values);
             CollectionAssert.AreEquivalent(new[] { "x", "y", "z" }, values);
@@ -283,12 +283,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void ReverseEnumerable_ShouldYieldInReverseOrder()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(0), "a");
             tree.Add(Key(1), "b");
             tree.Add(Key(255), "c");
 
-            var result = tree.GetReverseEnumerable().ToList();
+            List<string> result = tree.GetReverseEnumerable().ToList();
 
             Assert.HasCount(3, result);
             Assert.AreEqual("c", result[0]); // last sorted key
@@ -302,7 +302,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.ByteTree
         [TestMethod]
         public void Clear_ShouldEraseAllData()
         {
-            var tree = new ByteTree<string>();
+            ByteTree<string> tree = new ByteTree<string>();
             tree.Add(Key(1), "x");
             tree.Add(Key(2), "y");
 

@@ -18,13 +18,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void Constructor_ShouldRejectUnsupportedType()
         {
-            var uri = new AuthenticatorKeyUri("hotp", "Issuer", "acc", "ABCD");
+            AuthenticatorKeyUri uri = new AuthenticatorKeyUri("hotp", "Issuer", "acc", "ABCD");
             Assert.ThrowsExactly<NotSupportedException>(() => _ = new Authenticator(uri));
         }
 
         private static Authenticator CreateRFCAuth_HOtp_SHA1(int digits = 6, int period = 30)
         {
-            var keyUri = new AuthenticatorKeyUri(
+            AuthenticatorKeyUri keyUri = new AuthenticatorKeyUri(
                 type: "totp",
                 issuer: "TestCorp",
                 accountName: "test@example.com",
@@ -40,7 +40,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         public void GetTOTP_ShouldMatchRFCReferenceValue()
         {
             // RFC reference Base32 secret = "12345678901234567890"
-            var uri = new AuthenticatorKeyUri(
+            AuthenticatorKeyUri uri = new AuthenticatorKeyUri(
                 type: "totp",
                 issuer: "Example",
                 accountName: "bob@example.com",
@@ -50,12 +50,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
                 period: 30
             );
 
-            var auth = new Authenticator(uri);
+            Authenticator auth = new Authenticator(uri);
 
             // RFC time = 2025-12-07 23:00:00 UTC
-            var timestamp = new DateTime(2025, 12, 07, 23, 27, 00, DateTimeKind.Local);
+            DateTime timestamp = new DateTime(2025, 12, 07, 23, 27, 00, DateTimeKind.Local);
 
-            var result = auth.GetTOTP(timestamp);
+            string result = auth.GetTOTP(timestamp);
 
             Assert.AreEqual("112662", result);
         }
@@ -63,7 +63,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void GetTOTP_ShouldGenerateDifferentValuesAtDifferentTimes()
         {
-            var auth = CreateRFCAuth_HOtp_SHA1();
+            Authenticator auth = CreateRFCAuth_HOtp_SHA1();
 
             string t1 = auth.GetTOTP(new DateTime(2020, 01, 01, 00, 00, 00, DateTimeKind.Utc));
             string t2 = auth.GetTOTP(new DateTime(2020, 01, 01, 00, 00, 31, DateTimeKind.Utc)); // next period
@@ -75,9 +75,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void IsTOTPValid_ShouldReturnTrueForExactMatch()
         {
-            var auth = CreateRFCAuth_HOtp_SHA1();
+            Authenticator auth = CreateRFCAuth_HOtp_SHA1();
 
-            var utcNow = DateTime.UtcNow;
+            DateTime utcNow = DateTime.UtcNow;
             string code = auth.GetTOTP(utcNow);
 
             Assert.IsTrue(auth.IsTOTPValid(code));
@@ -86,10 +86,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void IsTOTPValid_ShouldReturnTrueWithinSkewWindow()
         {
-            var auth = CreateRFCAuth_HOtp_SHA1(period: 30);
+            Authenticator auth = CreateRFCAuth_HOtp_SHA1(period: 30);
 
             // Use a single captured 'now' to avoid rollover flakiness
-            var utcNow = DateTime.UtcNow;
+            DateTime utcNow = DateTime.UtcNow;
 
             // Generate a code for the NEXT step (+30s) so it is within +1 window
             string codeNextWindow = auth.GetTOTP(utcNow.AddSeconds(30));
@@ -101,8 +101,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void IsTOTPValid_ShouldReturnFalseOutsideSkewWindow()
         {
-            var auth = CreateRFCAuth_HOtp_SHA1(period: 30);
-            var now = new DateTime(2020, 10, 10, 12, 00, 00, DateTimeKind.Local);
+            Authenticator auth = CreateRFCAuth_HOtp_SHA1(period: 30);
+            DateTime now = new DateTime(2020, 10, 10, 12, 00, 00, DateTimeKind.Local);
 
             // Generate 6 periods ahead (6 * 30s = 180s)
             // Default fudge = 10 periods → OK until 10.
@@ -114,7 +114,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void ShouldSupportSHA256()
         {
-            var keyUri = new AuthenticatorKeyUri(
+            AuthenticatorKeyUri keyUri = new AuthenticatorKeyUri(
                 "totp",
                 "Corp",
                 "user",
@@ -123,7 +123,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
                 digits: 6,
                 period: 30);
 
-            var auth = new Authenticator(keyUri);
+            Authenticator auth = new Authenticator(keyUri);
 
             string code = auth.GetTOTP(new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
@@ -134,7 +134,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
         [TestMethod]
         public void ShouldSupportSHA512()
         {
-            var keyUri = new AuthenticatorKeyUri(
+            AuthenticatorKeyUri keyUri = new AuthenticatorKeyUri(
                 "totp",
                 "Corp",
                 "user",
@@ -143,7 +143,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Security.OTP
                 digits: 8,
                 period: 30);
 
-            var auth = new Authenticator(keyUri);
+            Authenticator auth = new Authenticator(keyUri);
 
             string code = auth.GetTOTP(new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 

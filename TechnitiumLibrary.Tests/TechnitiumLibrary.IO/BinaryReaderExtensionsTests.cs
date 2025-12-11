@@ -23,10 +23,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void ReadLength_ShouldReadSingleByteLengths()
         {
             // GIVEN
-            var reader = ReaderOf(0x05);
+            BinaryReader reader = ReaderOf(0x05);
 
             // WHEN
-            var length = reader.ReadLength();
+            int length = reader.ReadLength();
 
             // THEN
             Assert.AreEqual(5, length);
@@ -38,10 +38,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         {
             // GIVEN
             // 0x82 => 2-byte length follows → value = 0x01 0x2C → 300 decimal
-            var reader = ReaderOf(0x82, 0x01, 0x2C);
+            BinaryReader reader = ReaderOf(0x82, 0x01, 0x2C);
 
             // WHEN
-            var length = reader.ReadLength();
+            int length = reader.ReadLength();
 
             // THEN
             Assert.AreEqual(300, length);
@@ -53,7 +53,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         {
             // GIVEN
             // lower 7 bits = 0x05, meaning "next 5 bytes", exceeding allowed 4
-            var reader = ReaderOf(0x85);
+            BinaryReader reader = ReaderOf(0x85);
 
             // WHEN-THEN
             Assert.ThrowsExactly<IOException>(() => reader.ReadLength());
@@ -68,10 +68,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         {
             // GIVEN
             // length=3, then bytes 0xAA, 0xBB, 0xCC
-            var reader = ReaderOf(0x03, 0xAA, 0xBB, 0xCC);
+            BinaryReader reader = ReaderOf(0x03, 0xAA, 0xBB, 0xCC);
 
             // WHEN
-            var data = reader.ReadBuffer();
+            byte[] data = reader.ReadBuffer();
 
             // THEN
             Assert.HasCount(3, data);
@@ -86,14 +86,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void ReadShortString_ShouldDecodeUtf8StringCorrectly()
         {
             // GIVEN
-            var text = "Hello";
-            var encoded = Encoding.UTF8.GetBytes(text);
+            string text = "Hello";
+            byte[] encoded = Encoding.UTF8.GetBytes(text);
 
-            var bytes = new byte[] { (byte)encoded.Length }.Concat(encoded).ToArray();
-            var reader = ReaderOf(bytes);
+            byte[] bytes = new byte[] { (byte)encoded.Length }.Concat(encoded).ToArray();
+            BinaryReader reader = ReaderOf(bytes);
 
             // WHEN
-            var result = reader.ReadShortString();
+            string result = reader.ReadShortString();
 
             // THEN
             Assert.AreEqual(text, result);
@@ -103,15 +103,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void ReadShortString_ShouldUseSpecifiedEncoding()
         {
             // GIVEN
-            var text = "Å";
-            var encoding = Encoding.UTF32;
-            var encoded = encoding.GetBytes(text);
+            string text = "Å";
+            Encoding encoding = Encoding.UTF32;
+            byte[] encoded = encoding.GetBytes(text);
 
-            var bytes = new byte[] { (byte)encoded.Length }.Concat(encoded).ToArray();
-            var reader = ReaderOf(bytes);
+            byte[] bytes = new byte[] { (byte)encoded.Length }.Concat(encoded).ToArray();
+            BinaryReader reader = ReaderOf(bytes);
 
             // WHEN
-            var result = reader.ReadShortString(encoding);
+            string result = reader.ReadShortString(encoding);
 
             // THEN
             Assert.AreEqual(text, result);
@@ -125,17 +125,17 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void ReadDateTime_ShouldConvertEpochMilliseconds()
         {
             // GIVEN
-            var expected = new DateTime(2024, 01, 01, 12, 00, 00, DateTimeKind.Utc);
+            DateTime expected = new DateTime(2024, 01, 01, 12, 00, 00, DateTimeKind.Utc);
             long millis = (long)(expected - DateTime.UnixEpoch).TotalMilliseconds;
 
             byte[] encoded = BitConverter.GetBytes(millis);
             if (BitConverter.IsLittleEndian)
                 Array.Reverse(encoded);
 
-            var reader = ReaderOf(encoded.Reverse().ToArray());
+            BinaryReader reader = ReaderOf(encoded.Reverse().ToArray());
 
             // WHEN
-            var result = reader.ReadDateTime();
+            DateTime result = reader.ReadDateTime();
 
             // THEN
             Assert.AreEqual(expected, result);
@@ -150,7 +150,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         {
             // GIVEN
             // says length=4 but only 2 follow
-            var reader = ReaderOf(0x04, 0xAA, 0xBB);
+            BinaryReader reader = ReaderOf(0x04, 0xAA, 0xBB);
 
             // WHEN-THEN
             Assert.ThrowsExactly<EndOfStreamException>(() => reader.ReadShortString());
@@ -161,7 +161,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         {
             // GIVEN
             // prefixed length=5, only 3 bytes exist
-            var reader = ReaderOf(0x05, 0x10, 0x20, 0x30);
+            BinaryReader reader = ReaderOf(0x05, 0x10, 0x20, 0x30);
 
             // WHEN-THEN
             Assert.ThrowsExactly<EndOfStreamException>(() => reader.ReadBuffer());

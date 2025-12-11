@@ -32,7 +32,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Firewall
         {
             // Since firewall is not guaranteed to have this rule,
             // safest expected response is DoesNotExists.
-            var result = WindowsFirewall.RuleExistsVista(
+            RuleStatus result = WindowsFirewall.RuleExistsVista(
                 name: "__Definitely_Not_A_Real_Rule__",
                 applicationPath: "__Fake__");
 
@@ -47,7 +47,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Firewall
 
             const string fakePath = "C:\\DefinitelyNotExisting\\app.exe";
 
-            var status = WindowsFirewall.ApplicationExists(fakePath);
+            RuleStatus status = WindowsFirewall.ApplicationExists(fakePath);
 
             Assert.AreEqual(RuleStatus.DoesNotExists, status);
         }

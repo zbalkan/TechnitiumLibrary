@@ -11,11 +11,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public async Task Task_ShouldExecute_WhenQueued()
         {
             // GIVEN
-            using var scheduler = new IndependentTaskScheduler(maximumConcurrencyLevel: 1);
-            var completion = new TaskCompletionSource<bool>();
+            using IndependentTaskScheduler scheduler = new IndependentTaskScheduler(maximumConcurrencyLevel: 1);
+            TaskCompletionSource<bool> completion = new TaskCompletionSource<bool>();
 
             // WHEN
-            var t = new Task(_ => completion.SetResult(true), null);
+            Task t = new Task(_ => completion.SetResult(true), null);
             t.Start(scheduler);
 
             // THEN
@@ -26,10 +26,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void MaximumConcurrencyLevel_ShouldMatchRequested()
         {
             // GIVEN
-            using var scheduler = new IndependentTaskScheduler(3);
+            using IndependentTaskScheduler scheduler = new IndependentTaskScheduler(3);
 
             // WHEN
-            var level = scheduler.MaximumConcurrencyLevel;
+            int level = scheduler.MaximumConcurrencyLevel;
 
             // THEN
             Assert.AreEqual(3, level);
@@ -39,9 +39,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public async Task Tasks_ShouldRunInParallel_WhenConcurrencyGreaterThanOne()
         {
             // GIVEN
-            using var scheduler = new IndependentTaskScheduler(maximumConcurrencyLevel: 2);
-            var parallelStarted = new TaskCompletionSource<bool>();
-            var runningCount = 0;
+            using IndependentTaskScheduler scheduler = new IndependentTaskScheduler(maximumConcurrencyLevel: 2);
+            TaskCompletionSource<bool> parallelStarted = new TaskCompletionSource<bool>();
+            int runningCount = 0;
 
             Task Body() =>
                 Task.Run(() =>
@@ -65,12 +65,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void LongRunningOption_ShouldExecuteOnDedicatedThread()
         {
             // GIVEN
-            using var scheduler = new IndependentTaskScheduler(1);
-            var factoryThreadId = Thread.CurrentThread.ManagedThreadId;
-            var schedulerThreadId = -1;
+            using IndependentTaskScheduler scheduler = new IndependentTaskScheduler(1);
+            int factoryThreadId = Thread.CurrentThread.ManagedThreadId;
+            int schedulerThreadId = -1;
 
             // WHEN
-            var task = new Task(
+            Task task = new Task(
                 _ => schedulerThreadId = Thread.CurrentThread.ManagedThreadId,
                 null,
                 TaskCreationOptions.LongRunning);
@@ -86,15 +86,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public async Task InlineExecution_ShouldRun_WhenCalledInsideSchedulerThread()
         {
             // GIVEN
-            using var scheduler = new IndependentTaskScheduler(1);
+            using IndependentTaskScheduler scheduler = new IndependentTaskScheduler(1);
 
-            var executedInline = new TaskCompletionSource<bool>();
+            TaskCompletionSource<bool> executedInline = new TaskCompletionSource<bool>();
 
             // WHEN
-            var driver = new Task(() =>
+            Task driver = new Task(() =>
             {
                 // Attempt inline execution from scheduler thread
-                var child = new Task(() => executedInline.SetResult(true));
+                Task child = new Task(() => executedInline.SetResult(true));
                 // This will execute inline because we are already inside scheduler thread
                 child.RunSynchronously(TaskScheduler.Current);
             });
@@ -111,12 +111,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Dispose_ShouldPreventFutureExecution()
         {
             // GIVEN
-            var scheduler = new IndependentTaskScheduler(1);
+            IndependentTaskScheduler scheduler = new IndependentTaskScheduler(1);
             scheduler.Dispose();
-            var task = new Task(() => { });
+            Task task = new Task(() => { });
 
             // WHEN
-            var continuation = Task.Factory.StartNew(
+            Task continuation = Task.Factory.StartNew(
                 () => task.Start(scheduler),
                 CancellationToken.None,
                 TaskCreationOptions.None,
@@ -133,7 +133,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Dispose_CanBeCalledMultipleTimes_Safely()
         {
             // GIVEN
-            var scheduler = new IndependentTaskScheduler();
+            IndependentTaskScheduler scheduler = new IndependentTaskScheduler();
 
             // WHEN
             scheduler.Dispose();

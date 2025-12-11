@@ -12,7 +12,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Parse_ShouldParseAllowRule()
         {
-            var nac = NetworkAccessControl.Parse("192.168.1.0/24");
+            NetworkAccessControl nac = NetworkAccessControl.Parse("192.168.1.0/24");
 
             Assert.IsFalse(nac.Deny);
             Assert.AreEqual("192.168.1.0/24", nac.ToString());
@@ -21,7 +21,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Parse_ShouldParseDenyRule()
         {
-            var nac = NetworkAccessControl.Parse("!10.0.0.0/8");
+            NetworkAccessControl nac = NetworkAccessControl.Parse("!10.0.0.0/8");
 
             Assert.IsTrue(nac.Deny);
             Assert.AreEqual("!10.0.0.0/8", nac.ToString());
@@ -38,7 +38,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldReturnFalse_OnMalformed()
         {
-            bool ok = NetworkAccessControl.TryParse("invalid", out var nac);
+            bool ok = NetworkAccessControl.TryParse("invalid", out NetworkAccessControl? nac);
 
             Assert.IsFalse(ok);
             Assert.IsNull(nac);
@@ -47,7 +47,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryMatch_ShouldReturnTrueOnMatch()
         {
-            var nac = new NetworkAccessControl(IPAddress.Parse("192.168.1.0"), 24);
+            NetworkAccessControl nac = new NetworkAccessControl(IPAddress.Parse("192.168.1.0"), 24);
 
             bool matched = nac.TryMatch(IPAddress.Parse("192.168.1.42"), out bool allowed);
 
@@ -58,7 +58,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryMatch_ShouldReturnFalseWhenNotInNetwork()
         {
-            var nac = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8);
+            NetworkAccessControl nac = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8);
 
             bool matched = nac.TryMatch(IPAddress.Parse("11.0.0.1"), out bool allowed);
 
@@ -69,7 +69,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryMatch_ShouldHonorNegation()
         {
-            var nac = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8, deny: true);
+            NetworkAccessControl nac = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8, deny: true);
 
             bool matched = nac.TryMatch(IPAddress.Parse("10.0.55.77"), out bool allowed);
 
@@ -80,7 +80,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void IsAddressAllowed_ShouldReturnFirstMatchingResult()
         {
-            var acl = new[]
+            NetworkAccessControl[] acl = new[]
             {
                 new NetworkAccessControl(IPAddress.Parse("10.0.1.0"), 24, deny:true), // deny first
                 new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8), // allow
@@ -95,7 +95,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void IsAddressAllowed_ShouldReturnLoopbackWhenNoMatch()
         {
-            var allowed = NetworkAccessControl.IsAddressAllowed(
+            bool allowed = NetworkAccessControl.IsAddressAllowed(
                 IPAddress.Loopback,
                 acl: null,
                 allowLoopbackWhenNoMatch: true);
@@ -106,7 +106,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void IsAddressAllowed_ShouldReturnFalseWithoutMatchAndNoLoopbackMode()
         {
-            var allowed = NetworkAccessControl.IsAddressAllowed(
+            bool allowed = NetworkAccessControl.IsAddressAllowed(
                 IPAddress.Parse("5.5.5.5"),
                 new NetworkAccessControl[0],
                 allowLoopbackWhenNoMatch: false);
@@ -117,17 +117,17 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void WriteTo_ShouldRoundtrip()
         {
-            var original = new NetworkAccessControl(IPAddress.Parse("10.2.3.0"), 24, deny: true);
+            NetworkAccessControl original = new NetworkAccessControl(IPAddress.Parse("10.2.3.0"), 24, deny: true);
 
-            using var ms = new MemoryStream();
-            using var bw = new BinaryWriter(ms);
+            using MemoryStream ms = new MemoryStream();
+            using BinaryWriter bw = new BinaryWriter(ms);
 
             original.WriteTo(bw);
             bw.Flush();
             ms.Position = 0;
 
-            using var br = new BinaryReader(ms);
-            var read = NetworkAccessControl.ReadFrom(br);
+            using BinaryReader br = new BinaryReader(ms);
+            NetworkAccessControl read = NetworkAccessControl.ReadFrom(br);
 
             Assert.IsTrue(original.Equals(read), "Binary round trip must preserve rule.");
             Assert.AreEqual(original.ToString(), read.ToString());
@@ -136,8 +136,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Equals_ShouldReturnTrue_WhenEquivalent()
         {
-            var a = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8, deny: true);
-            var b = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8, deny: true);
+            NetworkAccessControl a = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8, deny: true);
+            NetworkAccessControl b = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8, deny: true);
 
             Assert.IsTrue(a.Equals(b));
             Assert.AreEqual(a.GetHashCode(), b.GetHashCode());
@@ -146,8 +146,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Equals_ShouldReturnFalse_WhenDifferentAddress()
         {
-            var a = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8);
-            var b = new NetworkAccessControl(IPAddress.Parse("10.1.0.0"), 16);
+            NetworkAccessControl a = new NetworkAccessControl(IPAddress.Parse("10.0.0.0"), 8);
+            NetworkAccessControl b = new NetworkAccessControl(IPAddress.Parse("10.1.0.0"), 16);
 
             Assert.IsFalse(a.Equals(b));
         }
@@ -155,8 +155,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void ToString_ShouldRenderCorrectly()
         {
-            var allow = new NetworkAccessControl(IPAddress.Parse("192.168.0.0"), 16);
-            var deny = new NetworkAccessControl(IPAddress.Parse("100.64.0.0"), 10, deny: true);
+            NetworkAccessControl allow = new NetworkAccessControl(IPAddress.Parse("192.168.0.0"), 16);
+            NetworkAccessControl deny = new NetworkAccessControl(IPAddress.Parse("100.64.0.0"), 10, deny: true);
 
             Assert.AreEqual("192.168.0.0/16", allow.ToString());
             Assert.AreEqual("!100.64.0.0/10", deny.ToString());

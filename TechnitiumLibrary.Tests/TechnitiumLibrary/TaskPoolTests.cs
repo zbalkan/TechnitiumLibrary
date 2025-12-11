@@ -11,11 +11,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public async Task TryQueueTask_ShouldExecuteQueuedTask()
         {
             // GIVEN
-            var pool = new TaskPool(queueSize: 10, maximumConcurrencyLevel: 2);
-            var completer = new TaskCompletionSource<bool>();
+            TaskPool pool = new TaskPool(queueSize: 10, maximumConcurrencyLevel: 2);
+            TaskCompletionSource<bool> completer = new TaskCompletionSource<bool>();
 
             // WHEN
-            var queued = pool.TryQueueTask(_ =>
+            bool queued = pool.TryQueueTask(_ =>
             {
                 completer.SetResult(true);
                 return Task.CompletedTask;
@@ -30,12 +30,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public async Task ShouldProcessMultipleTasksConcurrently_WhenAllowed()
         {
             // GIVEN
-            var parallelism = Environment.ProcessorCount;
-            var pool = new TaskPool(queueSize: 64, maximumConcurrencyLevel: parallelism);
+            int parallelism = Environment.ProcessorCount;
+            TaskPool pool = new TaskPool(queueSize: 64, maximumConcurrencyLevel: parallelism);
 
-            var counter = 0;
-            var completion = new TaskCompletionSource<bool>();
-            var lockObj = new object();
+            int counter = 0;
+            TaskCompletionSource<bool> completion = new TaskCompletionSource<bool>();
+            object lockObj = new object();
 
             int total = parallelism;
 
@@ -63,10 +63,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public async Task TasksShouldStopAfterDispose()
         {
             // GIVEN
-            var pool = new TaskPool(queueSize: 10, maximumConcurrencyLevel: 1);
+            TaskPool pool = new TaskPool(queueSize: 10, maximumConcurrencyLevel: 1);
 
-            var executedBeforeDispose = new TaskCompletionSource<bool>();
-            var wasExecutedAfterDispose = false;
+            TaskCompletionSource<bool> executedBeforeDispose = new TaskCompletionSource<bool>();
+            bool wasExecutedAfterDispose = false;
 
             pool.TryQueueTask(_ =>
             {
@@ -78,7 +78,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 
             // WHEN
             pool.Dispose();
-            var acceptedPostDispose = pool.TryQueueTask(_ =>
+            bool acceptedPostDispose = pool.TryQueueTask(_ =>
             {
                 wasExecutedAfterDispose = true;
                 return Task.CompletedTask;
@@ -93,7 +93,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Ctor_ShouldUseDefaultConcurrency_WhenValueIsLessThanOne()
         {
             // GIVEN + WHEN
-            var pool = new TaskPool(queueSize: 10, maximumConcurrencyLevel: -1);
+            TaskPool pool = new TaskPool(queueSize: 10, maximumConcurrencyLevel: -1);
 
             // THEN
             Assert.IsGreaterThanOrEqualTo(1,
@@ -104,7 +104,7 @@ pool.MaximumConcurrencyLevel, "Concurrency must fallback to processor count.");
         public void TryQueueTask_ShouldThrow_WhenTaskIsNull()
         {
             // GIVEN
-            var pool = new TaskPool();
+            TaskPool pool = new TaskPool();
 
             // WHEN + THEN
             Assert.ThrowsExactly<ArgumentNullException>(() => pool.TryQueueTask(null));
@@ -114,11 +114,11 @@ pool.MaximumConcurrencyLevel, "Concurrency must fallback to processor count.");
         public async Task TaskShouldReceiveStateObject()
         {
             // GIVEN
-            var pool = new TaskPool();
-            var completion = new TaskCompletionSource<bool>();
+            TaskPool pool = new TaskPool();
+            TaskCompletionSource<bool> completion = new TaskCompletionSource<bool>();
 
-            var expectedState = "STATE";
-            var capturedState = default(string);
+            string expectedState = "STATE";
+            string? capturedState = default(string);
 
             // WHEN
             pool.TryQueueTask(obj =>
@@ -139,7 +139,7 @@ pool.MaximumConcurrencyLevel, "Concurrency must fallback to processor count.");
         public void DisposeMustBeIdempotent()
         {
             // GIVEN
-            var pool = new TaskPool();
+            TaskPool pool = new TaskPool();
 
             // WHEN
             pool.Dispose();

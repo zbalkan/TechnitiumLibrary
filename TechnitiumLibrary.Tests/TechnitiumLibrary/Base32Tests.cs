@@ -34,13 +34,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void ToBase32String_RfcVectors_ProduceExpectedOutput()
         {
-            foreach (var (clear, encoded) in RfcVectors)
+            foreach ((string clear, string encoded) in RfcVectors)
             {
                 // Arrange
-                var data = Encoding.ASCII.GetBytes(clear);
+                byte[] data = Encoding.ASCII.GetBytes(clear);
 
                 // Act
-                var result = Base32.ToBase32String(data);
+                string result = Base32.ToBase32String(data);
 
                 // Assert
                 Assert.AreEqual(encoded, result, "Base32 encoding must match RFC vectors.");
@@ -50,13 +50,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void FromBase32String_RfcVectors_DecodeCorrectly()
         {
-            foreach (var (clear, encoded) in RfcVectors)
+            foreach ((string clear, string encoded) in RfcVectors)
             {
                 // Arrange
-                var expected = Encoding.ASCII.GetBytes(clear);
+                byte[] expected = Encoding.ASCII.GetBytes(clear);
 
                 // Act
-                var result = Base32.FromBase32String(encoded);
+                byte[] result = Base32.FromBase32String(encoded);
 
                 // Assert
                 CollectionAssert.AreEqual(expected, result, "Decoding must invert RFC vectors.");
@@ -73,7 +73,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             const string expected = "DYGEDF2ZBHRMULUH4EFUJAPG74PTETOP3SBDBZUIENZCKH6NEX5Q====";
 
             // Act
-            var actual = Base32.ToBase32String(RandomBytes);
+            string actual = Base32.ToBase32String(RandomBytes);
 
             Assert.AreEqual(expected, actual, "Binary encoding must be stable and deterministic.");
         }
@@ -85,7 +85,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             const string encoded = "DYGEDF2ZBHRMULUH4EFUJAPG74PTETOP3SBDBZUIENZCKH6NEX5Q====";
 
             // Act
-            var decoded = Base32.FromBase32String(encoded);
+            byte[] decoded = Base32.FromBase32String(encoded);
 
             // Assert
             CollectionAssert.AreEqual(RandomBytes, decoded);
@@ -97,17 +97,17 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void EncodeDecode_RoundTrip_GivenKnownClearInputs_ReturnsOriginalValues()
         {
-            foreach (var clear in RoundTripValues)
+            foreach (string clear in RoundTripValues)
             {
                 // Arrange
-                var bytes = Encoding.UTF8.GetBytes(clear);
+                byte[] bytes = Encoding.UTF8.GetBytes(clear);
 
                 // Act
-                var encoded = Base32.ToBase32String(bytes);
-                var decoded = Base32.FromBase32String(encoded);
+                string encoded = Base32.ToBase32String(bytes);
+                byte[] decoded = Base32.FromBase32String(encoded);
 
                 // Assert
-                var decodedText = Encoding.UTF8.GetString(decoded);
+                string decodedText = Encoding.UTF8.GetString(decoded);
                 Assert.AreEqual(clear, decodedText, "Encode + decode must round-trip.");
             }
         }
@@ -118,14 +118,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void FromBase32String_GivenEmptyString_ReturnsEmptyArray()
         {
-            var result = Base32.FromBase32String("");
+            byte[] result = Base32.FromBase32String("");
             Assert.IsEmpty(result);
         }
 
         [TestMethod]
         public void ToBase32String_GivenEmptyBytes_ReturnsEmptyString()
         {
-            var result = Base32.ToBase32String(Array.Empty<byte>());
+            string result = Base32.ToBase32String(Array.Empty<byte>());
             Assert.IsEmpty(result);
         }
 
@@ -184,10 +184,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void ToBase32HexString_RfcVectors_ProduceExpectedOutput()
         {
-            foreach (var (clear, encoded) in RfcVectors)
+            foreach ((string clear, string encoded) in RfcVectors)
             {
-                var data = Encoding.ASCII.GetBytes(clear);
-                var result = Base32.ToBase32HexString(data);
+                byte[] data = Encoding.ASCII.GetBytes(clear);
+                string result = Base32.ToBase32HexString(data);
                 Assert.AreEqual(encoded, result, "Hex encoding must match RFC vectors.");
             }
         }
@@ -195,10 +195,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void FromBase32HexString_RfcVectors_DecodeCorrectly()
         {
-            foreach (var (clear, encoded) in RfcVectors)
+            foreach ((string clear, string encoded) in RfcVectors)
             {
-                var expected = Encoding.ASCII.GetBytes(clear);
-                var result = Base32.FromBase32HexString(encoded);
+                byte[] expected = Encoding.ASCII.GetBytes(clear);
+                byte[] result = Base32.FromBase32HexString(encoded);
                 CollectionAssert.AreEqual(expected, result);
             }
         }
@@ -210,7 +210,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void ToBase32HexString_RandomBytes_MatchesExpectedEncoding()
         {
             const string expected = "3O6435QP17HCKBK7S45K90F6VSFJ4JEFRI131PK84DP2A7UD4NTG====";
-            var result = Base32.ToBase32HexString(RandomBytes);
+            string result = Base32.ToBase32HexString(RandomBytes);
             Assert.AreEqual(expected, result);
         }
 
@@ -218,7 +218,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void FromBase32HexString_RandomBytes_ReturnsOriginalInput()
         {
             const string encoded = "3O6435QP17HCKBK7S45K90F6VSFJ4JEFRI131PK84DP2A7UD4NTG====";
-            var decoded = Base32.FromBase32HexString(encoded);
+            byte[] decoded = Base32.FromBase32HexString(encoded);
             CollectionAssert.AreEqual(RandomBytes, decoded);
         }
 
@@ -228,12 +228,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void EncodeDecode_RoundTrip_GivenKnownClearInputs_ReturnsOriginal()
         {
-            foreach (var clear in RoundTripValues)
+            foreach (string clear in RoundTripValues)
             {
-                var bytes = Encoding.UTF8.GetBytes(clear);
-                var encoded = Base32.ToBase32HexString(bytes);
-                var decodedBytes = Base32.FromBase32HexString(encoded);
-                var decoded = Encoding.UTF8.GetString(decodedBytes);
+                byte[] bytes = Encoding.UTF8.GetBytes(clear);
+                string encoded = Base32.ToBase32HexString(bytes);
+                byte[] decodedBytes = Base32.FromBase32HexString(encoded);
+                string decoded = Encoding.UTF8.GetString(decodedBytes);
 
                 Assert.AreEqual(clear, decoded);
             }
@@ -245,14 +245,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void FromBase32HexString_GivenEmpty_ReturnsEmptyArray()
         {
-            var result = Base32.FromBase32HexString("");
+            byte[] result = Base32.FromBase32HexString("");
             Assert.IsEmpty(result);
         }
 
         [TestMethod]
         public void ToBase32HexString_GivenEmptyBytes_ReturnsEmptyString()
         {
-            var result = Base32.ToBase32HexString(Array.Empty<byte>());
+            string result = Base32.ToBase32HexString(Array.Empty<byte>());
             Assert.IsEmpty(result);
         }
     }

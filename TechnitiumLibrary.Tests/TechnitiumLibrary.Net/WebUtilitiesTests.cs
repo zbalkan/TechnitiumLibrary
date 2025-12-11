@@ -213,7 +213,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         new Uri("http://198.51.100.2/")
     };
 
-            var ex = await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () =>
+            TaskCanceledException ex = await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () =>
             {
                 _ = await WebUtilities.IsWebAccessibleAsync(
                     uriCheckList: targets,
@@ -235,7 +235,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         public void GetValidKestrelLocalAddresses_ShouldFilterUnsupportedFamilies()
         {
             // Only IPv4 Any and IPv6 Any are meaningful here; unsupported families are skipped by design.
-            var input = new List<IPAddress>
+            List<IPAddress> input = new List<IPAddress>
             {
                 IPAddress.Any,
                 IPAddress.IPv6Any
@@ -244,7 +244,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
             IReadOnlyList<IPAddress> result = WebUtilities.GetValidKestrelLocalAddresses(input);
 
             // Must never introduce new addresses, and must only contain supported families.
-            foreach (var addr in result)
+            foreach (IPAddress addr in result)
             {
                 Assert.IsTrue(
                     addr.AddressFamily == AddressFamily.InterNetwork
@@ -259,7 +259,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
             if (!Socket.OSSupportsIPv4)
                 Assert.Inconclusive("IPv4 not supported on this platform; skipping IPv4-specific behavior test.");
 
-            var input = new List<IPAddress>
+            List<IPAddress> input = new List<IPAddress>
             {
                 IPAddress.Any,                 // 0.0.0.0
                 IPAddress.Parse("10.0.0.1")    // unicast
@@ -289,7 +289,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
             if (!Socket.OSSupportsIPv4 || !Socket.OSSupportsIPv6)
                 Assert.Inconclusive("Both IPv4 and IPv6 support required to validate dual-stack 'Any' behavior.");
 
-            var input = new List<IPAddress>
+            List<IPAddress> input = new List<IPAddress>
             {
                 IPAddress.Any,
                 IPAddress.IPv6Any
@@ -313,9 +313,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
             if (!Socket.OSSupportsIPv4)
                 Assert.Inconclusive("IPv4 not supported on this platform; skipping deduplication test.");
 
-            var ip = IPAddress.Parse("192.0.2.10"); // TEST-NET-1 address
+            IPAddress ip = IPAddress.Parse("192.0.2.10"); // TEST-NET-1 address
 
-            var input = new List<IPAddress>
+            List<IPAddress> input = new List<IPAddress>
             {
                 ip,
                 ip,
@@ -325,7 +325,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
             IReadOnlyList<IPAddress> result = WebUtilities.GetValidKestrelLocalAddresses(input);
 
             int countOfUnicast = 0;
-            foreach (var addr in result)
+            foreach (IPAddress addr in result)
             {
                 if (addr.Equals(ip))
                     countOfUnicast++;

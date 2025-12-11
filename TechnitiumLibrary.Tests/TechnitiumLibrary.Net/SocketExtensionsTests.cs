@@ -82,15 +82,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public async Task CopyToAsync_ShouldThrowSocketException_WhenDestinationClosesMidSend()
         {
-            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            using TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
 
-            using var client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            using Socket client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             await client.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
 
-            using var server = await listener.AcceptSocketAsync();
+            using Socket server = await listener.AcceptSocketAsync();
 
-            var copyTask = server.CopyToAsync(client);
+            Task copyTask = server.CopyToAsync(client);
 
             // Ensure data reaches read phase
             await server.SendAsync(new byte[] { 1, 2, 3, 4 }, SocketFlags.None);
@@ -101,7 +101,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
             // Force destination break AFTER sending has begun
             client.Close();
 
-            var ex = await Assert.ThrowsExactlyAsync<SocketException>(
+            SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
                 async () => await copyTask,
                 "Closing destination during active send must propagate socket failure.");
 
@@ -110,7 +110,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
 
         private static IPEndPoint InvokeInternal(AddressFamily af)
         {
-            var method = typeof(SocketExtensions).GetMethod(
+            MethodInfo method = typeof(SocketExtensions).GetMethod(
                 "GetEndPointAnyFor", BindingFlags.NonPublic | BindingFlags.Static) ?? throw new MissingMethodException("SocketExtensions.GetEndPointAnyFor was not found.");
             try
             {

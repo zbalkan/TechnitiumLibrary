@@ -16,7 +16,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
         private static Task<(TcpListener listener, int port)> StartListenerAsync()
         {
-            var listener = new TcpListener(IPAddress.Loopback, 0);
+            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             return Task.FromResult((listener, port));
@@ -30,7 +30,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         private static async Task<string> ReadHttpRequestAsync(Socket socket, CancellationToken cancellationToken)
         {
             byte[] buffer = new byte[2048];
-            var builder = new StringBuilder();
+            StringBuilder builder = new StringBuilder();
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -59,10 +59,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectAsync_When200_ReturnsConnectedSocket()
         {
-            var (listener, port) = await StartListenerAsync();
+            (TcpListener listener, int port) = await StartListenerAsync();
 
-            var proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port));
-            var destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 5555);
+            HttpProxy proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port));
+            IPEndPoint destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 5555);
 
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
@@ -99,11 +99,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectAsync_When407_ThrowsAuthenticationFailed()
         {
-            var (listener, port) = await StartListenerAsync();
-            var creds = new NetworkCredential("alice", "secret");
+            (TcpListener listener, int port) = await StartListenerAsync();
+            NetworkCredential creds = new NetworkCredential("alice", "secret");
 
-            var proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port), creds);
-            var destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 8080);
+            HttpProxy proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port), creds);
+            IPEndPoint destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 8080);
 
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
@@ -134,10 +134,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectAsync_When500_ThrowsHttpProxyException()
         {
-            var (listener, port) = await StartListenerAsync();
+            (TcpListener listener, int port) = await StartListenerAsync();
 
-            var proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port));
-            var destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 9090);
+            HttpProxy proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port));
+            IPEndPoint destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 9090);
 
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
@@ -163,10 +163,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectAsync_WhenMalformedResponse_ThrowsHttpProxyException()
         {
-            var (listener, port) = await StartListenerAsync();
+            (TcpListener listener, int port) = await StartListenerAsync();
 
-            var proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port));
-            var destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 8081);
+            HttpProxy proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port));
+            IPEndPoint destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 8081);
 
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
@@ -186,10 +186,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectAsync_WhenZeroByteResponse_ThrowsHttpProxyException()
         {
-            var (listener, port) = await StartListenerAsync();
+            (TcpListener listener, int port) = await StartListenerAsync();
 
-            var proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port));
-            var destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 6060);
+            HttpProxy proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port));
+            IPEndPoint destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 6060);
 
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
@@ -210,13 +210,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectAsync_IncludesBasicAuthHeader_WhenCredentialsProvided()
         {
-            var (listener, port) = await StartListenerAsync();
+            (TcpListener listener, int port) = await StartListenerAsync();
 
-            var creds = new NetworkCredential("userX", "pa$$word");
-            var proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port), creds);
+            NetworkCredential creds = new NetworkCredential("userX", "pa$$word");
+            HttpProxy proxy = new HttpProxy(new IPEndPoint(IPAddress.Loopback, port), creds);
 
             // Use a non-bypassed address
-            var destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 7007);
+            IPEndPoint destination = new IPEndPoint(IPAddress.Parse("192.0.2.1"), 7007);
 
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 

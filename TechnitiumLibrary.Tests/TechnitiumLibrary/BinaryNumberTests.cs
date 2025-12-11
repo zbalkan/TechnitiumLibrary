@@ -17,10 +17,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Constructor_ShouldStoreReferenceValue()
         {
             // GIVEN
-            var raw = Bytes(0xAA, 0xBB);
+            byte[] raw = Bytes(0xAA, 0xBB);
 
             // WHEN
-            var bn = new BinaryNumber(raw);
+            BinaryNumber bn = new BinaryNumber(raw);
 
             // THEN
             CollectionAssert.AreEqual(raw, bn.Value);
@@ -38,7 +38,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
 
             // WHEN
             using BinaryReader br = new(ms);
-            var bn = new BinaryNumber(br);
+            BinaryNumber bn = new BinaryNumber(br);
 
             // THEN
             CollectionAssert.AreEqual(Bytes(0x11, 0x22, 0x33), bn.Value);
@@ -64,12 +64,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Constructor_ShouldThrow_WhenStreamIsUnreadable()
         {
             // GIVEN
-            var unreadableStream = new UnreadableStream();
+            UnreadableStream unreadableStream = new UnreadableStream();
 
             // WHEN + THEN
             Assert.ThrowsExactly<ArgumentException>(() =>
             {
-                using var reader = new BinaryReader(unreadableStream);
+                using BinaryReader reader = new BinaryReader(unreadableStream);
                 _ = new BinaryNumber(reader); // will not be reached
             });
         }
@@ -82,10 +82,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Clone_ShouldReturnNewInstanceWithSameBytes()
         {
             // GIVEN
-            var bn = new BinaryNumber(Bytes(0x10, 0x20));
+            BinaryNumber bn = new BinaryNumber(Bytes(0x10, 0x20));
 
             // WHEN
-            var clone = bn.Clone();
+            BinaryNumber clone = bn.Clone();
 
             // THEN
             Assert.AreNotSame(bn.Value, clone.Value);
@@ -100,10 +100,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Parse_ShouldDecodeHexString()
         {
             // GIVEN
-            var hex = "A1B2C3";
+            string hex = "A1B2C3";
 
             // WHEN
-            var bn = BinaryNumber.Parse(hex);
+            BinaryNumber bn = BinaryNumber.Parse(hex);
 
             // THEN
             CollectionAssert.AreEqual(Bytes(0xA1, 0xB2, 0xC3), bn.Value);
@@ -113,7 +113,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Parse_ShouldThrow_WhenStringContainsInvalidHex()
         {
             // GIVEN
-            var badHex = "XYZ123";
+            string badHex = "XYZ123";
 
             // WHEN + THEN
             Assert.ThrowsExactly<FormatException>(() => BinaryNumber.Parse(badHex));
@@ -185,7 +185,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Equals_ShouldReturnFalse_WhenOtherIsNull()
         {
             // GIVEN
-            var bn = new BinaryNumber(Bytes(1, 2));
+            BinaryNumber bn = new BinaryNumber(Bytes(1, 2));
 
             // WHEN + THEN
             Assert.IsFalse(bn.Equals(null));
@@ -195,7 +195,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void EqualsObject_ShouldReturnFalse_ForIncorrectType()
         {
             // GIVEN
-            var bn = new BinaryNumber(Bytes(1));
+            BinaryNumber bn = new BinaryNumber(Bytes(1));
 
             // WHEN + THEN
             Assert.IsFalse(bn.Equals(new object()));
@@ -204,8 +204,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void Equals_ShouldReturnTrue_ForIdenticalValues()
         {
-            var a = new BinaryNumber(Bytes(0xAA, 0xBB));
-            var b = new BinaryNumber(Bytes(0xAA, 0xBB));
+            BinaryNumber a = new BinaryNumber(Bytes(0xAA, 0xBB));
+            BinaryNumber b = new BinaryNumber(Bytes(0xAA, 0xBB));
 
             Assert.IsTrue(a.Equals(b));
         }
@@ -218,8 +218,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void CompareTo_ShouldThrow_WhenLengthsDiffer()
         {
             // GIVEN
-            var a = new BinaryNumber(Bytes(0x01));
-            var b = new BinaryNumber(Bytes(0x02, 0x03));
+            BinaryNumber a = new BinaryNumber(Bytes(0x01));
+            BinaryNumber b = new BinaryNumber(Bytes(0x02, 0x03));
 
             // WHEN + THEN
             Assert.ThrowsExactly<ArgumentException>(() => a.CompareTo(b));
@@ -228,8 +228,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void CompareTo_ShouldReturnZero_WhenValuesMatch()
         {
-            var a = new BinaryNumber(Bytes(1, 2));
-            var b = new BinaryNumber(Bytes(1, 2));
+            BinaryNumber a = new BinaryNumber(Bytes(1, 2));
+            BinaryNumber b = new BinaryNumber(Bytes(1, 2));
 
             Assert.AreEqual(0, a.CompareTo(b));
         }
@@ -237,8 +237,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void CompareTo_ShouldReturnPositive_WhenAIsGreater()
         {
-            var a = new BinaryNumber(Bytes(0xFF));
-            var b = new BinaryNumber(Bytes(0x00));
+            BinaryNumber a = new BinaryNumber(Bytes(0xFF));
+            BinaryNumber b = new BinaryNumber(Bytes(0x00));
 
             Assert.AreEqual(1, a.CompareTo(b));
         }
@@ -246,8 +246,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void CompareTo_ShouldReturnNegative_WhenAIsSmaller()
         {
-            var a = new BinaryNumber(Bytes(0x00));
-            var b = new BinaryNumber(Bytes(0xFF));
+            BinaryNumber a = new BinaryNumber(Bytes(0x00));
+            BinaryNumber b = new BinaryNumber(Bytes(0xFF));
 
             Assert.AreEqual(-1, a.CompareTo(b));
         }
@@ -259,7 +259,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void OperatorEquality_ShouldBeTrue_ForSameReference()
         {
-            var bn = new BinaryNumber(Bytes(1, 2));
+            BinaryNumber bn = new BinaryNumber(Bytes(1, 2));
 #pragma warning disable CS1718 // Comparison made to same variable
             Assert.IsTrue(bn == bn);
 #pragma warning restore CS1718 // Comparison made to same variable
@@ -268,16 +268,16 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void OperatorInequality_ShouldBeTrue_WhenValuesDiffer()
         {
-            var a = new BinaryNumber(Bytes(1, 2));
-            var b = new BinaryNumber(Bytes(9, 9));
+            BinaryNumber a = new BinaryNumber(Bytes(1, 2));
+            BinaryNumber b = new BinaryNumber(Bytes(9, 9));
             Assert.IsTrue(a != b);
         }
 
         [TestMethod]
         public void OperatorOr_ShouldThrow_WhenLengthsDiffer()
         {
-            var a = new BinaryNumber(Bytes(1));
-            var b = new BinaryNumber(Bytes(1, 2));
+            BinaryNumber a = new BinaryNumber(Bytes(1));
+            BinaryNumber b = new BinaryNumber(Bytes(1, 2));
 
             Assert.ThrowsExactly<ArgumentException>(() => _ = a | b);
         }
@@ -285,10 +285,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void OperatorOr_ShouldReturnCorrectValue()
         {
-            var a = new BinaryNumber(Bytes(0b00001111));
-            var b = new BinaryNumber(Bytes(0b11110000));
+            BinaryNumber a = new BinaryNumber(Bytes(0b00001111));
+            BinaryNumber b = new BinaryNumber(Bytes(0b11110000));
 
-            var result = a | b;
+            BinaryNumber result = a | b;
 
             CollectionAssert.AreEqual(Bytes(0b11111111), result.Value);
         }
@@ -296,10 +296,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void OperatorAnd_ShouldReturnCorrectValue()
         {
-            var a = new BinaryNumber(Bytes(0x0F));
-            var b = new BinaryNumber(Bytes(0xF0));
+            BinaryNumber a = new BinaryNumber(Bytes(0x0F));
+            BinaryNumber b = new BinaryNumber(Bytes(0xF0));
 
-            var result = a & b;
+            BinaryNumber result = a & b;
 
             CollectionAssert.AreEqual(Bytes(0x00), result.Value);
         }
@@ -307,10 +307,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void OperatorXor_ShouldReturnCorrectValue()
         {
-            var a = new BinaryNumber(Bytes(0xAA));
-            var b = new BinaryNumber(Bytes(0xFF));
+            BinaryNumber a = new BinaryNumber(Bytes(0xAA));
+            BinaryNumber b = new BinaryNumber(Bytes(0xFF));
 
-            var result = a ^ b;
+            BinaryNumber result = a ^ b;
 
             CollectionAssert.AreEqual(Bytes(0x55), result.Value);
         }
@@ -318,8 +318,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void OperatorShiftLeft_ShouldShiftBits()
         {
-            var src = new BinaryNumber(Bytes(0b00000001, 0b00000000));
-            var shifted = src << 1;
+            BinaryNumber src = new BinaryNumber(Bytes(0b00000001, 0b00000000));
+            BinaryNumber shifted = src << 1;
 
             CollectionAssert.AreEqual(Bytes(0b00000010, 0b00000000), shifted.Value);
         }
@@ -327,8 +327,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void OperatorShiftRight_ShouldShiftBits()
         {
-            var src = new BinaryNumber(Bytes(0b00000100, 0b00000000));
-            var shifted = src >> 2;
+            BinaryNumber src = new BinaryNumber(Bytes(0b00000100, 0b00000000));
+            BinaryNumber shifted = src >> 2;
 
             CollectionAssert.AreEqual(Bytes(0b00000001, 0b00000000), shifted.Value);
         }
@@ -336,8 +336,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void OperatorNot_ShouldInvertBits()
         {
-            var src = new BinaryNumber(Bytes(0x00, 0xFF));
-            var inv = ~src;
+            BinaryNumber src = new BinaryNumber(Bytes(0x00, 0xFF));
+            BinaryNumber inv = ~src;
 
             CollectionAssert.AreEqual(Bytes(0xFF, 0x00), inv.Value);
         }
@@ -345,8 +345,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void ComparisonOperators_ShouldHonorLexicographicOrder()
         {
-            var a = new BinaryNumber(Bytes(1, 2));
-            var b = new BinaryNumber(Bytes(9, 9));
+            BinaryNumber a = new BinaryNumber(Bytes(1, 2));
+            BinaryNumber b = new BinaryNumber(Bytes(9, 9));
 
             Assert.IsTrue(a < b);
             Assert.IsTrue(b > a);
@@ -357,8 +357,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void ComparisonOperators_ShouldThrow_WhenLengthsDiffer()
         {
-            var a = new BinaryNumber(Bytes(1));
-            var b = new BinaryNumber(Bytes(1, 2));
+            BinaryNumber a = new BinaryNumber(Bytes(1));
+            BinaryNumber b = new BinaryNumber(Bytes(1, 2));
 
             Assert.ThrowsExactly<ArgumentException>(() => _ = a < b);
             Assert.ThrowsExactly<ArgumentException>(() => _ = a > b);
@@ -373,12 +373,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         [TestMethod]
         public void WriteTo_ShouldWritePrefixAndBytes()
         {
-            var bn = new BinaryNumber(Bytes(0x11, 0x22));
+            BinaryNumber bn = new BinaryNumber(Bytes(0x11, 0x22));
             using MemoryStream ms = new();
 
             bn.WriteTo(ms);
 
-            var result = ms.ToArray();
+            byte[] result = ms.ToArray();
             Assert.HasCount(3, result);
             Assert.AreEqual(2, result[0]); // length prefix
             CollectionAssert.AreEqual(Bytes(0x11, 0x22), result[1..]);

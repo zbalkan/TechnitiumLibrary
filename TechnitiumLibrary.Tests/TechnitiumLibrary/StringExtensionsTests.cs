@@ -17,7 +17,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             const string input = "1, 2, 3";
 
             // WHEN
-            var result = input.Split(int.Parse, ',');
+            int[] result = input.Split(int.Parse, ',');
 
             // THEN
             Assert.HasCount(3, result);
@@ -33,7 +33,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             const string input = " 10 ; ; 20 ; 30 ";
 
             // WHEN
-            var result = input.Split(int.Parse, ';');
+            int[] result = input.Split(int.Parse, ';');
 
             // THEN
             Assert.HasCount(3, result);
@@ -71,10 +71,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Join_ShouldReturnCommaSeparatedValues()
         {
             // GIVEN
-            var input = new[] { 1, 2, 3 };
+            int[] input = new[] { 1, 2, 3 };
 
             // WHEN
-            var result = input.Join(',');
+            string result = input.Join(',');
 
             // THEN
             Assert.AreEqual("1, 2, 3", result);
@@ -84,10 +84,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
         public void Join_ShouldReturnNull_WhenCollectionEmpty()
         {
             // GIVEN
-            var input = Array.Empty<int>();
+            int[] input = Array.Empty<int>();
 
             // WHEN
-            var result = input.Join(',');
+            string result = input.Join(',');
 
             // THEN
             Assert.IsNull(result);
@@ -114,7 +114,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             const string input = "0A:FF:01";
 
             // WHEN
-            var result = input.ParseColonHexString();
+            byte[] result = input.ParseColonHexString();
 
             // THEN
             Assert.HasCount(3, result);
@@ -174,7 +174,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             const string input = "FE";
 
             // WHEN
-            var result = input.ParseColonHexString();
+            byte[] result = input.ParseColonHexString();
 
             // THEN
             Assert.HasCount(1, result);

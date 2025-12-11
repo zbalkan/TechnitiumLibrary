@@ -17,7 +17,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Constructor_ShouldAcceptAsciiDomain_AndStorePort()
         {
-            var ep = new DomainEndPoint("example.com", 853);
+            DomainEndPoint ep = new DomainEndPoint("example.com", 853);
 
             Assert.AreEqual("example.com", ep.Address,
                 "Constructor must preserve ASCII domain without alteration.");
@@ -30,7 +30,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Constructor_ShouldNormalizeUnicodeToAscii()
         {
-            var ep = new DomainEndPoint("münich.de", 443);
+            DomainEndPoint ep = new DomainEndPoint("münich.de", 443);
 
             Assert.AreEqual("xn--mnich-kva.de", ep.Address,
                 "Constructor must normalize Unicode domain into IDN ASCII equivalent.");
@@ -46,7 +46,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Constructor_ShouldFailFast_WhenAddressIsNull()
         {
-            var ex = Assert.ThrowsExactly<ArgumentNullException>(
+            ArgumentNullException ex = Assert.ThrowsExactly<ArgumentNullException>(
                 () => _ = new DomainEndPoint(null!, 53),
                 "Null address must be rejected to prevent partially invalid instance.");
 
@@ -65,7 +65,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Constructor_ShouldRejectObviouslyMalformedDomain()
         {
-            var ex = Assert.ThrowsExactly<DnsClientException>(
+            DnsClientException ex = Assert.ThrowsExactly<DnsClientException>(
                 () => _ = new DomainEndPoint("exa mple.com", 853),
                 "Constructor must reject syntactically invalid domain by failing fast through validation-layer exception.");
 
@@ -80,7 +80,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldParseDomainWithoutPort_DefaultPortZero()
         {
-            var ok = DomainEndPoint.TryParse("example.com", out var ep);
+            bool ok = DomainEndPoint.TryParse("example.com", out DomainEndPoint? ep);
 
             Assert.IsTrue(ok, "TryParse must succeed for valid domain without port.");
             Assert.IsNotNull(ep, "Successful TryParse must produce a concrete instance.");
@@ -93,7 +93,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldParseDomainWithPort()
         {
-            var ok = DomainEndPoint.TryParse("example.com:445", out var ep);
+            bool ok = DomainEndPoint.TryParse("example.com:445", out DomainEndPoint? ep);
 
             Assert.IsTrue(ok,
                 "TryParse must succeed for expected domain:port format.");
@@ -104,7 +104,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldNormalizeUnicodeDomain()
         {
-            var ok = DomainEndPoint.TryParse("münich.de:80", out var ep);
+            bool ok = DomainEndPoint.TryParse("münich.de:80", out DomainEndPoint? ep);
 
             Assert.IsTrue(ok, "Valid Unicode domain must be accepted.");
             Assert.AreEqual("xn--mnich-kva.de", ep!.Address,
@@ -118,11 +118,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         {
             const string original = "example.com:853";
 
-            Assert.IsTrue(DomainEndPoint.TryParse(original, out var ep1),
+            Assert.IsTrue(DomainEndPoint.TryParse(original, out DomainEndPoint? ep1),
                 "TryParse must succeed on valid input.");
 
-            var serialized = ep1!.ToString();
-            Assert.IsTrue(DomainEndPoint.TryParse(serialized, out var ep2),
+            string serialized = ep1!.ToString();
+            Assert.IsTrue(DomainEndPoint.TryParse(serialized, out DomainEndPoint? ep2),
                 "Re-parsing output must succeed.");
 
             Assert.AreEqual(ep1.Address, ep2!.Address,
@@ -139,7 +139,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldFail_WhenInputIsNull()
         {
-            var ok = DomainEndPoint.TryParse(null, out var ep);
+            bool ok = DomainEndPoint.TryParse(null, out DomainEndPoint? ep);
 
             Assert.IsFalse(ok, "Null value cannot represent valid domain endpoint.");
             Assert.IsNull(ep, "Endpoint must remain null when parsing fails.");
@@ -148,7 +148,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldFail_WhenEmptyString()
         {
-            var ok = DomainEndPoint.TryParse("", out var ep);
+            bool ok = DomainEndPoint.TryParse("", out DomainEndPoint? ep);
 
             Assert.IsFalse(ok, "Empty string cannot represent valid domain endpoint.");
             Assert.IsNull(ep, "Endpoint must remain null when parsing fails.");
@@ -157,7 +157,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldFail_WhenWhitespaceOnly()
         {
-            var ok = DomainEndPoint.TryParse("    ", out var ep);
+            bool ok = DomainEndPoint.TryParse("    ", out DomainEndPoint? ep);
 
             Assert.IsFalse(ok, "Whitespace-only input cannot represent valid domain endpoint.");
             Assert.IsNull(ep, "Result object must remain null on failure.");
@@ -166,7 +166,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldFail_WhenTooManyColons()
         {
-            var ok = DomainEndPoint.TryParse("a:b:c", out var ep);
+            bool ok = DomainEndPoint.TryParse("a:b:c", out DomainEndPoint? ep);
 
             Assert.IsFalse(ok, "Multiple separators violate predictable domain:port format.");
             Assert.IsNull(ep, "Endpoint must remain null to avoid partially valid identity.");
@@ -175,7 +175,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldFail_WhenDomainIsIPAddress()
         {
-            var ok = DomainEndPoint.TryParse("127.0.0.1:81", out var ep);
+            bool ok = DomainEndPoint.TryParse("127.0.0.1:81", out DomainEndPoint? ep);
 
             Assert.IsFalse(ok, "IP literal parsing must be rejected consistently.");
             Assert.IsNull(ep, "Null endpoint is required defensive failure output.");
@@ -184,7 +184,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldFail_WhenNonNumericPort()
         {
-            var ok = DomainEndPoint.TryParse("example.com:abc", out var ep);
+            bool ok = DomainEndPoint.TryParse("example.com:abc", out DomainEndPoint? ep);
 
             Assert.IsFalse(ok, "Port must parse strictly as numeric.");
             Assert.IsNull(ep, "Failure scenario must not yield partially created endpoint.");
@@ -193,7 +193,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldFail_WhenPortOutOfRange()
         {
-            var ok = DomainEndPoint.TryParse("example.com:70000", out var ep);
+            bool ok = DomainEndPoint.TryParse("example.com:70000", out DomainEndPoint? ep);
 
             Assert.IsFalse(ok, "Ports exceeding UInt16 range cannot be treated as valid.");
             Assert.IsNull(ep, "No endpoint must be generated.");
@@ -202,7 +202,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldFail_WhenDomainContainsSpaces()
         {
-            var ok = DomainEndPoint.TryParse("exa mple.com:53", out var ep);
+            bool ok = DomainEndPoint.TryParse("exa mple.com:53", out DomainEndPoint? ep);
 
             Assert.IsFalse(ok, "Invalid domain format must not succeed.");
             Assert.IsNull(ep, "Endpoint must remain null upon failure.");
@@ -216,10 +216,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void GetAddressBytes_MustReturnLengthPrefixedAsciiBytes()
         {
-            var ep = new DomainEndPoint("example.com", 80);
-            var result = ep.GetAddressBytes();
+            DomainEndPoint ep = new DomainEndPoint("example.com", 80);
+            byte[] result = ep.GetAddressBytes();
 
-            var ascii = Encoding.ASCII.GetBytes("example.com");
+            byte[] ascii = Encoding.ASCII.GetBytes("example.com");
 
             Assert.AreEqual(ascii.Length, result[0],
                 "Length prefix must exactly match ASCII length of the address.");
@@ -233,12 +233,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void GetAddressBytes_MustReturnIndependentBuffers()
         {
-            var ep = new DomainEndPoint("example.com", 80);
+            DomainEndPoint ep = new DomainEndPoint("example.com", 80);
 
-            var a = ep.GetAddressBytes();
+            byte[] a = ep.GetAddressBytes();
             a[1] ^= 0xFF;
 
-            var b = ep.GetAddressBytes();
+            byte[] b = ep.GetAddressBytes();
 
             Assert.AreNotEqual(a[1], b[1],
                 "Returned byte arrays must not expose internal mutable buffers.");
@@ -252,9 +252,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Equals_MustBeCaseInsensitiveForDomain_AndStrictOnPort()
         {
-            var ep1 = new DomainEndPoint("Example.com", 443);
-            var ep2 = new DomainEndPoint("example.com", 443);
-            var ep3 = new DomainEndPoint("example.com", 853);
+            DomainEndPoint ep1 = new DomainEndPoint("Example.com", 443);
+            DomainEndPoint ep2 = new DomainEndPoint("example.com", 443);
+            DomainEndPoint ep3 = new DomainEndPoint("example.com", 853);
 
             Assert.IsTrue(ep1.Equals(ep2),
                 "Domain equality must ignore case differences.");
@@ -265,10 +265,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void GetHashCode_MustBeStableAcrossRepeatedCalls()
         {
-            var ep = new DomainEndPoint("example.com", 443);
+            DomainEndPoint ep = new DomainEndPoint("example.com", 443);
 
-            var h1 = ep.GetHashCode();
-            var h2 = ep.GetHashCode();
+            int h1 = ep.GetHashCode();
+            int h2 = ep.GetHashCode();
 
             Assert.AreEqual(h1, h2,
                 "Hash code must remain stable to support predictable dictionary usage.");
@@ -277,7 +277,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Equals_MustReturnFalse_ForDifferentTypeAndNull()
         {
-            var ep = new DomainEndPoint("example.com", 80);
+            DomainEndPoint ep = new DomainEndPoint("example.com", 80);
 
             Assert.IsFalse(ep.Equals(null),
                 "Comparing against null must never produce equality.");
@@ -293,7 +293,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Address_Setter_MustNotCorruptUnrelatedState()
         {
-            var ep = new DomainEndPoint("example.com", 53);
+            DomainEndPoint ep = new DomainEndPoint("example.com", 53);
 
             ep.Address = "192.168.9.10";
 
@@ -306,7 +306,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Port_Setter_MustAllowCallerProvidedValueAsIs()
         {
-            var ep = new DomainEndPoint("example.com", 53);
+            DomainEndPoint ep = new DomainEndPoint("example.com", 53);
 
             ep.Port = -1;
 

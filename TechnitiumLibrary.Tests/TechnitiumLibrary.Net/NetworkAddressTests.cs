@@ -12,7 +12,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Constructor_ShouldNormalizeToNetworkBoundary_IPv4()
         {
-            var addr = new NetworkAddress(IPAddress.Parse("10.1.2.99"), 24);
+            NetworkAddress addr = new NetworkAddress(IPAddress.Parse("10.1.2.99"), 24);
 
             Assert.AreEqual("10.1.2.0", addr.Address.ToString(),
                 "NetworkAddress constructor must mask host bits.");
@@ -22,7 +22,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Constructor_ShouldNormalizeToNetworkBoundary_IPv6()
         {
-            var addr = new NetworkAddress(IPAddress.Parse("2001:db8::1234"), 64);
+            NetworkAddress addr = new NetworkAddress(IPAddress.Parse("2001:db8::1234"), 64);
 
             Assert.AreEqual("2001:db8::", addr.Address.ToString(),
                 "NetworkAddress must enforce network mask.");
@@ -48,7 +48,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Parse_ShouldSupportNoPrefix_IPv4_DefaultsTo32Bits()
         {
-            var n = NetworkAddress.Parse("8.8.8.8");
+            NetworkAddress n = NetworkAddress.Parse("8.8.8.8");
 
             Assert.AreEqual("8.8.8.8", n.Address.ToString());
             Assert.AreEqual((byte)32, n.PrefixLength);
@@ -58,7 +58,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Parse_ShouldSupportPrefix_IPv4()
         {
-            var n = NetworkAddress.Parse("10.0.0.123/8");
+            NetworkAddress n = NetworkAddress.Parse("10.0.0.123/8");
 
             Assert.AreEqual("10.0.0.0", n.Address.ToString());
             Assert.AreEqual((byte)8, n.PrefixLength);
@@ -83,7 +83,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void TryParse_ShouldReturnFalse_OnMalformedInput()
         {
-            bool ok = NetworkAddress.TryParse("hello", out var result);
+            bool ok = NetworkAddress.TryParse("hello", out NetworkAddress? result);
 
             Assert.IsFalse(ok);
             Assert.IsNull(result);
@@ -92,7 +92,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Contains_ShouldReturnTrue_ForMatchingAddress()
         {
-            var net = new NetworkAddress(IPAddress.Parse("192.168.10.0"), 24);
+            NetworkAddress net = new NetworkAddress(IPAddress.Parse("192.168.10.0"), 24);
 
             Assert.IsTrue(net.Contains(IPAddress.Parse("192.168.10.55")));
         }
@@ -100,7 +100,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Contains_ShouldReturnFalse_ForDifferentNetwork()
         {
-            var net = new NetworkAddress(IPAddress.Parse("192.168.10.0"), 24);
+            NetworkAddress net = new NetworkAddress(IPAddress.Parse("192.168.10.0"), 24);
 
             Assert.IsFalse(net.Contains(IPAddress.Parse("192.168.11.1")));
         }
@@ -108,7 +108,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Contains_ShouldReturnFalse_WhenAddressFamilyDiffers()
         {
-            var net = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 8);
+            NetworkAddress net = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 8);
 
             Assert.IsFalse(net.Contains(IPAddress.IPv6Loopback));
         }
@@ -116,20 +116,20 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void GetLastAddress_ShouldReturnBroadcastIPv4()
         {
-            var net = new NetworkAddress(IPAddress.Parse("192.168.50.0"), 24);
+            NetworkAddress net = new NetworkAddress(IPAddress.Parse("192.168.50.0"), 24);
 
-            var last = net.GetLastAddress();
+            IPAddress last = net.GetLastAddress();
 
             Assert.AreEqual("192.168.50.255", last.ToString());
         }
         [TestMethod]
         public void GetLastAddress_ShouldReturnBroadcastIPv6()
         {
-            var net = new NetworkAddress(IPAddress.Parse("2001:db8::"), 64);
+            NetworkAddress net = new NetworkAddress(IPAddress.Parse("2001:db8::"), 64);
 
-            var last = net.GetLastAddress();
+            IPAddress last = net.GetLastAddress();
 
-            var expected = IPAddress.Parse("2001:db8:0:0:ffff:ffff:ffff:ffff");
+            IPAddress expected = IPAddress.Parse("2001:db8:0:0:ffff:ffff:ffff:ffff");
 
             Assert.AreEqual(expected, last,
                 "Last IPv6 address must have all host bits set.");
@@ -138,7 +138,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void ToString_ShouldOmitPrefix_WhenHostAddressIPv4()
         {
-            var net = new NetworkAddress(IPAddress.Parse("9.9.9.9"), 32);
+            NetworkAddress net = new NetworkAddress(IPAddress.Parse("9.9.9.9"), 32);
 
             Assert.AreEqual("9.9.9.9", net.ToString(),
                 "Full host prefix must not show /32");
@@ -147,7 +147,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void ToString_ShouldIncludePrefix_WhenNotHostIPv4()
         {
-            var net = new NetworkAddress(IPAddress.Parse("9.9.9.0"), 24);
+            NetworkAddress net = new NetworkAddress(IPAddress.Parse("9.9.9.0"), 24);
 
             Assert.AreEqual("9.9.9.0/24", net.ToString());
         }
@@ -155,7 +155,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void ToString_ShouldOmitPrefix_WhenHostAddressIPv6()
         {
-            var net = new NetworkAddress(IPAddress.Parse("2001::1"), 128);
+            NetworkAddress net = new NetworkAddress(IPAddress.Parse("2001::1"), 128);
 
             Assert.AreEqual("2001::1", net.ToString());
         }
@@ -163,16 +163,16 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Roundtrip_BinarySerialization_Works()
         {
-            var original = new NetworkAddress(IPAddress.Parse("10.20.30.40"), 20);
+            NetworkAddress original = new NetworkAddress(IPAddress.Parse("10.20.30.40"), 20);
 
-            using var ms = new MemoryStream();
-            using (var bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+            using MemoryStream ms = new MemoryStream();
+            using (BinaryWriter bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
                 original.WriteTo(bw);
 
             ms.Position = 0;
 
-            using var br = new BinaryReader(ms);
-            var roundtrip = NetworkAddress.ReadFrom(br);
+            using BinaryReader br = new BinaryReader(ms);
+            NetworkAddress roundtrip = NetworkAddress.ReadFrom(br);
 
             Assert.AreEqual(original, roundtrip);
         }
@@ -180,8 +180,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Equals_ShouldReturnTrue_ForSameValue()
         {
-            var a = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 8);
-            var b = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 8);
+            NetworkAddress a = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 8);
+            NetworkAddress b = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 8);
 
             Assert.IsTrue(a.Equals(b));
             Assert.AreEqual(a.GetHashCode(), b.GetHashCode());
@@ -190,8 +190,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Equals_ShouldReturnFalse_WhenPrefixDiffers()
         {
-            var a = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 8);
-            var b = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 16);
+            NetworkAddress a = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 8);
+            NetworkAddress b = new NetworkAddress(IPAddress.Parse("10.0.0.0"), 16);
 
             Assert.IsFalse(a.Equals(b));
         }
@@ -199,8 +199,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         [TestMethod]
         public void Equals_ShouldReturnFalse_WhenAddressDiffers()
         {
-            var a = new NetworkAddress(IPAddress.Parse("192.168.0.0"), 24);
-            var b = new NetworkAddress(IPAddress.Parse("192.168.1.0"), 24);
+            NetworkAddress a = new NetworkAddress(IPAddress.Parse("192.168.0.0"), 24);
+            NetworkAddress b = new NetworkAddress(IPAddress.Parse("192.168.1.0"), 24);
 
             Assert.IsFalse(a.Equals(b));
         }

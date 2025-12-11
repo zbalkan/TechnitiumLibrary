@@ -24,11 +24,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Constructor_ShouldStoreStreams()
         {
             // GIVEN
-            var s1 = new MemoryStream();
-            var s2 = new MemoryStream();
+            MemoryStream s1 = new MemoryStream();
+            MemoryStream s2 = new MemoryStream();
 
             // WHEN
-            var joint = new Joint(s1, s2);
+            Joint joint = new Joint(s1, s2);
 
             // THEN
             Assert.AreSame(s1, joint.Stream1);
@@ -43,17 +43,17 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task Start_ShouldCopyData_FromStream1ToStream2()
         {
             // GIVEN
-            var sourceData = new byte[] { 1, 2, 3, 4 };
-            using var s1 = new MemoryStream(sourceData);
-            using var s2 = new MemoryStream();
-            using var joint = new Joint(s1, s2);
+            byte[] sourceData = new byte[] { 1, 2, 3, 4 };
+            using MemoryStream s1 = new MemoryStream(sourceData);
+            using MemoryStream s2 = new MemoryStream();
+            using Joint joint = new Joint(s1, s2);
 
             // WHEN
             joint.Start();
             await WaitForCopyCompletion();
 
             // THEN
-            var result = s2.ToArray();
+            byte[] result = s2.ToArray();
             CollectionAssert.AreEqual(sourceData, result);
         }
 
@@ -61,17 +61,17 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task Start_ShouldCopyData_FromStream2ToStream1()
         {
             // GIVEN
-            var sourceData = new byte[] { 7, 8, 9 };
-            using var s1 = new MemoryStream();
-            using var s2 = new MemoryStream(sourceData);
-            using var joint = new Joint(s1, s2);
+            byte[] sourceData = new byte[] { 7, 8, 9 };
+            using MemoryStream s1 = new MemoryStream();
+            using MemoryStream s2 = new MemoryStream(sourceData);
+            using Joint joint = new Joint(s1, s2);
 
             // WHEN
             joint.Start();
             await WaitForCopyCompletion();
 
             // THEN
-            var result = s1.ToArray();
+            byte[] result = s1.ToArray();
             CollectionAssert.AreEqual(sourceData, result);
         }
 
@@ -83,17 +83,17 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task Start_ShouldSupportEmptyStreams()
         {
             // GIVEN
-            using var s1 = new MemoryStream();
-            using var s2 = new MemoryStream();
-            using var joint = new Joint(s1, s2);
+            using MemoryStream s1 = new MemoryStream();
+            using MemoryStream s2 = new MemoryStream();
+            using Joint joint = new Joint(s1, s2);
 
             // WHEN
             joint.Start();
             await WaitForCopyCompletion();
 
             // THEN
-            var buff1 = s1.ToArray();
-            var buff2 = s2.ToArray();
+            byte[] buff1 = s1.ToArray();
+            byte[] buff2 = s2.ToArray();
 
             CollectionAssert.AreEqual(Array.Empty<byte>(), buff1);
             CollectionAssert.AreEqual(Array.Empty<byte>(), buff2);
@@ -107,26 +107,26 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task Dispose_ShouldCloseStreams()
         {
             // GIVEN
-            var s1 = new MemoryStream(new byte[] { 10 });
-            var s2 = new MemoryStream(new byte[] { 20 });
-            var joint = new Joint(s1, s2);
+            MemoryStream s1 = new MemoryStream(new byte[] { 10 });
+            MemoryStream s2 = new MemoryStream(new byte[] { 20 });
+            Joint joint = new Joint(s1, s2);
 
             // WHEN
             joint.Dispose();
             await WaitForCopyCompletion();
 
             // THEN
-            Assert.ThrowsExactly<ObjectDisposedException>(() => { var _ = s1.Length; });
-            Assert.ThrowsExactly<ObjectDisposedException>(() => { var _ = s2.Length; });
+            Assert.ThrowsExactly<ObjectDisposedException>(() => { long _ = s1.Length; });
+            Assert.ThrowsExactly<ObjectDisposedException>(() => { long _ = s2.Length; });
         }
 
         [TestMethod]
         public void Dispose_ShouldBeIdempotent()
         {
             // GIVEN
-            var s1 = new MemoryStream();
-            var s2 = new MemoryStream();
-            var joint = new Joint(s1, s2);
+            MemoryStream s1 = new MemoryStream();
+            MemoryStream s2 = new MemoryStream();
+            Joint joint = new Joint(s1, s2);
 
             // WHEN
             joint.Dispose();
@@ -145,9 +145,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public void Dispose_ShouldRaiseDisposingEvent()
         {
             // GIVEN
-            using var s1 = new MemoryStream();
-            using var s2 = new MemoryStream();
-            var joint = new Joint(s1, s2);
+            using MemoryStream s1 = new MemoryStream();
+            using MemoryStream s2 = new MemoryStream();
+            Joint joint = new Joint(s1, s2);
 
             bool raised = false;
             joint.Disposing += (_, __) => raised = true;
@@ -167,10 +167,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         public async Task Start_ShouldDisposeOnce_WhenBothDirectionsComplete()
         {
             // GIVEN
-            using var s1 = new MemoryStream(new byte[] { 1 });
-            using var s2 = new MemoryStream(new byte[] { 2 });
+            using MemoryStream s1 = new MemoryStream(new byte[] { 1 });
+            using MemoryStream s2 = new MemoryStream(new byte[] { 2 });
 
-            using var joint = new Joint(s1, s2);
+            using Joint joint = new Joint(s1, s2);
 
             int disposedCount = 0;
             joint.Disposing += (_, __) => disposedCount++;

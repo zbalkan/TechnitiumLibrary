@@ -28,8 +28,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         /// </summary>
         private static byte[] CreateMinimalItem()
         {
-            using var ms = new MemoryStream();
-            using var writer = new BinaryWriter(ms);
+            using MemoryStream ms = new MemoryStream();
+            using BinaryWriter writer = new BinaryWriter(ms);
 
             // Write NAME field (short)
             writer.Write((byte)1);          // length
@@ -50,8 +50,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
         private static void WriteItem(Stream stream)
         {
-            using var data = new MemoryStream(); // empty payload
-            using var item = new PackageItem("A", data);
+            using MemoryStream data = new MemoryStream(); // empty payload
+            using PackageItem item = new PackageItem("A", data);
 
             item.WriteTo(stream);
         }
@@ -65,14 +65,14 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Constructor_ShouldWriteHeader_WhenCreating()
         {
-            using var backing = CreateWritableStream();
+            using MemoryStream backing = CreateWritableStream();
 
-            using (var pkg = new Package(backing, PackageMode.Create))
+            using (Package pkg = new Package(backing, PackageMode.Create))
             {
                 pkg.Close();
             }
 
-            var data = backing.ToArray();
+            byte[] data = backing.ToArray();
 
             Assert.IsGreaterThanOrEqualTo(3, data.Length);
             Assert.AreEqual("TP", Encoding.ASCII.GetString(data[..2]));
@@ -82,10 +82,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Constructor_ShouldReadExisting_WhenOpening()
         {
-            var bytes = BuildEmptyPackageFile();
-            using var backing = new MemoryStream(bytes);
+            byte[] bytes = BuildEmptyPackageFile();
+            using MemoryStream backing = new MemoryStream(bytes);
 
-            using var pkg = new Package(backing, PackageMode.Open);
+            using Package pkg = new Package(backing, PackageMode.Open);
 
             Assert.IsEmpty(pkg.Items);
         }
@@ -93,7 +93,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Constructor_ShouldThrow_WhenInvalidHeader()
         {
-            using var backing = new MemoryStream("XY"u8.ToArray());
+            using MemoryStream backing = new MemoryStream("XY"u8.ToArray());
 
             Assert.ThrowsExactly<IOException>(() =>
                 new Package(backing, PackageMode.Open));
@@ -106,8 +106,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void AddItem_ShouldThrow_WhenNotInCreateMode()
         {
-            using var backing = new MemoryStream(BuildEmptyPackageFile());
-            using var pkg = new Package(backing, PackageMode.Open);
+            using MemoryStream backing = new MemoryStream(BuildEmptyPackageFile());
+            using Package pkg = new Package(backing, PackageMode.Open);
 
             Assert.ThrowsExactly<IOException>(() =>
             {
@@ -119,12 +119,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Items_ShouldThrow_WhenNotInOpenMode()
         {
-            using var backing = CreateWritableStream();
-            using var pkg = new Package(backing, PackageMode.Create);
+            using MemoryStream backing = CreateWritableStream();
+            using Package pkg = new Package(backing, PackageMode.Create);
 
             Assert.ThrowsExactly<IOException>(() =>
             {
-                var _ = pkg.Items;
+                System.Collections.ObjectModel.ReadOnlyCollection<PackageItem> _ = pkg.Items;
             });
         }
 
@@ -135,10 +135,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void WriteAndRead_ShouldReturnSameItems()
         {
-            using var backing = CreateWritableStream();
+            using MemoryStream backing = CreateWritableStream();
 
             // Write
-            using (var pkg = new Package(backing, PackageMode.Create))
+            using (Package pkg = new Package(backing, PackageMode.Create))
             {
                 WriteItem(backing);
                 pkg.Close();
@@ -146,7 +146,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
             // Reopen
             backing.Position = 0;
-            using var pkg2 = new Package(backing, PackageMode.Open);
+            using Package pkg2 = new Package(backing, PackageMode.Open);
 
             Assert.HasCount(1, pkg2.Items);
         }
@@ -154,13 +154,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Close_ShouldWriteEOF_Once()
         {
-            using var backing = CreateWritableStream();
-            using var pkg = new Package(backing, PackageMode.Create);
+            using MemoryStream backing = CreateWritableStream();
+            using Package pkg = new Package(backing, PackageMode.Create);
             WriteItem(backing);
             pkg.Close();
-            var len1 = backing.Length;
+            long len1 = backing.Length;
             pkg.Close();
-            var len2 = backing.Length;
+            long len2 = backing.Length;
             Assert.AreEqual(len1, len2);
         }
 
@@ -175,7 +175,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
             string tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 
             // create file exclusively before passing to Package
-            using (var fs = new FileStream(
+            using (FileStream fs = new FileStream(
                 tempFile,
                 FileMode.CreateNew,          // guarantees file does not exist
                 FileAccess.ReadWrite,
@@ -186,10 +186,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
 
             try
             {
-                using (var pkg = new Package(tempFile, PackageMode.Create))
+                using (Package pkg = new Package(tempFile, PackageMode.Create))
                     pkg.Close(); // Close → flush EOF marker → close underlying stream
 
-                using var fs = new FileStream(tempFile, FileMode.Open, FileAccess.Read);
+                using FileStream fs = new FileStream(tempFile, FileMode.Open, FileAccess.Read);
                 Assert.IsGreaterThanOrEqualTo(3, fs.Length);
             }
             finally
@@ -202,8 +202,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void Dispose_ShouldNotCloseExternalStream()
         {
-            using var backing = CreateWritableStream();
-            using (var pkg = new Package(backing, PackageMode.Create, ownsStream: false))
+            using MemoryStream backing = CreateWritableStream();
+            using (Package pkg = new Package(backing, PackageMode.Create, ownsStream: false))
                 pkg.Close();
 
             // external stream still usable
@@ -218,7 +218,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void ShouldThrow_WhenMissingVersion()
         {
-            using var backing = new MemoryStream("TP"u8.ToArray());
+            using MemoryStream backing = new MemoryStream("TP"u8.ToArray());
 
             Assert.ThrowsExactly<EndOfStreamException>(() =>
                 new Package(backing, PackageMode.Open));
@@ -227,12 +227,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
         [TestMethod]
         public void ShouldThrow_WhenUnsupportedVersion()
         {
-            var bytes = "TP"u8.ToArray()
+            byte[] bytes = "TP"u8.ToArray()
                 .Concat("*"u8.ToArray()) // bogus version
                 .Concat(new byte[] { 0 })
                 .ToArray();
 
-            using var backing = new MemoryStream(bytes);
+            using MemoryStream backing = new MemoryStream(bytes);
 
             Assert.ThrowsExactly<IOException>(() =>
                 new Package(backing, PackageMode.Open));
