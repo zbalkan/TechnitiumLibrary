@@ -14,222 +14,307 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
     {
         public TestContext TestContext { get; set; }
 
-        private sealed class FakeConnectionManager : IProxyServerConnectionManager, IDisposable
-        {
-            readonly AddressFamily _family;
+        private static readonly EndPoint DummyConnectivityEndPoint =
+            new IPEndPoint(IPAddress.Loopback, 80);
 
-            public string Name { get; }
-            public int RequestConnectCalls { get; private set; }
-            public int ConnectivityCheckCalls { get; private set; }
-            public EndPoint? LastRequestRemoteEndPoint { get; private set; }
-
-            Socket? _requestSocket;
-
-            public FakeConnectionManager(string name, AddressFamily family)
-            {
-                Name = name;
-                _family = family;
-            }
-
-            public Task<Socket> ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken = default)
-            {
-                // Heuristic: connectivity checks use DomainEndPoint or similar; real requests use IPEndPoint.
-                if (remoteEP is IPEndPoint)
-                {
-                    RequestConnectCalls++;
-                    LastRequestRemoteEndPoint = remoteEP;
-                    _requestSocket ??= new Socket(_family, SocketType.Stream, ProtocolType.Tcp);
-                    return Task.FromResult(_requestSocket);
-                }
-
-                ConnectivityCheckCalls++;
-
-                Socket s = new Socket(_family, SocketType.Stream, ProtocolType.Tcp);
-                return Task.FromResult(s);
-            }
-
-            public Task<IProxyServerBindHandler> GetBindHandlerAsync(AddressFamily family)
-            {
-                throw new NotSupportedException("Bind handler is not required in FakeConnectionManager tests.");
-            }
-
-            public Task<IProxyServerUdpAssociateHandler> GetUdpAssociateHandlerAsync(EndPoint localEP)
-            {
-                throw new NotSupportedException("UDP handler is not required in FakeConnectionManager tests.");
-            }
-
-            public void Dispose()
-            {
-                try
-                {
-                    _requestSocket?.Dispose();
-                }
-                catch
-                {
-                    // Ignore cleanup errors in test fake.
-                }
-            }
-        }
+        #region tests – ConnectAsync
 
         [TestMethod]
-        public async Task ConnectAsync_WithIpv4Endpoint_UsesIpv4ConnectionManager()
+        public async Task ConnectAsync_WithIPv4Endpoint_UsesIPv4ConnectionManager()
         {
-            using FakeConnectionManager ipv4Manager = new FakeConnectionManager("ipv4", AddressFamily.InterNetwork);
-            using FakeConnectionManager ipv6Manager = new FakeConnectionManager("ipv6", AddressFamily.InterNetworkV6);
+            var ipv4Manager = new FakeConnectionManager(AddressFamily.InterNetwork);
+            var ipv6Manager = new FakeConnectionManager(AddressFamily.InterNetworkV6);
 
-            using LoadBalancingProxyServerConnectionManager lb = new LoadBalancingProxyServerConnectionManager(
+            using var manager = new LoadBalancingProxyServerConnectionManager(
                 new[] { ipv4Manager },
-                new[] { ipv6Manager });
+                new[] { ipv6Manager },
+                new[] { DummyConnectivityEndPoint });
 
-            IPEndPoint remote = new IPEndPoint(IPAddress.Loopback, 12345);
+            var target = new IPEndPoint(IPAddress.Loopback, 12345);
 
-            Socket result = await lb.ConnectAsync(remote, TestContext.CancellationToken);
+            using Socket socket = await manager.ConnectAsync(target, TestContext.CancellationToken);
 
             Assert.AreEqual(
                 1,
-                ipv4Manager.RequestConnectCalls,
-                "IPv4 endpoint must be delegated exactly once to an IPv4 connection manager.");
+                ipv4Manager.ConnectCallCount,
+                "IPv4 endpoint must be delegated to an IPv4 connection manager.");
+
             Assert.AreEqual(
                 0,
-                ipv6Manager.RequestConnectCalls,
+                ipv6Manager.ConnectCallCount,
                 "IPv6 connection manager must not be used for IPv4 endpoints.");
 
-            Assert.IsNotNull(result, "ConnectAsync must return a non-null Socket instance.");
+            Assert.AreEqual(
+                target,
+                ipv4Manager.LastRemoteEndPoint,
+                "IPv4 manager must see the exact remote endpoint passed to ConnectAsync.");
 
-            result.Dispose();
+            Assert.AreEqual(
+                AddressFamily.InterNetwork,
+                socket.AddressFamily,
+                "Returned socket family must match the selected IPv4 manager.");
         }
 
         [TestMethod]
-        public async Task ConnectAsync_WithIpv6Endpoint_UsesIpv6ConnectionManager()
+        public async Task ConnectAsync_WithIPv6Endpoint_UsesIPv6ConnectionManager_IfSupported()
         {
-            using FakeConnectionManager ipv4Manager = new FakeConnectionManager("ipv4", AddressFamily.InterNetwork);
-            using FakeConnectionManager ipv6Manager = new FakeConnectionManager("ipv6", AddressFamily.InterNetworkV6);
+            if (!Socket.OSSupportsIPv6)
+            {
+                Assert.Inconclusive("IPv6 is not supported on this system.");
+                return;
+            }
 
-            using LoadBalancingProxyServerConnectionManager lb = new LoadBalancingProxyServerConnectionManager(
+            var ipv4Manager = new FakeConnectionManager(AddressFamily.InterNetwork);
+            var ipv6Manager = new FakeConnectionManager(AddressFamily.InterNetworkV6);
+
+            using var manager = new LoadBalancingProxyServerConnectionManager(
                 new[] { ipv4Manager },
-                new[] { ipv6Manager });
+                new[] { ipv6Manager },
+                new[] { DummyConnectivityEndPoint });
 
-            IPEndPoint remote = new IPEndPoint(IPAddress.IPv6Loopback, 23456);
+            var target = new IPEndPoint(IPAddress.IPv6Loopback, 12345);
 
-            Socket result = await lb.ConnectAsync(remote, TestContext.CancellationToken);
+            using Socket socket = await manager.ConnectAsync(target, TestContext.CancellationToken);
 
             Assert.AreEqual(
                 0,
-                ipv4Manager.RequestConnectCalls,
+                ipv4Manager.ConnectCallCount,
                 "IPv4 connection manager must not be used for IPv6 endpoints.");
+
             Assert.AreEqual(
                 1,
-                ipv6Manager.RequestConnectCalls,
-                "IPv6 endpoint must be delegated exactly once to an IPv6 connection manager.");
+                ipv6Manager.ConnectCallCount,
+                "IPv6 endpoint must be delegated to an IPv6 connection manager.");
 
-            Assert.IsNotNull(result, "ConnectAsync must return a non-null Socket instance.");
+            Assert.AreEqual(
+                target,
+                ipv6Manager.LastRemoteEndPoint,
+                "IPv6 manager must see the exact remote endpoint passed to ConnectAsync.");
 
-            result.Dispose();
+            Assert.AreEqual(
+                AddressFamily.InterNetworkV6,
+                socket.AddressFamily,
+                "Returned socket family must match the selected IPv6 manager.");
         }
 
         [TestMethod]
-        public async Task ConnectAsync_WithNoManagersAndIpv4Endpoint_ThrowsNetworkUnreachable()
+        public async Task ConnectAsync_WithUnspecifiedDomain_BothFamiliesAvailable_UsesOneFamilyConsistently()
         {
-            using LoadBalancingProxyServerConnectionManager lb = new LoadBalancingProxyServerConnectionManager(
-                Array.Empty<IProxyServerConnectionManager>(),
-                Array.Empty<IProxyServerConnectionManager>());
+            var ipv4Manager = new FakeConnectionManager(AddressFamily.InterNetwork);
+            var ipv6Manager = new FakeConnectionManager(AddressFamily.InterNetworkV6);
 
-            IPEndPoint remote = new IPEndPoint(IPAddress.Loopback, 34567);
+            using var manager = new LoadBalancingProxyServerConnectionManager(
+                new[] { ipv4Manager },
+                new[] { ipv6Manager },
+                new[] { DummyConnectivityEndPoint });
+
+            // DomainEndPoint with AddressFamily.Unspecified – will be resolved by GetIPEndPointAsync.
+            var domain = new DomainEndPoint("localhost", 443);
+
+            using Socket socket = await manager.ConnectAsync(domain, TestContext.CancellationToken);
+
+            int totalCalls = ipv4Manager.ConnectCallCount + ipv6Manager.ConnectCallCount;
+
+            Assert.AreEqual(
+                1,
+                totalCalls,
+                "Exactly one underlying connection manager must be used per ConnectAsync call.");
+
+            FakeConnectionManager chosen =
+                ipv4Manager.ConnectCallCount == 1 ? ipv4Manager : ipv6Manager;
+
+            Assert.IsNotNull(
+                chosen.LastRemoteEndPoint,
+                "Chosen manager must receive a resolved IPEndPoint.");
+
+            Assert.IsInstanceOfType(
+                chosen.LastRemoteEndPoint,
+                typeof(IPEndPoint),
+                "Unspecified domain endpoint must be resolved to an IPEndPoint.");
+
+            var resolved = (IPEndPoint)chosen.LastRemoteEndPoint!;
+            Assert.AreEqual(
+                chosen.Family,
+                resolved.AddressFamily,
+                "Resolved endpoint family must match the chosen manager family.");
+
+            Assert.AreEqual(
+                chosen.Family,
+                socket.AddressFamily,
+                "Returned socket family must match the chosen manager family.");
+        }
+
+        [TestMethod]
+        public async Task ConnectAsync_WithUnspecifiedDomain_OnlyIPv4Available_ResolvesToIPv4()
+        {
+            var ipv4Manager = new FakeConnectionManager(AddressFamily.InterNetwork);
+
+            using var manager = new LoadBalancingProxyServerConnectionManager(
+                new[] { ipv4Manager },
+                Array.Empty<IProxyServerConnectionManager>(),
+                new[] { DummyConnectivityEndPoint });
+
+            var domain = new DomainEndPoint("localhost", 80);
+
+            using Socket socket = await manager.ConnectAsync(domain, TestContext.CancellationToken);
+
+            Assert.AreEqual(
+                1,
+                ipv4Manager.ConnectCallCount,
+                "With only IPv4 managers available, ConnectAsync must route to IPv4.");
+
+            Assert.IsInstanceOfType(
+                ipv4Manager.LastRemoteEndPoint,
+                typeof(IPEndPoint),
+                "DomainEndPoint must be resolved to an IPv4 IPEndPoint when only IPv4 is available.");
+
+            var resolved = (IPEndPoint)ipv4Manager.LastRemoteEndPoint!;
+            Assert.AreEqual(
+                AddressFamily.InterNetwork,
+                resolved.AddressFamily,
+                "Resolved endpoint must be IPv4 when only IPv4 managers are available.");
+
+            Assert.AreEqual(
+                AddressFamily.InterNetwork,
+                socket.AddressFamily,
+                "Returned socket family must be IPv4 when only IPv4 managers are available.");
+        }
+
+        [TestMethod]
+        public async Task ConnectAsync_WithUnspecifiedDomain_OnlyIPv6Available_ResolvesToIPv6_IfSupported()
+        {
+            if (!Socket.OSSupportsIPv6)
+            {
+                Assert.Inconclusive("IPv6 is not supported on this system.");
+                return;
+            }
+
+            var ipv6Manager = new FakeConnectionManager(AddressFamily.InterNetworkV6);
+
+            using var manager = new LoadBalancingProxyServerConnectionManager(
+                Array.Empty<IProxyServerConnectionManager>(),
+                new[] { ipv6Manager },
+                new[] { DummyConnectivityEndPoint });
+
+            var domain = new DomainEndPoint("localhost", 80);
+
+            using Socket socket = await manager.ConnectAsync(domain, TestContext.CancellationToken);
+
+            Assert.AreEqual(
+                1,
+                ipv6Manager.ConnectCallCount,
+                "With only IPv6 managers available, ConnectAsync must route to IPv6.");
+
+            Assert.IsInstanceOfType(
+                ipv6Manager.LastRemoteEndPoint,
+                typeof(IPEndPoint),
+                "DomainEndPoint must be resolved to an IPv6 IPEndPoint when only IPv6 is available.");
+
+            var resolved = (IPEndPoint)ipv6Manager.LastRemoteEndPoint!;
+            Assert.AreEqual(
+                AddressFamily.InterNetworkV6,
+                resolved.AddressFamily,
+                "Resolved endpoint must be IPv6 when only IPv6 managers are available.");
+
+            Assert.AreEqual(
+                AddressFamily.InterNetworkV6,
+                socket.AddressFamily,
+                "Returned socket family must be IPv6 when only IPv6 managers are available.");
+        }
+
+        [TestMethod]
+        public async Task ConnectAsync_WithUnspecifiedDomain_NoWorkingManagers_ThrowsNetworkUnreachable()
+        {
+            using var manager = new LoadBalancingProxyServerConnectionManager(
+                Array.Empty<IProxyServerConnectionManager>(),
+                Array.Empty<IProxyServerConnectionManager>(),
+                new[] { DummyConnectivityEndPoint });
+
+            var domain = new DomainEndPoint("localhost", 443);
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
-                () => lb.ConnectAsync(remote, TestContext.CancellationToken),
-                "When no connection managers exist, ConnectAsync must fail with NetworkUnreachable for IPv4 endpoints.");
+                () => manager.ConnectAsync(domain, TestContext.CancellationToken),
+                "When no working managers exist, ConnectAsync must fail with SocketError.NetworkUnreachable.");
 
             Assert.AreEqual(
                 SocketError.NetworkUnreachable,
                 ex.SocketErrorCode,
-                "ConnectAsync must report NetworkUnreachable when no IPv4 managers are available.");
+                "ConnectAsync must surface NetworkUnreachable when no family is available.");
         }
 
         [TestMethod]
-        public async Task ConnectAsync_WithNoManagersAndUnspecifiedEndpoint_ThrowsNetworkUnreachable()
+        public async Task ConnectAsync_WithRedundancyOnly_AlwaysUsesFirstWorkingManager()
         {
-            using LoadBalancingProxyServerConnectionManager lb = new LoadBalancingProxyServerConnectionManager(
+            var primary = new FakeConnectionManager(AddressFamily.InterNetwork);
+            var secondary = new FakeConnectionManager(AddressFamily.InterNetwork);
+
+            using var manager = new LoadBalancingProxyServerConnectionManager(
+                new[] { primary, secondary },
                 Array.Empty<IProxyServerConnectionManager>(),
-                Array.Empty<IProxyServerConnectionManager>());
-
-            EndPoint remote = new DomainEndPoint("example.com", 80);
-
-            SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
-                () => lb.ConnectAsync(remote, TestContext.CancellationToken),
-                "When no managers exist, ConnectAsync must fail for AddressFamily.Unspecified endpoints.");
-
-            Assert.AreEqual(
-                SocketError.NetworkUnreachable,
-                ex.SocketErrorCode,
-                "Unspecified endpoints must also surface NetworkUnreachable when no managers are available.");
-        }
-
-        [TestMethod]
-        public async Task ConnectAsync_WithMultipleIpv4Managers_RedundancyOnlyFalse_UsesExactlyOneManagerPerRequest()
-        {
-            using FakeConnectionManager m1 = new FakeConnectionManager("m1", AddressFamily.InterNetwork);
-            using FakeConnectionManager m2 = new FakeConnectionManager("m2", AddressFamily.InterNetwork);
-
-            using LoadBalancingProxyServerConnectionManager lb = new LoadBalancingProxyServerConnectionManager(
-                new[] { m1, m2 },
-                Array.Empty<IProxyServerConnectionManager>(),
-                redundancyOnly: false);
-
-            IPEndPoint remote = new IPEndPoint(IPAddress.Loopback, 40000);
-
-            Socket result = await lb.ConnectAsync(remote, TestContext.CancellationToken);
-
-            int totalRequests = m1.RequestConnectCalls + m2.RequestConnectCalls;
-
-            Assert.AreEqual(
-                1,
-                totalRequests,
-                "Non-redundancy load balancing must delegate each request to exactly one backend connection manager.");
-
-            Assert.IsNotNull(result, "ConnectAsync must return a non-null Socket instance.");
-
-            result.Dispose();
-        }
-
-        [TestMethod]
-        public async Task ConnectAsync_WithMultipleIpv4Managers_RedundancyOnlyTrue_AlwaysUsesFirstManager()
-        {
-            using FakeConnectionManager m1 = new FakeConnectionManager("primary", AddressFamily.InterNetwork);
-            using FakeConnectionManager m2 = new FakeConnectionManager("secondary", AddressFamily.InterNetwork);
-
-            using LoadBalancingProxyServerConnectionManager lb = new LoadBalancingProxyServerConnectionManager(
-                new[] { m1, m2 },
-                Array.Empty<IProxyServerConnectionManager>(),
+                new[] { DummyConnectivityEndPoint },
                 redundancyOnly: true);
 
-            IPEndPoint remote = new IPEndPoint(IPAddress.Loopback, 41000);
+            var target = new IPEndPoint(IPAddress.Loopback, 8080);
 
-            for (int i = 0; i < 3; i++)
+            const int attempts = 5;
+
+            for (int i = 0; i < attempts; i++)
             {
-                using Socket s = await lb.ConnectAsync(remote, TestContext.CancellationToken);
+                using Socket socket = await manager.ConnectAsync(target, TestContext.CancellationToken);
             }
 
             Assert.AreEqual(
-                3,
-                m1.RequestConnectCalls,
-                "In redundancyOnly mode, all requests must be routed to the first working connection manager.");
+                attempts,
+                primary.ConnectCallCount,
+                "In redundancy-only mode, the first working manager must handle all IPv4 connections.");
+
             Assert.AreEqual(
                 0,
-                m2.RequestConnectCalls,
-                "Secondary connection managers must not be used when redundancyOnly is enabled.");
+                secondary.ConnectCallCount,
+                "In redundancy-only mode, secondary managers must not be used while primary is healthy.");
+        }
+
+        #endregion
+
+        #region tests – Bind and UDP delegation
+
+        [TestMethod]
+        public async Task GetBindHandlerAsync_DelegatesToCorrectFamilyManager()
+        {
+            var v4Primary = new FakeConnectionManager(AddressFamily.InterNetwork);
+            var v4Secondary = new FakeConnectionManager(AddressFamily.InterNetwork);
+
+            using var manager = new LoadBalancingProxyServerConnectionManager(
+                new[] { v4Primary, v4Secondary },
+                Array.Empty<IProxyServerConnectionManager>(),
+                new[] { DummyConnectivityEndPoint });
+
+            IProxyServerBindHandler handler = await manager.GetBindHandlerAsync(AddressFamily.InterNetwork);
+
+            Assert.IsTrue(
+                ReferenceEquals(handler, v4Primary.BindHandler) ||
+                ReferenceEquals(handler, v4Secondary.BindHandler),
+                "Bind handler must be obtained from one of the IPv4 managers.");
+
+            int totalBindCalls = v4Primary.BindCallCount + v4Secondary.BindCallCount;
+
+            Assert.AreEqual(
+                1,
+                totalBindCalls,
+                "Load balancer must delegate a single bind request to exactly one manager.");
         }
 
         [TestMethod]
-        public async Task GetBindHandlerAsync_WithNoManagers_ThrowsNetworkUnreachable()
+        public async Task GetBindHandlerAsync_NoManagersForFamily_ThrowsNetworkUnreachable()
         {
-            using LoadBalancingProxyServerConnectionManager lb = new LoadBalancingProxyServerConnectionManager(
+            using var manager = new LoadBalancingProxyServerConnectionManager(
                 Array.Empty<IProxyServerConnectionManager>(),
-                Array.Empty<IProxyServerConnectionManager>());
+                Array.Empty<IProxyServerConnectionManager>(),
+                new[] { DummyConnectivityEndPoint });
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
-                () => lb.GetBindHandlerAsync(AddressFamily.InterNetwork),
-                "GetBindHandlerAsync must fail when no IPv4 connection managers are available.");
+                () => manager.GetBindHandlerAsync(AddressFamily.InterNetwork),
+                "GetBindHandlerAsync must fail with NetworkUnreachable when no managers exist for the family.");
 
             Assert.AreEqual(
                 SocketError.NetworkUnreachable,
@@ -238,22 +323,188 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         }
 
         [TestMethod]
-        public async Task GetUdpAssociateHandlerAsync_WithNoManagers_ThrowsNetworkUnreachable()
+        public async Task GetUdpAssociateHandlerAsync_DelegatesToCorrectFamilyManager()
         {
-            using LoadBalancingProxyServerConnectionManager lb = new LoadBalancingProxyServerConnectionManager(
-                Array.Empty<IProxyServerConnectionManager>(),
-                Array.Empty<IProxyServerConnectionManager>());
+            var v4Manager = new FakeConnectionManager(AddressFamily.InterNetwork);
 
-            IPEndPoint local = new IPEndPoint(IPAddress.Loopback, 0);
+            using var manager = new LoadBalancingProxyServerConnectionManager(
+                new[] { v4Manager },
+                Array.Empty<IProxyServerConnectionManager>(),
+                new[] { DummyConnectivityEndPoint });
+
+            var localEp = new IPEndPoint(IPAddress.Loopback, 0);
+
+            IProxyServerUdpAssociateHandler handler =
+                await manager.GetUdpAssociateHandlerAsync(localEp);
+
+            Assert.IsTrue(
+                ReferenceEquals(handler, v4Manager.UdpHandler),
+                "UDP associate handler must be obtained from the matching IPv4 manager.");
+
+            Assert.AreEqual(
+                1,
+                v4Manager.UdpCallCount,
+                "Exactly one UDP associate request must be delegated to the manager.");
+        }
+
+        [TestMethod]
+        public async Task GetUdpAssociateHandlerAsync_NoManagersForFamily_ThrowsNetworkUnreachable()
+        {
+            using var manager = new LoadBalancingProxyServerConnectionManager(
+                Array.Empty<IProxyServerConnectionManager>(),
+                Array.Empty<IProxyServerConnectionManager>(),
+                new[] { DummyConnectivityEndPoint });
+
+            var localEp = new IPEndPoint(IPAddress.Loopback, 0);
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
-                () => lb.GetUdpAssociateHandlerAsync(local),
-                "GetUdpAssociateHandlerAsync must fail when no IPv4 connection managers are available.");
+                () => manager.GetUdpAssociateHandlerAsync(localEp),
+                "GetUdpAssociateHandlerAsync must fail when no managers exist for the endpoint family.");
 
             Assert.AreEqual(
                 SocketError.NetworkUnreachable,
                 ex.SocketErrorCode,
-                "UDP associate handler lookup must surface NetworkUnreachable when no managers exist.");
+                "UDP associate lookup must surface NetworkUnreachable when no managers exist.");
         }
+
+        #endregion
+
+        #region fakes
+
+        private sealed class FakeConnectionManager : IProxyServerConnectionManager, IDisposable
+        {
+            public AddressFamily Family { get; }
+
+            public int ConnectCallCount { get; private set; }
+
+            public EndPoint LastRemoteEndPoint { get; private set; }
+
+            public int BindCallCount { get; private set; }
+
+            public int UdpCallCount { get; private set; }
+
+            public bool ShouldThrow { get; }
+
+            public SocketError ThrowError { get; set; } = SocketError.NetworkUnreachable;
+
+            public IProxyServerBindHandler BindHandler { get; set; }
+
+            public IProxyServerUdpAssociateHandler UdpHandler { get; set; }
+
+            public FakeConnectionManager(AddressFamily family)
+            {
+                Family = family;
+                BindHandler = new FakeBindHandler(family);
+                UdpHandler = new FakeUdpHandler(family);
+            }
+
+            public Task<Socket> ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken = default)
+            {
+                ConnectCallCount++;
+                LastRemoteEndPoint = remoteEP;
+
+                if (ShouldThrow)
+                    throw new SocketException((int)ThrowError);
+
+                var socket = new Socket(Family, SocketType.Stream, ProtocolType.Tcp);
+                return Task.FromResult(socket);
+            }
+
+            public Task<IProxyServerBindHandler> GetBindHandlerAsync(AddressFamily family)
+            {
+                BindCallCount++;
+
+                if (ShouldThrow)
+                    throw new SocketException((int)ThrowError);
+
+                return Task.FromResult(BindHandler);
+            }
+
+            public Task<IProxyServerUdpAssociateHandler> GetUdpAssociateHandlerAsync(EndPoint localEP)
+            {
+                UdpCallCount++;
+
+                if (ShouldThrow)
+                    throw new SocketException((int)ThrowError);
+
+                return Task.FromResult(UdpHandler);
+            }
+
+            public void Dispose()
+            {
+                // Nothing to dispose in this fake; sockets returned to tests are disposed there.
+            }
+        }
+
+        private sealed class FakeBindHandler : IProxyServerBindHandler
+        {
+            public SocksProxyReplyCode ReplyCode { get; }
+
+            public EndPoint ProxyRemoteEndPoint { get; }
+
+            public EndPoint ProxyLocalEndPoint { get; }
+
+            public FakeBindHandler(AddressFamily family)
+            {
+                var address = family == AddressFamily.InterNetwork
+                    ? IPAddress.Loopback
+                    : IPAddress.IPv6Loopback;
+
+                ProxyLocalEndPoint = new IPEndPoint(address, 10000);
+                ProxyRemoteEndPoint = new IPEndPoint(address, 20000);
+                ReplyCode = SocksProxyReplyCode.Succeeded;
+            }
+
+            public Task<Socket> AcceptAsync(CancellationToken cancellationToken = default)
+            {
+                var socket = new Socket(
+                    ((IPEndPoint)ProxyLocalEndPoint).AddressFamily,
+                    SocketType.Stream,
+                    ProtocolType.Tcp);
+
+                return Task.FromResult(socket);
+            }
+
+            public void Dispose()
+            {
+                // No resources allocated by this fake.
+            }
+        }
+
+        private sealed class FakeUdpHandler : IProxyServerUdpAssociateHandler
+        {
+            private readonly AddressFamily _family;
+
+            public FakeUdpHandler(AddressFamily family)
+            {
+                _family = family;
+            }
+
+            public Task<int> SendToAsync(ArraySegment<byte> buffer, EndPoint remoteEP, CancellationToken cancellationToken = default)
+            {
+                // Echo back the buffer length to simulate a successful send.
+                return Task.FromResult(buffer.Count);
+            }
+
+            public Task<SocketReceiveFromResult> ReceiveFromAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                var result = new SocketReceiveFromResult
+                {
+                    ReceivedBytes = 0,
+                    RemoteEndPoint = new IPEndPoint(
+                        _family == AddressFamily.InterNetwork ? IPAddress.Loopback : IPAddress.IPv6Loopback,
+                        53)
+                };
+
+                return Task.FromResult(result);
+            }
+
+            public void Dispose()
+            {
+                // Nothing to dispose in this fake.
+            }
+        }
+
+        #endregion
     }
 }
