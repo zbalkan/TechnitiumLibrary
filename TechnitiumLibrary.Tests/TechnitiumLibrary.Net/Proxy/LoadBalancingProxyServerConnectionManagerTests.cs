@@ -24,7 +24,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             public int RequestConnectCalls { get; private set; }
             public int ConnectivityCheckCalls { get; private set; }
             public EndPoint? LastRequestRemoteEndPoint { get; private set; }
-            public bool FailOnRequest { get; set; }
 
             Socket? _requestSocket;
 
@@ -41,10 +40,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 {
                     RequestConnectCalls++;
                     LastRequestRemoteEndPoint = remoteEP;
-
-                    if (FailOnRequest)
-                        throw new SocketException((int)SocketError.ConnectionRefused);
-
                     _requestSocket ??= new Socket(_family, SocketType.Stream, ProtocolType.Tcp);
                     return Task.FromResult(_requestSocket);
                 }
