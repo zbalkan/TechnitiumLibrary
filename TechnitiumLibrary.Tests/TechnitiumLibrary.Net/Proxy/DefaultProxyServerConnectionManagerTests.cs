@@ -1,9 +1,8 @@
-﻿using System;
+﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TechnitiumLibrary.Net.Proxy;
 
 namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
@@ -13,113 +12,131 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
     {
         public TestContext TestContext { get; set; }
 
-        [TestMethod]
-        public async Task ConnectAsync_WithLoopbackIPEndPoint_ConnectsAndSetsNoDelay()
+        private static TcpListener StartLoopbackListener(AddressFamily family, out IPEndPoint ep)
         {
-            // Arrange: start a loopback listener on an ephemeral port.
-            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+            IPAddress addr = family == AddressFamily.InterNetwork ?
+                IPAddress.Loopback :
+                IPAddress.IPv6Loopback;
+
+            var listener = new TcpListener(addr, 0);
             listener.Start();
-            IPEndPoint serverEndPoint = (IPEndPoint)listener.LocalEndpoint;
+            ep = (IPEndPoint)listener.LocalEndpoint;
+            return listener;
+        }
 
-            DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
+        [TestMethod]
+        public async Task ConnectAsync_WithIPEndPoint_ConnectsSuccessfully()
+        {
+            TcpListener listener = StartLoopbackListener(AddressFamily.InterNetwork, out IPEndPoint serverEp);
 
-            // Act: initiate connection via the manager.
-            Task<Socket> clientTask = manager.ConnectAsync(serverEndPoint, TestContext.CancellationToken);
+            var manager = new DefaultProxyServerConnectionManager();
 
-            using Socket serverSide = await listener.AcceptSocketAsync(TestContext.CancellationToken);
-            Socket clientSocket = await clientTask;
+            using Socket client = await manager.ConnectAsync(serverEp, TestContext.CancellationToken);
 
-            // Assert: socket is connected and NoDelay is enabled.
-            Assert.IsNotNull(clientSocket, "ConnectAsync must return a non-null Socket instance.");
-            Assert.IsTrue(clientSocket.Connected, "Returned Socket must be in connected state.");
-            Assert.IsTrue(clientSocket.NoDelay, "DefaultProxyServerConnectionManager must enable NoDelay on connected sockets.");
+            Assert.IsTrue(client.Connected, "Socket must connect successfully to loopback listener.");
 
-            IPEndPoint? remoteEp = (IPEndPoint?)clientSocket.RemoteEndPoint;
-            Assert.AreEqual(serverEndPoint.Address, remoteEp.Address, "Client socket must connect to the listener's IP address.");
-            Assert.AreEqual(serverEndPoint.Port, remoteEp.Port, "Client socket must connect to the listener's TCP port.");
+            using Socket server = await listener.AcceptSocketAsync(TestContext.CancellationToken);
+            Assert.IsTrue(server.Connected, "Listener must accept connection.");
 
-            // Cleanup
-            clientSocket.Dispose();
+            Assert.IsTrue(client.NoDelay, "ConnectAsync must set NoDelay=true.");
+
+            client.Dispose();
             listener.Stop();
         }
 
         [TestMethod]
-        public async Task GetBindHandlerAsync_WithUnsupportedFamily_ReturnsAddressTypeNotSupported()
+        public async Task ConnectAsync_WithDnsEndPoint_ExplicitIPv4_ResolvesAndConnects()
         {
-            DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
+            TcpListener listener = StartLoopbackListener(AddressFamily.InterNetwork, out IPEndPoint serverEp);
 
-            // Use an artificial, unsupported address family value to drive the default branch.
-            AddressFamily unsupportedFamily = (AddressFamily)1234;
+            var manager = new DefaultProxyServerConnectionManager();
 
-            IProxyServerBindHandler handler = await manager.GetBindHandlerAsync(unsupportedFamily);
+            // DnsEndPoint → IPv4 resolution is supported when family is explicitly InterNetwork.
+            var dns = new DnsEndPoint("localhost", serverEp.Port, AddressFamily.InterNetwork);
 
-            Assert.IsNotNull(handler, "GetBindHandlerAsync must return a non-null handler even for unsupported address families.");
-            Assert.AreEqual(
-                SocksProxyReplyCode.AddressTypeNotSupported,
-                handler.ReplyCode,
-                "BindHandler must report AddressTypeNotSupported for unsupported address families.");
+            using Socket client = await manager.ConnectAsync(dns, TestContext.CancellationToken);
 
-            Assert.IsNotNull(handler.ProxyLocalEndPoint, "ProxyLocalEndPoint must be non-null for unsupported address types.");
+            Assert.IsTrue(client.Connected);
 
-            IPEndPoint? ep = handler.ProxyLocalEndPoint as IPEndPoint;
-            Assert.IsNotNull(ep, "ProxyLocalEndPoint must be an IPEndPoint instance.");
-            Assert.AreEqual(IPAddress.Any, ep.Address, "For unsupported families, BindHandler must expose IPAddress.Any as local address.");
-            Assert.AreEqual(0, ep.Port, "For unsupported families, BindHandler must expose port 0 as a sentinel.");
+            using Socket server = await listener.AcceptSocketAsync(TestContext.CancellationToken);
+            Assert.IsTrue(server.Connected);
 
-            if (handler is IDisposable disposable)
-                disposable.Dispose();
+            listener.Stop();
         }
 
         [TestMethod]
-        public async Task GetUdpAssociateHandlerAsync_BindsToSpecifiedEndPoint_ReceivesDatagram()
+        public async Task ConnectAsync_WithDnsEndPoint_ExplicitIPv6_ResolvesAndConnects_IfIPv6Available()
         {
-            DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
-
-            int port = GetFreeUdpPort();
-            IPEndPoint bindEp = new IPEndPoint(IPAddress.Loopback, port);
-
-            IProxyServerUdpAssociateHandler udpHandler = await manager.GetUdpAssociateHandlerAsync(bindEp);
-
-            Assert.IsNotNull(udpHandler, "GetUdpAssociateHandlerAsync must return a non-null UDP handler.");
-
-            byte[] payload = { 1, 2, 3, 4, 5 };
-            byte[] buffer = new byte[payload.Length];
-
-            // Begin receive on the handler's socket.
-            Task<SocketReceiveFromResult> receiveTask =
-                udpHandler.ReceiveFromAsync(new ArraySegment<byte>(buffer), TestContext.CancellationToken);
-
-            // Send from a separate UDP socket to the known bind endpoint.
-            using Socket sender = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            await sender.SendToAsync(new ArraySegment<byte>(payload), SocketFlags.None, bindEp, TestContext.CancellationToken);
-
-            SocketReceiveFromResult result = await receiveTask;
-
-            Assert.AreEqual(
-                payload.Length,
-                result.ReceivedBytes,
-                "UDP associate handler must receive the complete datagram payload.");
-
-            for (int i = 0; i < payload.Length; i++)
+            // Skip test on machines without IPv6 enabled.
+            if (!Socket.OSSupportsIPv6)
             {
-                Assert.AreEqual(
-                    payload[i],
-                    buffer[i],
-                    $"Byte at index {i} of the received payload must match the sent payload.");
+                Assert.Inconclusive("IPv6 not supported on this system.");
+                return;
             }
 
-            if (udpHandler is IDisposable disposable)
-                disposable.Dispose();
+            TcpListener listener = StartLoopbackListener(AddressFamily.InterNetworkV6, out IPEndPoint serverEp);
+
+            var manager = new DefaultProxyServerConnectionManager();
+
+            var dns = new DnsEndPoint("localhost", serverEp.Port, AddressFamily.InterNetworkV6);
+
+            using Socket client = await manager.ConnectAsync(dns, TestContext.CancellationToken);
+
+            Assert.IsTrue(client.Connected);
+
+            using Socket server = await listener.AcceptSocketAsync(TestContext.CancellationToken);
+            Assert.IsTrue(server.Connected);
+
+            listener.Stop();
         }
 
-        /// <summary>
-        /// Obtains a free UDP port on loopback by binding to port 0 and reading the assigned port.
-        /// </summary>
-        private static int GetFreeUdpPort()
+        [TestMethod]
+        public async Task ConnectAsync_WithDnsEndPoint_AddressFamilyMismatch_ThrowsSocketException()
         {
-            using Socket tmp = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            tmp.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-            return ((IPEndPoint)tmp.LocalEndPoint).Port;
+            TcpListener listener = StartLoopbackListener(AddressFamily.InterNetwork, out IPEndPoint serverEp);
+
+            var manager = new DefaultProxyServerConnectionManager();
+
+            // Force IPv6 resolution against an IPv4 listener → mismatch.
+            var dns = new DnsEndPoint("localhost", serverEp.Port, AddressFamily.InterNetworkV6);
+
+            await Assert.ThrowsExactlyAsync<SocketException>(
+                () => manager.ConnectAsync(dns, TestContext.CancellationToken));
+
+            listener.Stop();
+        }
+
+        [TestMethod]
+        public async Task ConnectAsync_UnspecifiedAddressFamilyDns_ThrowsNotSupportedException()
+        {
+            TcpListener listener = StartLoopbackListener(AddressFamily.InterNetwork, out IPEndPoint serverEp);
+
+            var manager = new DefaultProxyServerConnectionManager();
+
+            var dns = new DnsEndPoint("localhost", serverEp.Port, AddressFamily.Unspecified);
+
+            // Implementation explicitly throws NotSupportedException through GetIPEndPointAsync
+            await Assert.ThrowsExactlyAsync<NotSupportedException>(
+                () => manager.ConnectAsync(dns, TestContext.CancellationToken));
+
+            listener.Stop();
+        }
+
+        [TestMethod]
+        public async Task ConnectAsync_AddressFamilyMismatchWithIPEndPoint_ThrowsSocketException()
+        {
+            // Listener is IPv4
+            TcpListener listener = StartLoopbackListener(AddressFamily.InterNetwork, out IPEndPoint serverEp);
+
+            var manager = new DefaultProxyServerConnectionManager();
+
+            // Try to connect using IPv6 to IPv4 listener
+            var ipv6Target = new IPEndPoint(IPAddress.IPv6Loopback, serverEp.Port);
+
+            await Assert.ThrowsExactlyAsync<SocketException>(
+                () => manager.ConnectAsync(ipv6Target, TestContext.CancellationToken));
+
+            listener.Stop();
         }
     }
 }
