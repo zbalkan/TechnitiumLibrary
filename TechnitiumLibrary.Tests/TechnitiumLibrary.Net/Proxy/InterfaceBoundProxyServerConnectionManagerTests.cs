@@ -29,7 +29,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 listener.LocalEndpoint,
                 "Listener.LocalEndpoint must be an IPEndPoint instance.");
 
-            localEndPoint = (IPEndPoint)listener.LocalEndpoint;
+            // Null-forgiving operator to satisfy nullable analysis; we already asserted non-null + type.
+            localEndPoint = (IPEndPoint)listener.LocalEndpoint!;
             return listener;
         }
 
@@ -65,7 +66,8 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 clientSocket.LocalEndPoint,
                 "Client LocalEndPoint must be an IPEndPoint.");
 
-            IPEndPoint local = (IPEndPoint)clientSocket.LocalEndPoint;
+            // Null-forgiving: guarded by IsNotNull + IsInstanceOfType above.
+            IPEndPoint local = (IPEndPoint)clientSocket.LocalEndPoint!;
             Assert.AreEqual(
                 IPAddress.Loopback,
                 local.Address,
