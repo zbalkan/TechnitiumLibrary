@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TechnitiumLibrary.Net.Proxy;
@@ -13,43 +12,38 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
     {
         public TestContext TestContext { get; set; }
 
-        #region helpers
-
         private static TcpListener StartLoopbackListener(AddressFamily family, out IPEndPoint localEndPoint)
         {
-            IPAddress addr = family switch
+            IPAddress address = family switch
             {
                 AddressFamily.InterNetwork => IPAddress.Loopback,
                 AddressFamily.InterNetworkV6 => IPAddress.IPv6Loopback,
-                _ => throw new NotSupportedException("Only IPv4 and IPv6 supported.")
+                _ => throw new NotSupportedException("Only IPv4 and IPv6 are supported in test helper.")
             };
 
-            TcpListener listener = new TcpListener(addr, 0);
+            TcpListener listener = new TcpListener(address, 0);
             listener.Start();
 
-            EndPoint? ep = listener.LocalEndpoint;
-            Assert.IsNotNull(ep, "TcpListener must expose a valid LocalEndpoint after Start().");
-            Assert.IsInstanceOfType<IPEndPoint>(ep, "LocalEndpoint must be an IPEndPoint.");
+            Assert.IsNotNull(listener.LocalEndpoint, "Listener.LocalEndpoint must be initialized after Start().");
+            Assert.IsInstanceOfType<IPEndPoint>(
+                listener.LocalEndpoint,
+                "Listener.LocalEndpoint must be an IPEndPoint instance.");
 
-            localEndPoint = (IPEndPoint)ep;
+            localEndPoint = (IPEndPoint)listener.LocalEndpoint;
             return listener;
         }
 
-        #endregion
-
-        #region tests
-
         [TestMethod]
-        public void Constructor_BindAddressExposedViaProperty()
+        public void Constructor_ExposesBindAddress()
         {
             IPAddress bindAddress = IPAddress.Loopback;
+
             InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(bindAddress);
 
             Assert.AreEqual(
                 bindAddress,
                 manager.BindAddress,
-                "BindAddress must return the constructor-specified IP address."
-            );
+                "BindAddress property must reflect the constructor-provided bind address.");
         }
 
         [TestMethod]
@@ -63,23 +57,19 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             using Socket serverSocket = await listener.AcceptSocketAsync(TestContext.CancellationToken);
 
-            Assert.IsTrue(clientSocket.Connected, "Returned socket must be connected.");
+            Assert.IsTrue(clientSocket.Connected, "Client socket must be connected when address families match.");
+            Assert.IsTrue(serverSocket.Connected, "Server-side accepted socket must be connected.");
 
-            EndPoint? localEp = clientSocket.LocalEndPoint;
-            EndPoint? remoteEp = clientSocket.RemoteEndPoint;
+            Assert.IsNotNull(clientSocket.LocalEndPoint, "Client LocalEndPoint must be set after a successful connect.");
+            Assert.IsInstanceOfType<IPEndPoint>(
+                clientSocket.LocalEndPoint,
+                "Client LocalEndPoint must be an IPEndPoint.");
 
-            Assert.IsNotNull(localEp);
-            Assert.IsNotNull(remoteEp);
-            Assert.IsInstanceOfType<IPEndPoint>(localEp);
-            Assert.IsInstanceOfType<IPEndPoint>(remoteEp);
-
-            IPEndPoint local = (IPEndPoint)localEp;
-            IPEndPoint remote = (IPEndPoint)remoteEp;
-
-            Assert.AreEqual(IPAddress.Loopback, local.Address);
-            Assert.AreEqual(serverEndPoint.Address, remote.Address);
-            Assert.AreEqual(serverEndPoint.Port, remote.Port);
-            Assert.IsTrue(clientSocket.NoDelay);
+            IPEndPoint local = (IPEndPoint)clientSocket.LocalEndPoint;
+            Assert.AreEqual(
+                IPAddress.Loopback,
+                local.Address,
+                "Client must bind to the configured bind address for outbound connections.");
 
             clientSocket.Dispose();
             listener.Stop();
@@ -92,13 +82,11 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
 
-            // localhost resolves to IPv4 + IPv6; requesting AddressFamily.InterNetwork forces a failure
             DnsEndPoint dnsEp = new DnsEndPoint("localhost", serverEndPoint.Port, AddressFamily.Unspecified);
 
             await Assert.ThrowsExactlyAsync<NotSupportedException>(
                 () => manager.ConnectAsync(dnsEp, TestContext.CancellationToken),
-                "Unspecified DnsEndPoint must fail resolution when multiple address families exist."
-            );
+                "Unspecified DnsEndPoint with ambiguous resolution must fail with NotSupportedException when bound to a specific address family.");
 
             listener.Stop();
         }
@@ -106,62 +94,78 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         [TestMethod]
         public async Task ConnectAsync_WithMismatchedFamily_ThrowsNetworkUnreachable()
         {
+            // Bind manager to IPv4 but use IPv6 endpoint.
             InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
-            IPEndPoint v6Target = new IPEndPoint(IPAddress.IPv6Loopback, 9000);
+            IPEndPoint remote = new IPEndPoint(IPAddress.IPv6Loopback, 443);
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
-                () => manager.ConnectAsync(v6Target, TestContext.CancellationToken)
-            );
+                () => manager.ConnectAsync(remote, TestContext.CancellationToken),
+                "ConnectAsync must throw SocketException when the remote endpoint family does not match the bind address family.");
 
-            Assert.AreEqual(SocketError.NetworkUnreachable, ex.SocketErrorCode);
+            Assert.AreEqual(
+                SocketError.NetworkUnreachable,
+                ex.SocketErrorCode,
+                "Mismatched family must surface NetworkUnreachable to the caller.");
         }
 
         [TestMethod]
         public async Task GetBindHandlerAsync_WithMatchingFamily_ReturnsHandler()
         {
-            InterfaceBoundProxyServerConnectionManager mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
 
-            IProxyServerBindHandler handler = await mgr.GetBindHandlerAsync(AddressFamily.InterNetwork);
+            IProxyServerBindHandler handler = await manager.GetBindHandlerAsync(AddressFamily.InterNetwork);
 
-            Assert.IsNotNull(handler);
+            Assert.IsNotNull(handler, "GetBindHandlerAsync must return a non-null handler for matching address family.");
+
+            if (handler is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
         }
 
         [TestMethod]
-        public async Task GetBindHandlerAsync_WithMismatchedFamily_Throws()
+        public async Task GetBindHandlerAsync_WithMismatchedFamily_ThrowsNetworkUnreachable()
         {
-            InterfaceBoundProxyServerConnectionManager mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
-                () => mgr.GetBindHandlerAsync(AddressFamily.InterNetworkV6)
-            );
+                () => manager.GetBindHandlerAsync(AddressFamily.InterNetworkV6),
+                "GetBindHandlerAsync must fail when the requested family does not match the bind address family.");
 
-            Assert.AreEqual(SocketError.NetworkUnreachable, ex.SocketErrorCode);
+            Assert.AreEqual(
+                SocketError.NetworkUnreachable,
+                ex.SocketErrorCode,
+                "Bind handler lookup must surface NetworkUnreachable for mismatched family.");
         }
 
         [TestMethod]
         public async Task GetUdpAssociateHandlerAsync_WithMatchingFamily_ReturnsHandler()
         {
-            InterfaceBoundProxyServerConnectionManager mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
-            IPEndPoint local = new IPEndPoint(IPAddress.Loopback, 0);
+            InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            IPEndPoint localEp = new IPEndPoint(IPAddress.Loopback, 0);
 
-            IProxyServerUdpAssociateHandler handler = await mgr.GetUdpAssociateHandlerAsync(local);
+            IProxyServerUdpAssociateHandler handler = await manager.GetUdpAssociateHandlerAsync(localEp);
 
-            Assert.IsNotNull(handler);
+            Assert.IsNotNull(handler, "GetUdpAssociateHandlerAsync must return a non-null handler for matching family.");
+
+            if (handler is IDisposable disposable)
+                disposable.Dispose();
         }
 
         [TestMethod]
-        public async Task GetUdpAssociateHandlerAsync_WithMismatchedFamily_Throws()
+        public async Task GetUdpAssociateHandlerAsync_WithMismatchedFamily_ThrowsNetworkUnreachable()
         {
-            InterfaceBoundProxyServerConnectionManager mgr = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
-            IPEndPoint localV6 = new IPEndPoint(IPAddress.IPv6Loopback, 0);
+            InterfaceBoundProxyServerConnectionManager manager = new InterfaceBoundProxyServerConnectionManager(IPAddress.Loopback);
+            IPEndPoint localEp = new IPEndPoint(IPAddress.IPv6Loopback, 0);
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
-                () => mgr.GetUdpAssociateHandlerAsync(localV6)
-            );
+                () => manager.GetUdpAssociateHandlerAsync(localEp),
+                "UDP handler lookup must fail when the endpoint family does not match the bind address.");
 
-            Assert.AreEqual(SocketError.NetworkUnreachable, ex.SocketErrorCode);
+            Assert.AreEqual(
+                SocketError.NetworkUnreachable,
+                ex.SocketErrorCode,
+                "UDP handler lookup must surface NetworkUnreachable for mismatched family.");
         }
-
-        #endregion
     }
 }

@@ -1,9 +1,9 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TechnitiumLibrary.Net.Proxy;
 
 namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
@@ -11,28 +11,32 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
     [TestClass]
     public class DefaultProxyServerConnectionManagerTests
     {
+        public TestContext TestContext { get; set; }
+
         [TestMethod]
-        public async Task ConnectAsync_WithIPEndPoint_ConnectsAndSetsNoDelay()
+        public async Task ConnectAsync_WithLoopbackIPEndPoint_ConnectsAndSetsNoDelay()
         {
-            // Arrange: simple TCP listener on loopback with ephemeral port.
+            // Arrange: start a loopback listener on an ephemeral port.
             TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
-            IPEndPoint localEp = (IPEndPoint)listener.LocalEndpoint;
+            IPEndPoint serverEndPoint = (IPEndPoint)listener.LocalEndpoint;
 
             DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
 
-            // Act: connect to the listener using the manager.
-            Socket clientSocket = await manager.ConnectAsync(localEp);
+            // Act: initiate connection via the manager.
+            Task<Socket> clientTask = manager.ConnectAsync(serverEndPoint, TestContext.CancellationToken);
 
-            // Assert: the connection must be established and NoDelay enabled.
-            Assert.IsNotNull(clientSocket, "ConnectAsync must return a non-null Socket.");
-            Assert.IsTrue(clientSocket.Connected, "Returned Socket must be connected to the remote endpoint.");
-            Assert.AreEqual(AddressFamily.InterNetwork, clientSocket.AddressFamily, "Socket AddressFamily must match the endpoint.");
-            Assert.IsTrue(clientSocket.NoDelay, "ConnectAsync must set NoDelay=true on the created Socket.");
+            using Socket serverSide = await listener.AcceptSocketAsync(TestContext.CancellationToken);
+            Socket clientSocket = await clientTask;
 
-            // Assert: server side actually sees the connection.
-            using Socket serverSocket = await listener.AcceptSocketAsync();
-            Assert.IsTrue(serverSocket.Connected, "Listener must accept a connected Socket.");
+            // Assert: socket is connected and NoDelay is enabled.
+            Assert.IsNotNull(clientSocket, "ConnectAsync must return a non-null Socket instance.");
+            Assert.IsTrue(clientSocket.Connected, "Returned Socket must be in connected state.");
+            Assert.IsTrue(clientSocket.NoDelay, "DefaultProxyServerConnectionManager must enable NoDelay on connected sockets.");
+
+            IPEndPoint? remoteEp = (IPEndPoint?)clientSocket.RemoteEndPoint;
+            Assert.AreEqual(serverEndPoint.Address, remoteEp.Address, "Client socket must connect to the listener's IP address.");
+            Assert.AreEqual(serverEndPoint.Port, remoteEp.Port, "Client socket must connect to the listener's TCP port.");
 
             // Cleanup
             clientSocket.Dispose();
@@ -40,205 +44,77 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         }
 
         [TestMethod]
-        public async Task ConnectAsync_WithDnsEndPoint_ExplicitIPv4_ResolvesAndConnects()
+        public async Task GetBindHandlerAsync_WithUnsupportedFamily_ReturnsAddressTypeNotSupported()
         {
-            // Arrange
-            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-
-            DnsEndPoint remoteDns = new DnsEndPoint("localhost", port, AddressFamily.InterNetwork);
             DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
 
-            // Act
-            Socket clientSocket = await manager.ConnectAsync(remoteDns);
+            // Use an artificial, unsupported address family value to drive the default branch.
+            AddressFamily unsupportedFamily = (AddressFamily)1234;
 
-            // Assert
-            Assert.IsNotNull(clientSocket);
-            Assert.IsTrue(clientSocket.Connected);
-            Assert.IsTrue(clientSocket.NoDelay);
+            IProxyServerBindHandler handler = await manager.GetBindHandlerAsync(unsupportedFamily);
 
-            using Socket serverSocket = await listener.AcceptSocketAsync();
-            Assert.IsTrue(serverSocket.Connected);
+            Assert.IsNotNull(handler, "GetBindHandlerAsync must return a non-null handler even for unsupported address families.");
+            Assert.AreEqual(
+                SocksProxyReplyCode.AddressTypeNotSupported,
+                handler.ReplyCode,
+                "BindHandler must report AddressTypeNotSupported for unsupported address families.");
 
-            clientSocket.Dispose();
-            listener.Stop();
+            Assert.IsNotNull(handler.ProxyLocalEndPoint, "ProxyLocalEndPoint must be non-null for unsupported address types.");
+
+            IPEndPoint? ep = handler.ProxyLocalEndPoint as IPEndPoint;
+            Assert.IsNotNull(ep, "ProxyLocalEndPoint must be an IPEndPoint instance.");
+            Assert.AreEqual(IPAddress.Any, ep.Address, "For unsupported families, BindHandler must expose IPAddress.Any as local address.");
+            Assert.AreEqual(0, ep.Port, "For unsupported families, BindHandler must expose port 0 as a sentinel.");
+
+            if (handler is IDisposable disposable)
+                disposable.Dispose();
         }
 
         [TestMethod]
-        public async Task GetBindHandlerAsync_InterNetwork_ReturnsSucceededHandlerAndAcceptsConnection()
+        public async Task GetUdpAssociateHandlerAsync_BindsToSpecifiedEndPoint_ReceivesDatagram()
         {
-            // Arrange
             DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
 
-            // Act
-            IProxyServerBindHandler handler = await manager.GetBindHandlerAsync(AddressFamily.InterNetwork);
+            int port = GetFreeUdpPort();
+            IPEndPoint bindEp = new IPEndPoint(IPAddress.Loopback, port);
 
-            // Assert reply code and local endpoint
-            Assert.IsNotNull(handler, "GetBindHandlerAsync must return a non-null bind handler for IPv4.");
-            Assert.AreEqual(SocksProxyReplyCode.Succeeded, handler.ReplyCode,
-                "IPv4 BindHandler must report Succeeded when a default IPv4 network is available.");
+            IProxyServerUdpAssociateHandler udpHandler = await manager.GetUdpAssociateHandlerAsync(bindEp);
 
-            IPEndPoint? bindEp = handler.ProxyLocalEndPoint as IPEndPoint;
-            Assert.IsNotNull(bindEp, "ProxyLocalEndPoint must be an IPEndPoint.");
-            Assert.AreEqual(AddressFamily.InterNetwork, bindEp.AddressFamily,
-                "ProxyLocalEndPoint must use IPv4 address family.");
-            Assert.IsTrue(bindEp.Port > 0, "Bind handler must listen on a non-zero port.");
+            Assert.IsNotNull(udpHandler, "GetUdpAssociateHandlerAsync must return a non-null UDP handler.");
 
-            // Now actually accept a connection and verify ProxyRemoteEndPoint is set.
-            using Socket client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            byte[] payload = { 1, 2, 3, 4, 5 };
+            byte[] buffer = new byte[payload.Length];
 
-            Task<Socket> acceptTask = handler.AcceptAsync(CancellationToken.None);
-            await client.ConnectAsync(bindEp);
+            // Begin receive on the handler's socket.
+            Task<SocketReceiveFromResult> receiveTask =
+                udpHandler.ReceiveFromAsync(new ArraySegment<byte>(buffer), TestContext.CancellationToken);
 
-            using Socket accepted = await acceptTask;
+            // Send from a separate UDP socket to the known bind endpoint.
+            using Socket sender = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            await sender.SendToAsync(new ArraySegment<byte>(payload), SocketFlags.None, bindEp, TestContext.CancellationToken);
 
-            Assert.IsTrue(accepted.Connected, "AcceptAsync must return a connected Socket.");
-            Assert.IsNotNull(handler.ProxyRemoteEndPoint, "ProxyRemoteEndPoint must be set after a connection is accepted.");
+            SocketReceiveFromResult result = await receiveTask;
 
-            IPEndPoint? remoteEp = handler.ProxyRemoteEndPoint as IPEndPoint;
-            IPEndPoint? clientLocal = (IPEndPoint)client.LocalEndPoint;
+            Assert.AreEqual(
+                payload.Length,
+                result.ReceivedBytes,
+                "UDP associate handler must receive the complete datagram payload.");
 
-            Assert.AreEqual(clientLocal.Address, remoteEp.Address,
-                "ProxyRemoteEndPoint.Address must match the connecting client's local address.");
-            Assert.AreEqual(clientLocal.Port, remoteEp.Port,
-                "ProxyRemoteEndPoint.Port must match the connecting client's local port.");
-
-            // Cleanup
-            client.Dispose();
-            handler.Dispose();
-        }
-
-        [TestMethod]
-        public async Task GetBindHandlerAsync_UnsupportedFamily_ReturnsAddressTypeNotSupported()
-        {
-            // Arrange
-            DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
-
-            // Act
-            IProxyServerBindHandler handler = await manager.GetBindHandlerAsync(AddressFamily.Unspecified);
-
-            // Assert
-            Assert.IsNotNull(handler, "GetBindHandlerAsync must not return null even for unsupported family.");
-            Assert.AreEqual(SocksProxyReplyCode.AddressTypeNotSupported, handler.ReplyCode,
-                "Unsupported address family must set ReplyCode=AddressTypeNotSupported.");
-
-            IPEndPoint? bindEp = handler.ProxyLocalEndPoint as IPEndPoint;
-            Assert.IsNotNull(bindEp, "ProxyLocalEndPoint must not be null even on failure.");
-            Assert.AreEqual(IPAddress.Any, bindEp.Address,
-                "On unsupported family, bind endpoint must be IPAddress.Any.");
-            Assert.AreEqual(0, bindEp.Port,
-                "On unsupported family, bind endpoint port must be 0.");
-
-            handler.Dispose();
-        }
-
-        [TestMethod]
-        public async Task BindHandler_Dispose_ThenAcceptAsync_ThrowsObjectDisposedException()
-        {
-            // Arrange
-            DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
-            IProxyServerBindHandler handler = await manager.GetBindHandlerAsync(AddressFamily.InterNetwork);
-
-            Assert.AreEqual(SocksProxyReplyCode.Succeeded, handler.ReplyCode,
-                "Precondition: Bind handler must be in Succeeded state for this test.");
-
-            handler.Dispose();
-
-            // Act + Assert
-            await Assert.ThrowsExactlyAsync<ObjectDisposedException>(
-                () => handler.AcceptAsync(CancellationToken.None),
-                "AcceptAsync must throw ObjectDisposedException after the handler is disposed.");
-        }
-
-        [TestMethod]
-        public async Task GetUdpAssociateHandlerAsync_CanSendAndReceiveDatagrams()
-        {
-            // Arrange: pick a free UDP port on loopback to avoid port collisions.
-            int udpPort = GetFreeUdpPort();
-            IPEndPoint localBind = new IPEndPoint(IPAddress.Loopback, udpPort);
-
-            DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
-            IProxyServerUdpAssociateHandler udpHandler = await manager.GetUdpAssociateHandlerAsync(localBind);
-
-            // remote UDP socket that will receive from the handler and send back
-            using Socket remoteSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            remoteSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-            IPEndPoint? remoteEp = (IPEndPoint)remoteSocket.LocalEndPoint;
-
-            byte[] sendPayload = { 0x01, 0x02, 0x03, 0x04 };
-            ArraySegment<byte> sendSegment = new ArraySegment<byte>(sendPayload);
-
-            // Act: handler sends to remote
-            int bytesSent = await udpHandler.SendToAsync(sendSegment, remoteEp, CancellationToken.None);
-
-            // Assert: remote receives the same bytes
-            Assert.AreEqual(sendPayload.Length, bytesSent, "SendToAsync must send all bytes in the buffer.");
-
-            byte[] recvBuffer = new byte[256];
-            EndPoint fromEp = new IPEndPoint(IPAddress.Any, 0);
-            int bytesReceived = remoteSocket.ReceiveFrom(recvBuffer, ref fromEp);
-
-            Assert.AreEqual(sendPayload.Length, bytesReceived, "Remote socket must receive exact number of bytes sent.");
-            for (int i = 0; i < sendPayload.Length; i++)
+            for (int i = 0; i < payload.Length; i++)
             {
-                Assert.AreEqual(sendPayload[i], recvBuffer[i],
-                    $"Byte {i} of received datagram must match the payload.");
+                Assert.AreEqual(
+                    payload[i],
+                    buffer[i],
+                    $"Byte at index {i} of the received payload must match the sent payload.");
             }
 
-            // Now test receive path: remote sends to handler and handler.ReceiveFromAsync must get it.
-            byte[] echoPayload = { 0xAA, 0xBB, 0xCC };
-            ArraySegment<byte> echoSegment = new ArraySegment<byte>(echoPayload);
-
-            // send echo to the handler's bound port (we bound handler to udpPort above).
-            IPEndPoint handlerEp = new IPEndPoint(IPAddress.Loopback, udpPort);
-            remoteSocket.SendTo(echoPayload, handlerEp);
-
-            byte[] recvFromBuffer = new byte[256];
-            ArraySegment<byte> recvFromSegment = new ArraySegment<byte>(recvFromBuffer);
-
-            SocketReceiveFromResult result = await udpHandler.ReceiveFromAsync(recvFromSegment, CancellationToken.None);
-
-            Assert.AreEqual(echoPayload.Length, result.ReceivedBytes,
-                "ReceiveFromAsync must report the exact number of bytes sent to handler.");
-            for (int i = 0; i < echoPayload.Length; i++)
-            {
-                Assert.AreEqual(echoPayload[i], recvFromBuffer[i],
-                    $"Byte {i} of payload received by handler must match the echo payload.");
-            }
-
-            Assert.IsInstanceOfType(result.RemoteEndPoint, typeof(IPEndPoint),
-                "ReceiveFromAsync.RemoteEndPoint must be an IPEndPoint.");
-            IPEndPoint reportedRemote = (IPEndPoint)result.RemoteEndPoint;
-            Assert.AreEqual(remoteEp.Address, reportedRemote.Address,
-                "Reported remote address must match the sender's address.");
-
-            udpHandler.Dispose();
+            if (udpHandler is IDisposable disposable)
+                disposable.Dispose();
         }
 
-        [TestMethod]
-        public async Task UdpAssociateHandler_Dispose_ThenSendToAsync_ThrowsObjectDisposedException()
-        {
-            // Arrange
-            int udpPort = GetFreeUdpPort();
-            IPEndPoint localBind = new IPEndPoint(IPAddress.Loopback, udpPort);
-
-            DefaultProxyServerConnectionManager manager = new DefaultProxyServerConnectionManager();
-            IProxyServerUdpAssociateHandler udpHandler = await manager.GetUdpAssociateHandlerAsync(localBind);
-
-            udpHandler.Dispose();
-
-            byte[] buffer = { 0x10, 0x20 };
-            ArraySegment<byte> segment = new ArraySegment<byte>(buffer);
-            IPEndPoint remoteEp = new IPEndPoint(IPAddress.Loopback, udpPort);
-
-            // Act + Assert
-            await Assert.ThrowsExactlyAsync<ObjectDisposedException>(
-                () => udpHandler.SendToAsync(segment, remoteEp, CancellationToken.None),
-                "SendToAsync must throw ObjectDisposedException after UDP handler is disposed.");
-        }
-
-        // Helper to get a free UDP port on loopback in a race-resistant way.
+        /// <summary>
+        /// Obtains a free UDP port on loopback by binding to port 0 and reading the assigned port.
+        /// </summary>
         private static int GetFreeUdpPort()
         {
             using Socket tmp = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);

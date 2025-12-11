@@ -1,9 +1,9 @@
-﻿using System;
+﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TechnitiumLibrary.Net;
 using TechnitiumLibrary.Net.Proxy;
 
@@ -13,8 +13,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
     public class LoadBalancingProxyServerConnectionManagerTests
     {
         public TestContext TestContext { get; set; }
-
-        #region fakes
 
         private sealed class FakeConnectionManager : IProxyServerConnectionManager, IDisposable
         {
@@ -35,7 +33,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             public Task<Socket> ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken = default)
             {
-                // Connectivity checks use DomainEndPoint (www.google.com, etc.).
+                // Heuristic: connectivity checks use DomainEndPoint or similar; real requests use IPEndPoint.
                 if (remoteEP is IPEndPoint)
                 {
                     RequestConnectCalls++;
@@ -45,19 +43,19 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 }
 
                 ConnectivityCheckCalls++;
-                // For connectivity checks, just return a disposable, unconnected socket.
+
                 Socket s = new Socket(_family, SocketType.Stream, ProtocolType.Tcp);
                 return Task.FromResult(s);
             }
 
             public Task<IProxyServerBindHandler> GetBindHandlerAsync(AddressFamily family)
             {
-                throw new NotSupportedException("Bind handler not used in fake connection manager tests.");
+                throw new NotSupportedException("Bind handler is not required in FakeConnectionManager tests.");
             }
 
             public Task<IProxyServerUdpAssociateHandler> GetUdpAssociateHandlerAsync(EndPoint localEP)
             {
-                throw new NotSupportedException("UDP handler not used in fake connection manager tests.");
+                throw new NotSupportedException("UDP handler is not required in FakeConnectionManager tests.");
             }
 
             public void Dispose()
@@ -68,14 +66,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 }
                 catch
                 {
-                    // Ignore cleanup errors for test fakes.
+                    // Ignore cleanup errors in test fake.
                 }
             }
         }
-
-        #endregion
-
-        #region tests
 
         [TestMethod]
         public async Task ConnectAsync_WithIpv4Endpoint_UsesIpv4ConnectionManager()
@@ -144,8 +138,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
                 () => lb.ConnectAsync(remote, TestContext.CancellationToken),
-                "When no connection managers exist, ConnectAsync must fail with NetworkUnreachable for IPv4 endpoints."
-            );
+                "When no connection managers exist, ConnectAsync must fail with NetworkUnreachable for IPv4 endpoints.");
 
             Assert.AreEqual(
                 SocketError.NetworkUnreachable,
@@ -164,8 +157,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
                 () => lb.ConnectAsync(remote, TestContext.CancellationToken),
-                "When no managers exist, ConnectAsync must fail for AddressFamily.Unspecified endpoints."
-            );
+                "When no managers exist, ConnectAsync must fail for AddressFamily.Unspecified endpoints.");
 
             Assert.AreEqual(
                 SocketError.NetworkUnreachable,
@@ -213,7 +205,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             IPEndPoint remote = new IPEndPoint(IPAddress.Loopback, 41000);
 
-            // Execute multiple requests to validate deterministic primary selection.
             for (int i = 0; i < 3; i++)
             {
                 using Socket s = await lb.ConnectAsync(remote, TestContext.CancellationToken);
@@ -238,8 +229,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
                 () => lb.GetBindHandlerAsync(AddressFamily.InterNetwork),
-                "GetBindHandlerAsync must fail when no IPv4 connection managers are available."
-            );
+                "GetBindHandlerAsync must fail when no IPv4 connection managers are available.");
 
             Assert.AreEqual(
                 SocketError.NetworkUnreachable,
@@ -258,15 +248,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             SocketException ex = await Assert.ThrowsExactlyAsync<SocketException>(
                 () => lb.GetUdpAssociateHandlerAsync(local),
-                "GetUdpAssociateHandlerAsync must fail when no IPv4 connection managers are available."
-            );
+                "GetUdpAssociateHandlerAsync must fail when no IPv4 connection managers are available.");
 
             Assert.AreEqual(
                 SocketError.NetworkUnreachable,
                 ex.SocketErrorCode,
                 "UDP associate handler lookup must surface NetworkUnreachable when no managers exist.");
         }
-
-        #endregion
     }
 }
