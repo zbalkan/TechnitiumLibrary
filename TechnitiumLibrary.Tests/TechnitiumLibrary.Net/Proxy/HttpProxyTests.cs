@@ -3,13 +3,14 @@ using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using TechnitiumLibrary.Net.Proxy;
 
 namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 {
     [TestClass]
-    public class HttpProxyUnitTests
+    public class HttpProxyTests
     {
         public TestContext TestContext { get; set; }
 
@@ -21,17 +22,35 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             return Task.FromResult((listener, port));
         }
 
-        private static async Task<string> ReadRequestAsync(Socket socket)
+        /// <summary>
+        /// Reads a complete HTTP request from the given socket until the end-of-headers
+        /// marker ("\r\n\r\n") is observed or the socket closes. This is robust against
+        /// TCP fragmentation of the CONNECT and Proxy-Authorization lines.
+        /// </summary>
+        private static async Task<string> ReadHttpRequestAsync(Socket socket, CancellationToken cancellationToken)
         {
             byte[] buffer = new byte[2048];
-            int read = await socket.ReceiveAsync(buffer, SocketFlags.None);
-            return Encoding.ASCII.GetString(buffer, 0, read);
+            var builder = new StringBuilder();
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                int read = await socket.ReceiveAsync(buffer.AsMemory(0, buffer.Length), SocketFlags.None, cancellationToken);
+                if (read <= 0)
+                    break;
+
+                builder.Append(Encoding.ASCII.GetString(buffer, 0, read));
+
+                if (builder.ToString().Contains("\r\n\r\n", StringComparison.Ordinal))
+                    break;
+            }
+
+            return builder.ToString();
         }
 
-        private static Task<int> RespondAsync(Socket socket, string httpResponse)
+        private static Task<int> RespondAsync(Socket socket, string httpResponse, CancellationToken cancellationToken)
         {
             byte[] bytes = Encoding.ASCII.GetBytes(httpResponse);
-            return socket.SendAsync(bytes, SocketFlags.None);
+            return socket.SendAsync(bytes.AsMemory(0, bytes.Length), SocketFlags.None, cancellationToken).AsTask();
         }
 
         // ------------------------------------------------------------
@@ -48,12 +67,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
             using Socket serverSide = await listener.AcceptSocketAsync(TestContext.CancellationToken);
-            string request = await ReadRequestAsync(serverSide);
+            string request = await ReadHttpRequestAsync(serverSide, TestContext.CancellationToken);
 
             Console.WriteLine("REQUEST RAW:");
             Console.WriteLine(request);
 
-            Assert.StartsWith("CONNECT ", request);
+            Assert.IsTrue(
+                request.StartsWith("CONNECT ", StringComparison.Ordinal),
+                "Proxy must send a CONNECT request line to the upstream proxy."
+            );
 
             Assert.Contains(
                 value: request,
@@ -61,16 +83,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 message: "CONNECT request must contain 'host:port'."
             );
 
-            await RespondAsync(serverSide, "HTTP/1.0 200 Connection Established\r\n\r\n");
+            await RespondAsync(serverSide, "HTTP/1.0 200 Connection Established\r\n\r\n", TestContext.CancellationToken);
 
             Socket result = await connectTask;
-            Assert.IsNotNull(result);
-            Assert.IsTrue(result.Connected);
+            Assert.IsNotNull(result, "ConnectAsync must return a non-null Socket when the proxy responds 200.");
+            Assert.IsTrue(result.Connected, "Socket must be connected after a 200 OK response from the HTTP proxy.");
 
             result.Dispose();
             listener.Stop();
         }
-
 
         // ------------------------------------------------------------
         // 407 Authentication Required
@@ -88,11 +109,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             using Socket serverSide = await listener.AcceptSocketAsync(TestContext.CancellationToken);
 
-            string request = await ReadRequestAsync(serverSide);
-
-            // TCP may split CONNECT and Proxy-Authorization into separate packets.
-            if (!request.Contains("Proxy-Authorization"))
-                request += await ReadRequestAsync(serverSide);
+            string request = await ReadHttpRequestAsync(serverSide, TestContext.CancellationToken);
 
             string expectedAuth = Convert.ToBase64String(
                 Encoding.ASCII.GetBytes("alice:secret")
@@ -101,10 +118,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             Assert.Contains(
                 value: request,
                 substring: expectedAuth,
-                message: "CONNECT request must include Proxy-Authorization header."
+                message: "CONNECT request must include Proxy-Authorization header with Base64 credentials."
             );
 
-            await RespondAsync(serverSide, "HTTP/1.0 407 Proxy Authentication Required\r\n\r\n");
+            await RespondAsync(serverSide, "HTTP/1.0 407 Proxy Authentication Required\r\n\r\n", TestContext.CancellationToken);
 
             await Assert.ThrowsExactlyAsync<HttpProxyAuthenticationFailedException>(() => connectTask);
 
@@ -125,9 +142,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
             using Socket serverSide = await listener.AcceptSocketAsync(TestContext.CancellationToken);
-            await ReadRequestAsync(serverSide);
 
-            await RespondAsync(serverSide, "HTTP/1.0 500 Internal Server Error\r\n\r\n");
+            string request = await ReadHttpRequestAsync(serverSide, TestContext.CancellationToken);
+
+            Assert.IsTrue(
+                request.StartsWith("CONNECT ", StringComparison.Ordinal),
+                "Proxy must issue a CONNECT before receiving a 500 response."
+            );
+
+            await RespondAsync(serverSide, "HTTP/1.0 500 Internal Server Error\r\n\r\n", TestContext.CancellationToken);
 
             await Assert.ThrowsExactlyAsync<HttpProxyException>(() => connectTask);
 
@@ -148,9 +171,9 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
             using Socket serverSide = await listener.AcceptSocketAsync(TestContext.CancellationToken);
-            await ReadRequestAsync(serverSide);
+            _ = await ReadHttpRequestAsync(serverSide, TestContext.CancellationToken);
 
-            await RespondAsync(serverSide, "NOTVALID\r\n\r\n");
+            await RespondAsync(serverSide, "NOTVALID\r\n\r\n", TestContext.CancellationToken);
 
             await Assert.ThrowsExactlyAsync<HttpProxyException>(() => connectTask);
 
@@ -171,7 +194,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
             using Socket serverSide = await listener.AcceptSocketAsync(TestContext.CancellationToken);
-            await ReadRequestAsync(serverSide);
+            _ = await ReadHttpRequestAsync(serverSide, TestContext.CancellationToken);
 
             serverSide.Shutdown(SocketShutdown.Both);
             serverSide.Close();
@@ -198,7 +221,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
             Task<Socket> connectTask = proxy.ConnectAsync(destination, TestContext.CancellationToken);
 
             using Socket serverSide = await listener.AcceptSocketAsync(TestContext.CancellationToken);
-            string request = await ReadRequestAsync(serverSide);
+            string request = await ReadHttpRequestAsync(serverSide, TestContext.CancellationToken);
 
             string expected = Convert.ToBase64String(Encoding.ASCII.GetBytes("userX:pa$$word"));
 
@@ -208,10 +231,10 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
                 message: "CONNECT request must include Proxy-Authorization header with Base64 credentials."
             );
 
-            await RespondAsync(serverSide, "HTTP/1.0 200 OK\r\n\r\n");
+            await RespondAsync(serverSide, "HTTP/1.0 200 OK\r\n\r\n", TestContext.CancellationToken);
 
             Socket finalSocket = await connectTask;
-            Assert.IsTrue(finalSocket.Connected);
+            Assert.IsTrue(finalSocket.Connected, "Socket must remain connected after a successful authenticated CONNECT.");
 
             finalSocket.Dispose();
             listener.Stop();
