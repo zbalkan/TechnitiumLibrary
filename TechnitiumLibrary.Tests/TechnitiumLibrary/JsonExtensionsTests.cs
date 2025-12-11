@@ -162,12 +162,15 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary
             JsonElement json = ToElement("""{ "values": [ { "k":"x","v":"1" }, { "k":"y","v":"2"} ] }""");
 
             // WHEN
-            System.Collections.Generic.Dictionary<string?, int> result = json.ReadArrayAsMap("values", el =>
+            System.Collections.Generic.Dictionary<string, int> result = json.ReadArrayAsMap("values", el =>
             {
                 string? key = el.GetProperty("k").GetString();
-#pragma warning disable CS8604 // Possible null reference argument.
-                int val = int.Parse(el.GetProperty("v").GetString());
-#pragma warning restore CS8604 // Possible null reference argument.
+                if (key is null)
+                {
+                    throw new NullReferenceException(nameof(key));
+                }
+
+                int val = int.Parse(el.GetProperty("v")!.GetString()!);
                 return Tuple.Create(key, val);
             });
 
