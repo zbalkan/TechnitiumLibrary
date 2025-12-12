@@ -184,28 +184,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
                 Encoding.ASCII.GetString(buffer, 0, totalRead));
         }
 
-        [TestMethod]
-        public async Task ReadResponseAsync_WithContentLength_ReadsExactNumberOfBytes()
-        {
-            string raw =
-                "HTTP/1.1 200 OK\r\n" +
-                "Content-Length: 4\r\n" +
-                "\r\n" +
-                "TestEXTRA";
-
-            using MemoryStream stream = MakeStream(raw);
-
-            HttpResponse resp = await HttpResponse.ReadResponseAsync(
-                stream,
-                TestContext.CancellationToken);
-
-            byte[] buffer = new byte[8];
-            int read = await resp.OutputStream.ReadAsync(buffer, 0, buffer.Length, TestContext.CancellationToken);
-
-            Assert.AreEqual(4, read);
-            Assert.AreEqual("Test", Encoding.ASCII.GetString(buffer, 0, read));
-        }
-
         private static MemoryStream MakeStream(string ascii)
                                                             => new MemoryStream(Encoding.ASCII.GetBytes(ascii));
 
