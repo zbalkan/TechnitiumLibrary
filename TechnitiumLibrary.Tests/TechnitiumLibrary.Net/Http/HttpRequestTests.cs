@@ -1,4 +1,5 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -12,6 +13,25 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
     public class HttpRequestTests
     {
         public TestContext TestContext { get; set; }
+
+        [TestMethod]
+        public async Task ReadRequestAsync_ParsesQueryStringCorrectly()
+        {
+            string raw =
+                "GET /search?q=test&flag HTTP/1.1\r\n" +
+                "Host: example.com\r\n" +
+                "\r\n";
+
+            using MemoryStream stream = MakeStream(raw);
+
+            HttpRequest req = await HttpRequest.ReadRequestAsync(
+                stream,
+                cancellationToken: TestContext.CancellationToken);
+
+            Assert.AreEqual("/search", req.RequestPath);
+            Assert.AreEqual("test", req.QueryString["q"]);
+            Assert.AreEqual(null, req.QueryString["flag"]);
+        }
 
         [TestMethod]
         public async Task ReadRequestAsync_WhenBodyIsTruncated_ReturnsEOFWithoutThrowing()
@@ -118,6 +138,18 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
         }
 
         [TestMethod]
+        public async Task ReadRequestAsync_WhenConnectionClosedBeforeRequest_ReturnsNull()
+        {
+            using MemoryStream stream = new MemoryStream(Array.Empty<byte>());
+
+            HttpRequest req = await HttpRequest.ReadRequestAsync(
+                stream,
+                cancellationToken: TestContext.CancellationToken);
+
+            Assert.IsNull(req, "Graceful close before request must return null.");
+        }
+
+        [TestMethod]
         public async Task ReadRequestAsync_WhenContentLengthExceedsMax_ThrowsHttpRequestException()
         {
             string raw =
@@ -133,6 +165,59 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
                 _ = await HttpRequest.ReadRequestAsync(
                     stream,
                     maxContentLength: 10,
+                    cancellationToken: TestContext.CancellationToken);
+            });
+        }
+
+        [TestMethod]
+        public async Task ReadRequestAsync_WhenHeaderIsTruncated_ThrowsEndOfStream()
+        {
+            string raw =
+                "GET / HTTP/1.1\r\n" +
+                "Host: example.com\r\n"; // missing terminating CRLF
+
+            using MemoryStream stream = MakeStream(raw);
+
+            await Assert.ThrowsExactlyAsync<EndOfStreamException>(async () =>
+            {
+                _ = await HttpRequest.ReadRequestAsync(
+                    stream,
+                    cancellationToken: TestContext.CancellationToken);
+            });
+        }
+
+        [TestMethod]
+        public async Task ReadRequestAsync_WhenHeaderLineIsInvalid_ThrowsInvalidData()
+        {
+            string raw =
+                "GET / HTTP/1.1\r\n" +
+                "Host example.com\r\n" + // missing colon
+                "\r\n";
+
+            using MemoryStream stream = MakeStream(raw);
+
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(async () =>
+            {
+                _ = await HttpRequest.ReadRequestAsync(
+                    stream,
+                    cancellationToken: TestContext.CancellationToken);
+            });
+        }
+
+        [TestMethod]
+        public async Task ReadRequestAsync_WhenRequestLineIsInvalid_ThrowsInvalidData()
+        {
+            string raw =
+                "GET /only-two-parts\r\n" +
+                "Host: example.com\r\n" +
+                "\r\n";
+
+            using MemoryStream stream = MakeStream(raw);
+
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(async () =>
+            {
+                _ = await HttpRequest.ReadRequestAsync(
+                    stream,
                     cancellationToken: TestContext.CancellationToken);
             });
         }
@@ -223,7 +308,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
                 r,
                 "InputStream must eventually terminate with EOF.");
         }
-
 
         private static MemoryStream MakeStream(string ascii) => new MemoryStream(Encoding.ASCII.GetBytes(ascii));
 

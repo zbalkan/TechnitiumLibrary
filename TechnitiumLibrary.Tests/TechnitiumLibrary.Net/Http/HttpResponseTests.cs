@@ -111,6 +111,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
                 "Test",
                 Encoding.ASCII.GetString(buffer, 0, totalRead));
         }
+
         [TestMethod]
         public async Task ReadResponseAsync_WithContentLength_ReadsExactNumberOfBytes()
         {
