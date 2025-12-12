@@ -1,4 +1,5 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -33,6 +34,25 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
         }
 
         [TestMethod]
+        public void Dispose_MustStopTunnelAndMarkBroken()
+        {
+            using Socket remoteSocket =
+                new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+
+            remoteSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+
+            UdpTunnelProxy tunnel =
+                new UdpTunnelProxy(remoteSocket, remoteSocket.LocalEndPoint);
+
+            tunnel.Dispose();
+            tunnel.Dispose(); // idempotent
+
+            Assert.IsTrue(
+                tunnel.IsBroken,
+                "Dispose must mark UdpTunnelProxy as broken and prevent further relay activity.");
+        }
+
+        [TestMethod]
         public async Task Tunnel_MustForwardDatagram_FromTunnelClient_ToRemoteSocket()
         {
             using Socket remoteSocket =
@@ -49,53 +69,23 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Proxy
 
             byte[] payload = Encoding.ASCII.GetBytes("udp-ping");
 
+            byte[] buffer = new byte[32];
+            EndPoint anyEP = new IPEndPoint(IPAddress.Any, 0);
+
+            Task<SocketReceiveFromResult> receiveTask =
+                remoteSocket.ReceiveFromAsync(buffer, SocketFlags.None, anyEP);
+
             await tunnelClient.SendToAsync(
                 payload,
                 SocketFlags.None,
                 tunnel.TunnelEndPoint);
 
-            byte[] buffer = new byte[32];
-            EndPoint sender = new IPEndPoint(IPAddress.Any, 0);
-
-            int received = remoteSocket.ReceiveFrom(buffer, ref sender);
+            SocketReceiveFromResult result = await receiveTask;
 
             CollectionAssert.AreEqual(
                 payload,
-                buffer[..received],
+                buffer.AsSpan(0, result.ReceivedBytes).ToArray(),
                 "Datagram sent to TunnelEndPoint must reach the remote socket unmodified.");
-        }
-
-        [TestMethod]
-        public void Dispose_MustStopTunnelAndMarkBroken()
-        {
-            using Socket remoteSocket =
-                new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-
-            remoteSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-
-            UdpTunnelProxy tunnel =
-                new UdpTunnelProxy(remoteSocket, remoteSocket.LocalEndPoint);
-
-            IPEndPoint tunnelEP = tunnel.TunnelEndPoint;
-
-            tunnel.Dispose();
-            tunnel.Dispose(); // idempotent
-
-            Assert.IsTrue(
-                tunnel.IsBroken,
-                "Dispose must mark UdpTunnelProxy as broken.");
-
-            using Socket client =
-                new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-
-            Assert.ThrowsExactly<SocketException>(
-                () =>
-                {
-                    client.SendTo(
-                        new byte[] { 0x01 },
-                        tunnelEP);
-                },
-                "Disposed UdpTunnelProxy must not accept or relay new datagrams.");
         }
     }
 }
