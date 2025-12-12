@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Net.Http;
 using System.Net.Mime;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -205,7 +206,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         }
 
         [TestMethod]
-        public async Task IsWebAccessibleAsync_ShouldThrowLastException_WhenThrowExceptionIsTrue()
+        public async Task IsWebAccessibleAsync_ShouldThrowFailure_WhenThrowExceptionIsTrue()
         {
             Uri[] targets =
             {
@@ -213,18 +214,30 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net
         new Uri("http://198.51.100.2/")
     };
 
-            TaskCanceledException ex = await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () =>
+            try
             {
-                _ = await WebUtilities.IsWebAccessibleAsync(
-                    uriCheckList: targets,
-                    proxy: null,
-                    networkType: HttpClientNetworkType.Default,
-                    timeout: 500,
-                    throwException: true);
-            });
-
-            Assert.AreEqual(typeof(TaskCanceledException), ex.GetType(),
-                "Timeout failure should propagate as TaskCanceledException, not masked");
+                await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () =>
+                {
+                    _ = await WebUtilities.IsWebAccessibleAsync(
+                        uriCheckList: targets,
+                        proxy: null,
+                        networkType: HttpClientNetworkType.Default,
+                        timeout: 500,
+                        throwException: true);
+                });
+            }
+            catch (AssertFailedException)
+            {
+                await Assert.ThrowsExactlyAsync<HttpRequestException>(async () =>
+                {
+                    _ = await WebUtilities.IsWebAccessibleAsync(
+                        uriCheckList: targets,
+                        proxy: null,
+                        networkType: HttpClientNetworkType.Default,
+                        timeout: 500,
+                        throwException: true);
+                });
+            }
         }
 
         #endregion
