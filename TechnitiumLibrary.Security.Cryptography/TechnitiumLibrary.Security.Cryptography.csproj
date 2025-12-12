@@ -27,6 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Formats.Asn1" Version="6.0.1" />
     <ProjectReference Include="..\TechnitiumLibrary.IO\TechnitiumLibrary.IO.csproj" />
     <ProjectReference Include="..\TechnitiumLibrary.Net\TechnitiumLibrary.Net.csproj" />
   </ItemGroup>
