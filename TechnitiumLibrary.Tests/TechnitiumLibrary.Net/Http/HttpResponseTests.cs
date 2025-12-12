@@ -1,4 +1,5 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -31,6 +32,77 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
             await Assert.ThrowsExactlyAsync<EndOfStreamException>(async () =>
             {
                 _ = await ReadAllAsciiAsync(resp.OutputStream, TestContext.CancellationToken);
+            });
+        }
+
+        [TestMethod]
+        public async Task ReadResponseAsync_WhenHeaderLineIsInvalid_ThrowsInvalidData()
+        {
+            string raw =
+                "HTTP/1.1 200 OK\r\n" +
+                "Content-Length 10\r\n" + // missing colon
+                "\r\n";
+
+            using MemoryStream stream = MakeStream(raw);
+
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(async () =>
+            {
+                _ = await HttpResponse.ReadResponseAsync(
+                    stream,
+                    TestContext.CancellationToken);
+            });
+        }
+
+        [TestMethod]
+        public async Task ReadResponseAsync_WhenHeadersAreTruncated_ThrowsEndOfStream()
+        {
+            string raw =
+                "HTTP/1.1 200 OK\r\n" +
+                "Content-Length: 0\r\n"; // missing terminating CRLF
+
+            using MemoryStream stream = MakeStream(raw);
+
+            await Assert.ThrowsExactlyAsync<EndOfStreamException>(async () =>
+            {
+                _ = await HttpResponse.ReadResponseAsync(
+                    stream,
+                    TestContext.CancellationToken);
+            });
+        }
+
+        [TestMethod]
+        public async Task ReadResponseAsync_WhenStatusCodeIsNonNumeric_ThrowsFormatException()
+        {
+            string raw =
+                "HTTP/1.1 OK OK\r\n" +
+                "Content-Length: 0\r\n" +
+                "\r\n";
+
+            using MemoryStream stream = MakeStream(raw);
+
+            await Assert.ThrowsExactlyAsync<FormatException>(async () =>
+            {
+                _ = await HttpResponse.ReadResponseAsync(
+                    stream,
+                    TestContext.CancellationToken);
+            });
+        }
+
+        [TestMethod]
+        public async Task ReadResponseAsync_WhenStatusLineIsInvalid_ThrowsInvalidData()
+        {
+            string raw =
+                "HTTP/1.1 200\r\n" +   // missing reason phrase
+                "Content-Length: 0\r\n" +
+                "\r\n";
+
+            using MemoryStream stream = MakeStream(raw);
+
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(async () =>
+            {
+                _ = await HttpResponse.ReadResponseAsync(
+                    stream,
+                    TestContext.CancellationToken);
             });
         }
 
