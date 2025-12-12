@@ -23,4 +23,8 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="TechnitiumLibrary.Net\Http\Client\" />
+  </ItemGroup>
+
 </Project>
