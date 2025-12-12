@@ -13,14 +13,25 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
     {
         public TestContext TestContext { get; set; }
 
-        private static MemoryStream MakeStream(string ascii)
-            => new MemoryStream(Encoding.ASCII.GetBytes(ascii));
-
-        private static async Task<string> ReadAllAsciiAsync(Stream s, CancellationToken ct)
+        [TestMethod]
+        public async Task ReadResponseAsync_WhenChunkedTruncated_ThrowsEndOfStreamOnBodyRead()
         {
-            using MemoryStream ms = new MemoryStream();
-            await s.CopyToAsync(ms, 8192, ct);
-            return Encoding.ASCII.GetString(ms.ToArray());
+            string raw =
+                "HTTP/1.1 200 OK\r\n" +
+                "Transfer-Encoding: chunked\r\n" +
+                "\r\n" +
+                "5\r\nabc";
+
+            using MemoryStream stream = MakeStream(raw);
+
+            HttpResponse resp = await HttpResponse.ReadResponseAsync(
+                stream,
+                TestContext.CancellationToken);
+
+            await Assert.ThrowsExactlyAsync<EndOfStreamException>(async () =>
+            {
+                _ = await ReadAllAsciiAsync(resp.OutputStream, TestContext.CancellationToken);
+            });
         }
 
         [TestMethod]
@@ -66,13 +77,13 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
         }
 
         [TestMethod]
-        public async Task ReadResponseAsync_WhenChunkedTruncated_ThrowsEndOfStreamOnBodyRead()
+        public async Task ReadResponseAsync_WithContentLength_ExposesExactlyContentLengthBytesInTotal()
         {
             string raw =
                 "HTTP/1.1 200 OK\r\n" +
-                "Transfer-Encoding: chunked\r\n" +
+                "Content-Length: 4\r\n" +
                 "\r\n" +
-                "5\r\nabc";
+                "TestEXTRA";
 
             using MemoryStream stream = MakeStream(raw);
 
@@ -80,10 +91,56 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Http
                 stream,
                 TestContext.CancellationToken);
 
-            await Assert.ThrowsExactlyAsync<EndOfStreamException>(async () =>
+            byte[] buffer = new byte[8];
+
+            int totalRead = 0;
+            int r;
+
+            while ((r = await resp.OutputStream.ReadAsync(
+                buffer, 0, buffer.Length, TestContext.CancellationToken)) > 0)
             {
-                _ = await ReadAllAsciiAsync(resp.OutputStream, TestContext.CancellationToken);
-            });
+                totalRead += r;
+            }
+
+            Assert.AreEqual(
+                4,
+                totalRead,
+                "OutputStream must expose exactly Content-Length bytes (RFC 9112).");
+
+            Assert.AreEqual(
+                "Test",
+                Encoding.ASCII.GetString(buffer, 0, totalRead));
+        }
+        [TestMethod]
+        public async Task ReadResponseAsync_WithContentLength_ReadsExactNumberOfBytes()
+        {
+            string raw =
+                "HTTP/1.1 200 OK\r\n" +
+                "Content-Length: 4\r\n" +
+                "\r\n" +
+                "TestEXTRA";
+
+            using MemoryStream stream = MakeStream(raw);
+
+            HttpResponse resp = await HttpResponse.ReadResponseAsync(
+                stream,
+                TestContext.CancellationToken);
+
+            byte[] buffer = new byte[8];
+            int read = await resp.OutputStream.ReadAsync(buffer, 0, buffer.Length, TestContext.CancellationToken);
+
+            Assert.AreEqual(4, read);
+            Assert.AreEqual("Test", Encoding.ASCII.GetString(buffer, 0, read));
+        }
+
+        private static MemoryStream MakeStream(string ascii)
+                                                            => new MemoryStream(Encoding.ASCII.GetBytes(ascii));
+
+        private static async Task<string> ReadAllAsciiAsync(Stream s, CancellationToken ct)
+        {
+            using MemoryStream ms = new MemoryStream();
+            await s.CopyToAsync(ms, 8192, ct);
+            return Encoding.ASCII.GetString(ms.ToArray());
         }
     }
 }
