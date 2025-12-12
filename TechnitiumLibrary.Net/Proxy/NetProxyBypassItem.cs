@@ -117,6 +117,14 @@ namespace TechnitiumLibrary.Net.Proxy
                     return false;
 
                 case NetProxyBypassItemType.DomainName:
+                    // Special-case localhost: must match loopback IPs and be case-insensitive
+                    if (_domainName.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (ep is IPEndPoint ipEp)
+                            return IPAddress.IsLoopback(ipEp.Address);
+                        if (ep is DomainEndPoint depLocal)
+                            return depLocal.Address.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+                    }
                     if (ep is DomainEndPoint dep)
                     {
                         string matchDomainName = dep.Address;
