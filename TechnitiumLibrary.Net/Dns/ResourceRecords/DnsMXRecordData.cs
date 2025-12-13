@@ -29,10 +29,10 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
     {
         #region variables
 
-        ushort _preference;
-        string _exchange;
+        private ushort _preference;
+        private string _exchange;
 
-        #endregion
+        #endregion variables
 
         #region constructor
 
@@ -42,6 +42,8 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 exchange = DnsClient.ConvertDomainNameToAscii(exchange);
 
             DnsClient.IsDomainNameValid(exchange, true);
+            if (exchange.EndsWith(".", StringComparison.Ordinal))
+                exchange = exchange[..^1];
 
             _preference = preference;
             _exchange = exchange;
@@ -51,7 +53,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             : base(s)
         { }
 
-        #endregion
+        #endregion constructor
 
         #region protected
 
@@ -67,7 +69,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             DnsDatagram.SerializeDomainName(canonicalForm ? _exchange.ToLowerInvariant() : _exchange, s, domainEntries);
         }
 
-        #endregion
+        #endregion protected
 
         #region internal
 
@@ -93,7 +95,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             return _preference + " " + DnsResourceRecord.GetRelativeDomainName(_exchange, originDomain);
         }
 
-        #endregion
+        #endregion internal
 
         #region public
 
@@ -123,7 +125,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(_preference, _exchange);
+            return HashCode.Combine(_preference, _exchange.ToLowerInvariant());
         }
 
         public override void SerializeTo(Utf8JsonWriter jsonWriter)
@@ -139,7 +141,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             jsonWriter.WriteEndObject();
         }
 
-        #endregion
+        #endregion public
 
         #region properties
 
@@ -152,6 +154,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         public override int UncompressedLength
         { get { return 2 + DnsDatagram.GetSerializeDomainNameLength(_exchange); } }
 
-        #endregion
+        #endregion properties
     }
 }

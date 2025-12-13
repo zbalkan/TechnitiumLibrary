@@ -154,9 +154,14 @@ namespace TechnitiumLibrary.IO
                         item._extractToCustomLocation = Encoding.UTF8.GetString(bR.ReadBytes(bR.ReadByte()));
 
                     long length = bR.ReadInt64();
-                    item._data = new OffsetStream(bR.BaseStream, bR.BaseStream.Position, length, true);
 
-                    bR.BaseStream.Position += length;
+                    long startOffset = bR.BaseStream.Position;
+
+                    // Create slice before advancing stream pointer
+                    item._data = new OffsetStream(bR.BaseStream, startOffset, length, readOnly: true);
+
+                    // Seek explicitly
+                    bR.BaseStream.Seek(length, SeekOrigin.Current);
 
                     return item;
 

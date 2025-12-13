@@ -1,0 +1,30 @@
+﻿<Project Sdk="MSTest.Sdk/4.0.1">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseVSTest>true</UseVSTest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TechnitiumLibrary.ByteTree\TechnitiumLibrary.ByteTree.csproj" />
+    <ProjectReference Include="..\TechnitiumLibrary.IO\TechnitiumLibrary.IO.csproj" />
+    <ProjectReference Include="..\TechnitiumLibrary.Net.Firewall\TechnitiumLibrary.Net.Firewall.csproj" />
+    <ProjectReference Include="..\TechnitiumLibrary.Net\TechnitiumLibrary.Net.csproj" />
+    <ProjectReference Include="..\TechnitiumLibrary.Security.OTP\TechnitiumLibrary.Security.OTP.csproj" />
+    <ProjectReference Include="..\TechnitiumLibrary\TechnitiumLibrary.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Interop.NetFwTypeLib">
+      <HintPath>..\TechnitiumLibrary.Net.Firewall\obj\Debug\Interop.NetFwTypeLib.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="TechnitiumLibrary.Net\Http\Client\" />
+  </ItemGroup>
+
+</Project>

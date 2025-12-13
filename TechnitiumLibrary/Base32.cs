@@ -154,6 +154,19 @@ namespace TechnitiumLibrary
 
         private static byte[] Decode(string data, int[] rmap)
         {
+            if (data is null)
+            {
+                throw new ArgumentNullException(nameof(data));
+            }
+            if (data == string.Empty)
+            {
+                return Array.Empty<byte>();
+            }
+            if (data.Contains(' '))
+            {
+                throw new ArgumentException("Base32 string cannot contain spaces.", nameof(data));
+            }
+
             byte[] buffer;
             int paddingCount = 0;
 

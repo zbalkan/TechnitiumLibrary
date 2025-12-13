@@ -31,6 +31,9 @@ namespace TechnitiumLibrary.Net
 
         public static bool IsPrivateIP(IPAddress address)
         {
+            if (address is null)
+                throw new ArgumentNullException(nameof(address));
+
             if (address.IsIPv4MappedToIPv6)
                 address = address.MapToIPv4();
 

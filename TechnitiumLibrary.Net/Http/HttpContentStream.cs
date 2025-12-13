@@ -56,11 +56,28 @@ namespace TechnitiumLibrary.Net.Http
 
         #region private
 
+        // RFC 9112 (HTTP/1.1) §6.2:
+        // When a message body length is defined by Content-Length,
+        // the recipient MUST treat that length as authoritative framing.
+        // Bytes beyond Content-Length belong to the next message and MUST NOT
+        // be exposed through this message body stream.
         private int ReadBuffer(byte[] buffer, int offset, int count)
         {
             if (_offset < _length)
             {
                 int bytesAvailable = _length - _offset;
+
+                // Enforce Content-Length as a hard upper bound (RFC 9112)
+                if (_contentLength > -1)
+                {
+                    int bytesRemaining = _contentLength - _totalBytesRead;
+                    if (bytesRemaining < 1)
+                        return 0;
+
+                    if (bytesAvailable > bytesRemaining)
+                        bytesAvailable = bytesRemaining;
+                }
+
                 if (count > bytesAvailable)
                     count = bytesAvailable;
 

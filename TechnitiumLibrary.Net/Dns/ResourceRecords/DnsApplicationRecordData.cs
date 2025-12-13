@@ -43,8 +43,14 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             if (data.StartsWith('{') || data.StartsWith('['))
             {
-                using (JsonDocument jsonDocument = JsonDocument.Parse(data))
-                { }
+                try
+                {
+                    using JsonDocument jsonDocument = JsonDocument.Parse(data);
+                }
+                catch (Exception ex)
+                {
+                    throw new ArgumentException("Data is not in JSON format", ex);
+                }
             }
 
             _appName = appName;
@@ -60,34 +66,45 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         #region protected
 
+        /// <summary>
+        /// DNS Application Record (Technitium extension).
+        ///
+        /// Binary format (version 1):
+        /// [1 byte version]
+        /// [short-string appName]
+        /// [short-string classPath]
+        /// [UInt16 length + UTF-8 data]
+        /// </summary>
         protected override void ReadRecordData(Stream s)
         {
-            using (BinaryReader bR = new BinaryReader(s, Encoding.UTF8, true))
-            {
-                int version = bR.ReadByte();
-                switch (version)
-                {
-                    case 1:
-                        _appName = bR.ReadShortString();
-                        _classPath = bR.ReadShortString();
-                        _data = bR.ReadString();
-                        break;
+            using BinaryReader bR = new BinaryReader(s, Encoding.UTF8, true);
 
-                    default:
-                        throw new NotSupportedException("DNS application record version not supported: " + version);
-                }
+            int version = bR.ReadByte();
+            switch (version)
+            {
+                case 1:
+                    _appName = bR.ReadShortString();
+                    _classPath = bR.ReadShortString();
+                    _data = bR.ReadShortString();
+                    break;
+
+                default:
+                    throw new NotSupportedException(
+                        "DNS application record version not supported: " + version);
             }
         }
 
-        protected override void WriteRecordData(Stream s, List<DnsDomainOffset> domainEntries, bool canonicalForm)
+        protected override void WriteRecordData(
+            Stream s,
+            List<DnsDomainOffset> domainEntries,
+            bool canonicalForm)
         {
-            using (BinaryWriter bW = new BinaryWriter(s, Encoding.UTF8, true))
-            {
-                bW.Write((byte)1); //version
-                bW.WriteShortString(_appName);
-                bW.WriteShortString(_classPath);
-                bW.Write(_data);
-            }
+            using BinaryWriter bW = new BinaryWriter(s, Encoding.UTF8, true);
+
+            bW.Write((byte)1);
+            bW.WriteShortString(_appName);
+            bW.WriteShortString(_classPath);
+            bW.WriteShortString(_data);
         }
 
         #endregion
@@ -173,8 +190,15 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         { get { return _data; } }
 
         public override int UncompressedLength
-        { get { return 1 + 1 + _appName.Length + 1 + _classPath.Length + 2 + _data.Length; } }
-
+        {
+            get
+            {
+                return 1
+                    + 1 + _appName.Length
+                    + 1 + _classPath.Length
+                    + 1 + _data.Length;
+            }
+        }
         #endregion
     }
 }
