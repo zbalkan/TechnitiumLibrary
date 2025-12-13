@@ -2385,6 +2385,24 @@ namespace TechnitiumLibrary.Net.Dns
             return dnsAddresses;
         }
 
+        /// <summary>
+        /// Validates a DNS domain name according to RFC 1035, RFC 2181, and related RFCs.
+        ///
+        /// Accepted forms:
+        /// - Empty string ("") : internal representation of the root
+        /// - Single dot (".")  : presentation form of the root
+        /// - Relative names    : "example.com"
+        /// - Absolute names    : "example.com."
+        ///
+        /// A trailing dot represents the root label and MUST NOT be treated
+        /// as an empty label error. Empty labels are only invalid when they
+        /// occur in the middle of the name (e.g. "example..com").
+        ///
+        /// References:
+        /// RFC 1035 §3.1
+        /// RFC 2181 §11
+        /// RFC 3403 §4
+        /// </summary>
         public static bool IsDomainNameValid(string domain, bool throwException = false)
         {
             if (domain is null)
@@ -2395,13 +2413,19 @@ namespace TechnitiumLibrary.Net.Dns
                 return false;
             }
 
+            // Root (internal form)
             if (domain.Length == 0)
-                return true; //domain is root zone
+                return true;
+
+            // Root (presentation form)
+            if (domain == ".")
+                return true;
 
             if (domain.Length > 255)
             {
                 if (throwException)
-                    throw new DnsClientException("Invalid domain name [" + domain + "]: length cannot exceed 255 bytes.");
+                    throw new DnsClientException(
+                        $"Invalid domain name [{domain}]: length cannot exceed 255 bytes.");
 
                 return false;
             }
@@ -2410,9 +2434,8 @@ namespace TechnitiumLibrary.Net.Dns
             int labelEnd;
             int labelLength;
             int labelChar;
-            int i;
 
-            do
+            while (labelStart < domain.Length)
             {
                 labelEnd = domain.IndexOf('.', labelStart);
                 if (labelEnd < 0)
@@ -2420,10 +2443,15 @@ namespace TechnitiumLibrary.Net.Dns
 
                 labelLength = labelEnd - labelStart;
 
+                // Trailing dot => root label => valid termination
                 if (labelLength == 0)
                 {
+                    if (labelEnd == domain.Length)
+                        return true;
+
                     if (throwException)
-                        throw new DnsClientException("Invalid domain name [" + domain + "]: label length cannot be 0 byte.");
+                        throw new DnsClientException(
+                            $"Invalid domain name [{domain}]: empty label in middle of name.");
 
                     return false;
                 }
@@ -2431,7 +2459,8 @@ namespace TechnitiumLibrary.Net.Dns
                 if (labelLength > 63)
                 {
                     if (throwException)
-                        throw new DnsClientException("Invalid domain name [" + domain + "]: label length cannot exceed 63 bytes.");
+                        throw new DnsClientException(
+                            $"Invalid domain name [{domain}]: label length cannot exceed 63 bytes.");
 
                     return false;
                 }
@@ -2439,7 +2468,8 @@ namespace TechnitiumLibrary.Net.Dns
                 if (domain[labelStart] == '-')
                 {
                     if (throwException)
-                        throw new DnsClientException("Invalid domain name [" + domain + "]: label cannot start with hyphen.");
+                        throw new DnsClientException(
+                            $"Invalid domain name [{domain}]: label cannot start with hyphen.");
 
                     return false;
                 }
@@ -2447,37 +2477,32 @@ namespace TechnitiumLibrary.Net.Dns
                 if (domain[labelEnd - 1] == '-')
                 {
                     if (throwException)
-                        throw new DnsClientException("Invalid domain name [" + domain + "]: label cannot end with hyphen.");
+                        throw new DnsClientException(
+                            $"Invalid domain name [{domain}]: label cannot end with hyphen.");
 
                     return false;
                 }
 
+                // Allow wildcard label "*"
                 if (labelLength != 1 || domain[labelStart] != '*')
                 {
-                    for (i = labelStart; i < labelEnd; i++)
+                    for (int i = labelStart; i < labelEnd; i++)
                     {
                         labelChar = domain[i];
 
-                        if ((labelChar >= 97) && (labelChar <= 122)) //[a-z]
+                        if ((labelChar >= 'a' && labelChar <= 'z') ||
+                            (labelChar >= 'A' && labelChar <= 'Z') ||
+                            (labelChar >= '0' && labelChar <= '9') ||
+                            labelChar == '-' ||
+                            labelChar == '_' ||
+                            labelChar == '/')
+                        {
                             continue;
-
-                        if ((labelChar >= 65) && (labelChar <= 90)) //[A-Z]
-                            continue;
-
-                        if ((labelChar >= 48) && (labelChar <= 57)) //[0-9]
-                            continue;
-
-                        if (labelChar == 45) //[-]
-                            continue;
-
-                        if (labelChar == 95) //[_]
-                            continue;
-
-                        if (labelChar == 47) //[/]
-                            continue;
+                        }
 
                         if (throwException)
-                            throw new DnsClientException("Invalid domain name [" + domain + "]: invalid character [" + labelChar + "] was found.");
+                            throw new DnsClientException(
+                                $"Invalid domain name [{domain}]: invalid character [{(char)labelChar}].");
 
                         return false;
                     }
@@ -2485,7 +2510,6 @@ namespace TechnitiumLibrary.Net.Dns
 
                 labelStart = labelEnd + 1;
             }
-            while (labelEnd < domain.Length);
 
             return true;
         }
