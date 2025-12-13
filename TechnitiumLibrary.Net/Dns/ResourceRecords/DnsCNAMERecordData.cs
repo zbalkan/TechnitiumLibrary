@@ -42,6 +42,9 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             DnsClient.IsDomainNameValid(domain, true);
 
+            if (domain.EndsWith(".", StringComparison.Ordinal))
+                domain = domain[..^1];
+
             _domain = domain;
         }
 
@@ -56,6 +59,9 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         protected override void ReadRecordData(Stream s)
         {
             _domain = DnsDatagram.DeserializeDomainName(s);
+
+            if (_domain.EndsWith(".", StringComparison.Ordinal))
+                _domain = _domain[..^1];
         }
 
         protected override void WriteRecordData(Stream s, List<DnsDomainOffset> domainEntries, bool canonicalForm)
@@ -106,7 +112,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(_domain);
+            return StringComparer.OrdinalIgnoreCase.GetHashCode(_domain);
         }
 
         public override void SerializeTo(Utf8JsonWriter jsonWriter)
