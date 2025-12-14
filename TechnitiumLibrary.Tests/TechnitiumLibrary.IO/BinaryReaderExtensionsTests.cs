@@ -132,7 +132,7 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.IO
             if (BitConverter.IsLittleEndian)
                 Array.Reverse(encoded);
 
-            BinaryReader reader = ReaderOf(encoded.Reverse().ToArray());
+            BinaryReader reader = ReaderOf(encoded);
 
             // WHEN
             DateTime result = reader.ReadDateTime();
