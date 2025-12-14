@@ -44,12 +44,33 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         #region constructor
 
-        public DnsNAPTRRecordData(ushort order, ushort preference, string flags, string services, string regexp, string replacement)
+        /// <summary>
+        /// Creates a new NAPTR record data instance.
+        ///
+        /// RFC compliance:
+        /// - flags, services, regexp MUST be ASCII character-strings (RFC 3403 §4)
+        /// - replacement MAY be absolute or relative (RFC 3403 §4, RFC 1035 §3.1)
+        /// - absolute replacement names are normalized to relative internal form
+        /// </summary>
+        public DnsNAPTRRecordData(
+            ushort order,
+            ushort preference,
+            string flags,
+            string services,
+            string regexp,
+            string replacement)
         {
+            ValidateAsciiCharacterString(flags, nameof(flags));
+            ValidateAsciiCharacterString(services, nameof(services));
+            ValidateAsciiCharacterString(regexp, nameof(regexp));
+
             if (DnsClient.IsDomainNameUnicode(replacement))
                 replacement = DnsClient.ConvertDomainNameToAscii(replacement);
 
             DnsClient.IsDomainNameValid(replacement, true);
+
+            if (replacement.EndsWith(".", StringComparison.Ordinal))
+                replacement = replacement[..^1];
 
             _order = order;
             _preference = preference;
@@ -61,6 +82,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             Serialize();
         }
 
+
         public DnsNAPTRRecordData(Stream s)
             : base(s)
         { }
@@ -68,6 +90,22 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         #endregion
 
         #region private
+        private static void ValidateAsciiCharacterString(string value, string fieldName)
+        {
+            if (value is null)
+                throw new ArgumentNullException(fieldName);
+
+            if (Encoding.ASCII.GetByteCount(value) > 255)
+                throw new DnsClientException(
+                    $"Invalid {fieldName}: character-string length cannot exceed 255 bytes.");
+
+            foreach (char c in value)
+            {
+                if (c > 0x7F)
+                    throw new DnsClientException(
+                        $"Invalid {fieldName}: non-ASCII character '{c}' is not allowed.");
+            }
+        }
 
         private void Serialize()
         {
@@ -153,16 +191,18 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 if (_preference != other._preference)
                     return false;
 
-                if (!_flags.Equals(other._flags, StringComparison.Ordinal))
+                if (!_flags.Equals(other._flags, StringComparison.OrdinalIgnoreCase))
                     return false;
 
-                if (!_services.Equals(other._services, StringComparison.Ordinal))
+                if (!_services.Equals(other._services, StringComparison.OrdinalIgnoreCase))
                     return false;
 
+                // Regexp is case-sensitive per RFC 3403
                 if (!_regexp.Equals(other._regexp, StringComparison.Ordinal))
                     return false;
 
-                if (!_replacement.Equals(other._replacement, StringComparison.Ordinal))
+                // Domain names are case-insensitive
+                if (!_replacement.Equals(other._replacement, StringComparison.OrdinalIgnoreCase))
                     return false;
 
                 return true;

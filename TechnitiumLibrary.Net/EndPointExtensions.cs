@@ -181,20 +181,33 @@ namespace TechnitiumLibrary.Net
 
         public static bool TryParse(string value, out EndPoint ep)
         {
+            ep = null;
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            // First handle IP:port
             if (IPEndPoint.TryParse(value, out IPEndPoint ep1))
             {
                 ep = ep1;
                 return true;
             }
 
-            if (DomainEndPoint.TryParse(value, out DomainEndPoint ep2))
-            {
-                ep = ep2;
-                return true;
-            }
+            // Now handle domain:port
+            int idx = value.LastIndexOf(':');
+            if (idx <= 0) // must be >0 because first char cannot be colon
+                return false;
 
-            ep = null;
-            return false;
+            string host = value.Substring(0, idx);
+            string portText = value.Substring(idx + 1);
+
+            if (!int.TryParse(portText, out int port) || port < 0 || port > 65535)
+                return false;
+
+            if (!DomainEndPoint.TryParse(value, out DomainEndPoint ep2))
+                return false;
+
+            ep = ep2;
+            return true;
         }
 
         public static bool IsEquals(this EndPoint ep, EndPoint other)
@@ -208,18 +221,12 @@ namespace TechnitiumLibrary.Net
             if (ep.AddressFamily != other.AddressFamily)
                 return false;
 
-            switch (ep.AddressFamily)
+            return ep.AddressFamily switch
             {
-                case AddressFamily.InterNetwork:
-                case AddressFamily.InterNetworkV6:
-                    return (ep as IPEndPoint).Equals(other);
-
-                case AddressFamily.Unspecified:
-                    return (ep as DomainEndPoint).Equals(other);
-
-                default:
-                    throw new NotSupportedException("Address Family not supported.");
-            }
+                AddressFamily.InterNetwork or AddressFamily.InterNetworkV6 => (ep as IPEndPoint).Equals(other),
+                AddressFamily.Unspecified => (ep as DomainEndPoint).Equals(other),
+                _ => throw new NotSupportedException("Address Family not supported."),
+            };
         }
 
         #endregion

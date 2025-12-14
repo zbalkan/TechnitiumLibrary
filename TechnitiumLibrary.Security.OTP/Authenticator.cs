@@ -33,80 +33,85 @@ namespace TechnitiumLibrary.Security.OTP
     {
         #region variables
 
-        readonly AuthenticatorKeyUri _keyUri;
         readonly byte[] _key;
 
         #endregion
 
         #region constructor
 
+
         public Authenticator(AuthenticatorKeyUri keyUri)
         {
             if (!keyUri.Type.Equals("totp", StringComparison.OrdinalIgnoreCase))
-                throw new NotSupportedException($"The authenticator key URI type '{_keyUri.Type}' is not supported.");
+                throw new NotSupportedException($"The authenticator key URI type '{keyUri.Type}' is not supported.");
 
-            _keyUri = keyUri;
-            _key = Base32.FromBase32String(_keyUri.Secret);
+            KeyUri = keyUri;
+            _key = Base32.FromBase32String(KeyUri.Secret);
+
+            // Optional: validate digits per RFC common practice
+            if (KeyUri.Digits < 6 || KeyUri.Digits > 8)
+                throw new ArgumentOutOfRangeException(nameof(keyUri), "Digits should be 6–8 per common TOTP deployments.");
         }
 
         #endregion
 
         #region private
 
+
+        private static bool ConstantTimeEquals(string a, string b)
+        {
+            if (a.Length != b.Length) return false;
+            int diff = 0;
+            for (int i = 0; i < a.Length; i++)
+                diff |= a[i] ^ b[i];
+            return diff == 0;
+        }
+
         private static string HOTP(byte[] k, long c, int digits = 6, string algorithm = "SHA1")
         {
-            HMAC hmac = null;
+            HMAC hmac = algorithm.ToUpperInvariant() switch
+            {
+                "SHA1" => new HMACSHA1(k),
+                "SHA256" => new HMACSHA256(k),
+                "SHA512" => new HMACSHA512(k),
+                _ => throw new NotSupportedException("Hash algorithm is not supported: " + algorithm),
+            };
+
             try
             {
-                int outLength;
-
-                switch (algorithm.ToUpperInvariant())
-                {
-                    case "SHA1":
-                        hmac = new HMACSHA1(k);
-                        outLength = SHA1.HashSizeInBytes;
-                        break;
-
-                    case "SHA256":
-                        hmac = new HMACSHA256(k);
-                        outLength = SHA256.HashSizeInBytes;
-                        break;
-
-                    case "SHA512":
-                        hmac = new HMACSHA512(k);
-                        outLength = SHA512.HashSizeInBytes;
-                        break;
-
-                    default:
-                        throw new NotSupportedException("Hash algorithm is not supported: " + algorithm);
-                }
-
                 Span<byte> bc = stackalloc byte[8];
                 BinaryPrimitives.WriteInt64BigEndian(bc, c);
 
+                int outLength = hmac.HashSize / 8;
                 Span<byte> hs = stackalloc byte[outLength];
 
                 if (!hmac.TryComputeHash(bc, hs, out _))
                     throw new InvalidOperationException();
 
                 int offset = hs[hs.Length - 1] & 0xf;
-                int code = (hs[offset] & 0x7f) << 24 | hs[offset + 1] << 16 | hs[offset + 2] << 8 | hs[offset + 3];
+                int binary =
+                    (hs[offset] & 0x7f) << 24 |
+                    (hs[offset + 1] & 0xff) << 16 |
+                    (hs[offset + 2] & 0xff) << 8 |
+                    (hs[offset + 3] & 0xff);
 
-                return (code % (int)Math.Pow(10, digits)).ToString().PadLeft(digits, '0');
+                // integer mod instead of Math.Pow
+                int mod = 1;
+                for (int i = 0; i < digits; i++) mod *= 10;
+
+                return (binary % mod).ToString().PadLeft(digits, '0');
             }
             finally
             {
-                hmac?.Dispose();
+                hmac.Dispose();
             }
         }
-
         private static string TOTP(byte[] k, DateTime dateTime, int t0 = 0, int period = 30, int digits = 6, string algorithm = "SHA1")
         {
             long t = (long)Math.Floor(((dateTime - DateTime.UnixEpoch).TotalSeconds - t0) / period);
 
             return HOTP(k, t, digits, algorithm);
         }
-
         #endregion
 
         #region public
@@ -116,32 +121,24 @@ namespace TechnitiumLibrary.Security.OTP
             return GetTOTP(DateTime.UtcNow);
         }
 
+
         public string GetTOTP(DateTime dateTime)
         {
-            return TOTP(_key, dateTime, 0, _keyUri.Period, _keyUri.Digits, _keyUri.Algorithm);
+            var utc = dateTime.Kind == DateTimeKind.Utc ? dateTime : dateTime.ToUniversalTime();
+            return TOTP(_key, utc, 0, KeyUri.Period, KeyUri.Digits, KeyUri.Algorithm);
         }
 
-        public bool IsTOTPValid(string totp, byte fudge = 10)
+        public bool IsTOTPValid(string totp, int windowSteps = 1)
         {
             DateTime utcNow = DateTime.UtcNow;
+            if (ConstantTimeEquals(GetTOTP(utcNow), totp)) return true;
 
-            if (GetTOTP(utcNow).Equals(totp))
-                return true;
-
-            int period = _keyUri.Period;
-            int seconds;
-
-            for (int i = 1; i <= fudge; i++)
+            int period = KeyUri.Period;
+            for (int i = 1; i <= windowSteps; i++)
             {
-                seconds = i * period;
-
-                if (GetTOTP(utcNow.AddSeconds(seconds)).Equals(totp))
-                    return true;
-
-                if (GetTOTP(utcNow.AddSeconds(-seconds)).Equals(totp))
-                    return true;
+                if (ConstantTimeEquals(GetTOTP(utcNow.AddSeconds(i * period)), totp)) return true;
+                if (ConstantTimeEquals(GetTOTP(utcNow.AddSeconds(-i * period)), totp)) return true;
             }
-
             return false;
         }
 
@@ -149,8 +146,7 @@ namespace TechnitiumLibrary.Security.OTP
 
         #region properties
 
-        public AuthenticatorKeyUri KeyUri
-        { get { return _keyUri; } }
+        public AuthenticatorKeyUri KeyUri { get; }
 
         #endregion
     }

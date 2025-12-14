@@ -102,36 +102,44 @@ namespace TechnitiumLibrary.Net.Proxy
 
         public bool IsMatching(EndPoint ep)
         {
-            switch (_type)
+            return _type switch
             {
-                case NetProxyBypassItemType.IpAddress:
-                    if (ep is IPEndPoint ipep1)
-                        return _ipAddress.Equals(ipep1.Address);
+                NetProxyBypassItemType.IpAddress =>
+                    ep is IPEndPoint ip1 && _ipAddress.Equals(ip1.Address),
 
-                    return false;
+                NetProxyBypassItemType.NetworkAddress =>
+                    ep is IPEndPoint ip2 && _networkAddress.Contains(ip2.Address),
 
-                case NetProxyBypassItemType.NetworkAddress:
-                    if (ep is IPEndPoint ipep2)
-                        return _networkAddress.Contains(ipep2.Address);
+                NetProxyBypassItemType.DomainName =>
+                    IsDomainMatch(ep),
 
-                    return false;
+                _ => throw new NotSupportedException("NetProxyBypassItemType not supported.")
+            };
+        }
 
-                case NetProxyBypassItemType.DomainName:
-                    if (ep is DomainEndPoint dep)
-                    {
-                        string matchDomainName = dep.Address;
+        private bool IsDomainMatch(EndPoint ep)
+        {
+            if (_domainName.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+                return IsLocalhostMatch(ep);
 
-                        if (_domainName.Length == matchDomainName.Length)
-                            return _domainName.Equals(matchDomainName, StringComparison.OrdinalIgnoreCase);
-                        else
-                            return matchDomainName.EndsWith("." + _domainName, StringComparison.OrdinalIgnoreCase);
-                    }
+            if (ep is not DomainEndPoint dep)
+                return false;
 
-                    return false;
+            string matchDomainName = dep.Address;
 
-                default:
-                    throw new NotSupportedException("NetProxyBypassItemType not supported.");
-            }
+            return _domainName.Length == matchDomainName.Length
+                ? _domainName.Equals(matchDomainName, StringComparison.OrdinalIgnoreCase)
+                : matchDomainName.EndsWith("." + _domainName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsLocalhostMatch(EndPoint ep)
+        {
+            return ep switch
+            {
+                IPEndPoint ip => IPAddress.IsLoopback(ip.Address),
+                DomainEndPoint dep => dep.Address.Equals("localhost", StringComparison.OrdinalIgnoreCase),
+                _ => false
+            };
         }
 
         public override string ToString()

@@ -142,61 +142,57 @@ namespace TechnitiumLibrary.Net
             return new IPAddress(subnetMaskBuffer);
         }
 
+
+        private static IPAddress MaskAddress(ReadOnlySpan<byte> addressBytes, int prefixLength)
+        {
+            Span<byte> output = stackalloc byte[addressBytes.Length];
+            output.Clear(); // IMPORTANT: zero out host part by default
+
+            int fullBytes = prefixLength / 8;
+            int remainderBits = prefixLength % 8;
+
+            if (fullBytes > 0)
+                addressBytes[..fullBytes].CopyTo(output);
+
+            if (remainderBits > 0)
+            {
+                // Mask the next byte, keeping only the top 'remainderBits'
+                byte mask = (byte)(0xFF << (8 - remainderBits));
+                output[fullBytes] = (byte)(addressBytes[fullBytes] & mask);
+            }
+
+            return new IPAddress(output);
+        }
         public static IPAddress GetNetworkAddress(this IPAddress address, int prefixLength)
         {
+            if (address is null)
+                throw new ArgumentNullException(nameof(address));
+            if (prefixLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(prefixLength), "Prefix length cannot be negative.");
+
+            int maxBits, byteCount;
+
             switch (address.AddressFamily)
             {
                 case AddressFamily.InterNetwork:
-                    {
-                        if (prefixLength == 32)
-                            return address;
-
-                        if (prefixLength > 32)
-                            throw new ArgumentOutOfRangeException(nameof(prefixLength), "Invalid network prefix.");
-
-                        Span<byte> addressBytes = stackalloc byte[4];
-                        if (!address.TryWriteBytes(addressBytes, out _))
-                            throw new InvalidOperationException();
-
-                        Span<byte> networkAddress = stackalloc byte[4];
-                        int copyBytes = prefixLength / 8;
-                        int balanceBits = prefixLength - (copyBytes * 8);
-
-                        addressBytes.Slice(0, copyBytes).CopyTo(networkAddress);
-
-                        if (balanceBits > 0)
-                            networkAddress[copyBytes] = (byte)(addressBytes[copyBytes] & (0xFF << (8 - balanceBits)));
-
-                        return new IPAddress(networkAddress);
-                    }
-
+                    maxBits = 32; byteCount = 4; break;
                 case AddressFamily.InterNetworkV6:
-                    {
-                        if (prefixLength == 128)
-                            return address;
-
-                        if (prefixLength > 128)
-                            throw new ArgumentOutOfRangeException(nameof(prefixLength), "Invalid network prefix.");
-
-                        Span<byte> addressBytes = stackalloc byte[16];
-                        if (!address.TryWriteBytes(addressBytes, out _))
-                            throw new InvalidOperationException();
-
-                        Span<byte> networkAddress = stackalloc byte[16];
-                        int copyBytes = prefixLength / 8;
-                        int balanceBits = prefixLength - (copyBytes * 8);
-
-                        addressBytes.Slice(0, copyBytes).CopyTo(networkAddress);
-
-                        if (balanceBits > 0)
-                            networkAddress[copyBytes] = (byte)(addressBytes[copyBytes] & (0xFF << (8 - balanceBits)));
-
-                        return new IPAddress(networkAddress);
-                    }
-
+                    maxBits = 128; byteCount = 16; break;
                 default:
                     throw new NotSupportedException("Address Family not supported.");
             }
+
+            if (prefixLength == maxBits)
+                return address;
+
+            if (prefixLength > maxBits)
+                throw new ArgumentOutOfRangeException(nameof(prefixLength), "Invalid network prefix.");
+
+            Span<byte> bytes = stackalloc byte[byteCount];
+            if (!address.TryWriteBytes(bytes, out _))
+                throw new InvalidOperationException("Failed to serialize IP address bytes.");
+
+            return MaskAddress(bytes, prefixLength);
         }
 
         public static IPAddress MapToIPv6(this IPAddress address, NetworkAddress ipv6Prefix)
@@ -440,15 +436,24 @@ namespace TechnitiumLibrary.Net
         {
             if (ptrDomain.EndsWith(".in-addr.arpa", StringComparison.OrdinalIgnoreCase))
             {
-                //1.10.168.192.in-addr.arpa
-                //192.168.10.1
+                string[] segments = ptrDomain.Split('.');
 
-                string[] parts = ptrDomain.Split('.');
+                // Expected form: A.B.C.D.in-addr.arpa
+                // → exactly 7 segments
+                if (segments.Length != 6)
+                {
+                    address = null;
+                    return false;
+                }
+
                 Span<byte> buffer = stackalloc byte[4];
 
-                for (int i = 0, j = parts.Length - 3; (i < 4) && (j > -1); i++, j--)
+                // Extract forward as standard IPv4 order
+                // PTR:   A.B.C.D.in-addr.arpa
+                // IP:    D.C.B.A
+                for (int i = 0; i < 4; i++)
                 {
-                    if (!byte.TryParse(parts[j], out buffer[i]))
+                    if (!byte.TryParse(segments[3 - i], out buffer[i]))
                     {
                         address = null;
                         return false;

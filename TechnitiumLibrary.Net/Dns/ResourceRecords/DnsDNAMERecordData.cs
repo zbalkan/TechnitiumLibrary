@@ -42,7 +42,11 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             DnsClient.IsDomainNameValid(domain, true);
 
-            _domain = domain;
+            // Normalize absolute domain to internal relative form
+            if (domain.EndsWith(".", StringComparison.Ordinal))
+                domain = domain[..^1];
+
+            _domain = domain.ToLowerInvariant();
         }
 
         public DnsDNAMERecordData(Stream s)
@@ -56,6 +60,8 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         protected override void ReadRecordData(Stream s)
         {
             _domain = DnsDatagram.DeserializeDomainName(s);
+            if (_domain.EndsWith(".", StringComparison.Ordinal))
+                _domain = _domain[..^1];
         }
 
         protected override void WriteRecordData(Stream s, List<DnsDomainOffset> domainEntries, bool canonicalForm)
@@ -90,12 +96,38 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         #region public
 
+        /// <summary>
+        /// Performs DNAME substitution per RFC 6672 §3.1.
+        /// </summary>
         public string Substitute(string qname, string owner)
         {
-            if (_domain.Length == 0)
-                return qname.Substring(0, qname.Length - owner.Length - 1);
-            else
-                return qname.Substring(0, qname.Length - owner.Length) + _domain;
+            if (string.IsNullOrEmpty(qname))
+                throw new ArgumentException(nameof(qname));
+
+            if (string.IsNullOrEmpty(owner))
+                throw new ArgumentException(nameof(owner));
+
+            // Normalize inputs
+            qname = qname.TrimEnd('.');
+            owner = owner.TrimEnd('.');
+
+            if (!qname.EndsWith(owner, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    "QNAME is not within the DNAME owner subtree.");
+
+            int prefixLength = qname.Length - owner.Length;
+
+            if (prefixLength > 0 && qname[prefixLength - 1] == '.')
+                prefixLength--;
+
+            string prefix = qname[..prefixLength];
+
+            if (string.IsNullOrEmpty(_domain))
+                return prefix; // DNAME to root
+
+            return string.IsNullOrEmpty(prefix)
+                ? _domain
+                : prefix + "." + _domain;
         }
 
         public override bool Equals(object obj)
@@ -114,7 +146,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(_domain);
+            return StringComparer.OrdinalIgnoreCase.GetHashCode(_domain);
         }
 
         public override void SerializeTo(Utf8JsonWriter jsonWriter)

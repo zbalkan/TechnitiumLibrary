@@ -44,7 +44,13 @@ namespace TechnitiumLibrary
 
         public BinaryNumber(BinaryReader bR)
         {
-            _value = bR.ReadBytes(bR.Read7BitEncodedInt());
+            var length = bR.Read7BitEncodedInt();
+            var data = bR.ReadBytes(length);
+
+            if (data.Length != length)
+                throw new EndOfStreamException("Not enough bytes in stream to build BinaryNumber.");
+
+            _value = data;
         }
 
         #endregion

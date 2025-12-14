@@ -150,6 +150,14 @@ namespace TechnitiumLibrary.Net
 
             IpEntry findEntry = new IpEntry(address);
 
+            // NEW: must short-circuit mismatched families
+            if (_ipLookupList.Count > 0 &&
+                _ipLookupList[0].IpAddress.Value.Length != findEntry.IpAddress.Value.Length)
+            {
+                value = default;
+                return false;
+            }
+
             IpEntry floorEntry = GetFloorEntry(findEntry);
             IpEntry ceilingEntry = GetCeilingEntry(findEntry);
 
