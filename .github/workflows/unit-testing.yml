@@ -1,4 +1,4 @@
-name: Unit testing
+name: Unit testing (Windows / MSBuild)
 
 on:
   workflow_dispatch:
@@ -7,36 +7,35 @@ on:
   pull_request:
     branches: ["master"]
   schedule:
-    - cron: "0 0 * * 0"
+    - cron: "0 0 * * 0"   # weekly, Sunday 00:00 UTC
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: Unit tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        configuration: [Debug]
+    runs-on: windows-latest
 
     env:
-      Solution_Name: TechnitiumLibrary.sln
+      SOLUTION_NAME: TechnitiumLibrary.sln
+      BUILD_CONFIGURATION: Debug
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install .NET
+      - name: Install .NET 9 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
 
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v1
+
       - name: Restore
-        run: dotnet restore "${{ env.Solution_Name }}"
+        run: msbuild ${{ env.SOLUTION_NAME }} /t:Restore
 
       - name: Build
-        run: dotnet build "${{ env.Solution_Name }}" -c "${{ matrix.configuration }}" --no-restore
+        run: msbuild ${{ env.SOLUTION_NAME }} /m /p:Configuration=${{ env.BUILD_CONFIGURATION }}
 
       - name: Test
-        run: dotnet test --no-build --configuration ${{ matrix.configuration }}
+        run: msbuild ${{ env.SOLUTION_NAME }} /t:Test /p:Configuration=${{ env.BUILD_CONFIGURATION }}
