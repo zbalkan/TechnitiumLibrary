@@ -8,7 +8,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Firewall
     public sealed class WindowsFirewallPublicTests
     {
         [TestMethod]
-        [Ignore("Temporarily disabled")]
         public void AddPort_ShouldThrow_WhenUnsupportedProtocol()
         {
             // Protocol ICMPv4 cannot be added using AddPort
@@ -16,7 +15,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Firewall
         }
 
         [TestMethod]
-        [Ignore("Temporarily disabled")]
         public void RemovePort_ShouldThrow_WhenUnsupportedProtocol()
         {
             // RemovePort validates only TCP, UDP, ANY
@@ -24,14 +22,12 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Firewall
         }
 
         [TestMethod]
-        [Ignore("Temporarily disabled")]
         public void PortExists_ShouldThrow_WhenUnsupportedProtocol()
         {
             Assert.ThrowsExactly<Exception>(() => WindowsFirewall.PortExists(Protocol.IGMP, 44));
         }
 
         [TestMethod]
-        [Ignore("Temporarily disabled")]
         public void RuleExistsVista_ShouldReturnDoesNotExist_WhenInputsClearlyNotMatchingAnything()
         {
             // Since firewall is not guaranteed to have this rule,
@@ -44,7 +40,6 @@ namespace TechnitiumLibrary.Tests.TechnitiumLibrary.Net.Firewall
         }
 
         [TestMethod]
-        [Ignore("Temporarily disabled")]
         public void ApplicationExists_ShouldReturnDoesNotExist_WhenApplicationIsNotRegistered()
         {
             // Public observable guarantee:
