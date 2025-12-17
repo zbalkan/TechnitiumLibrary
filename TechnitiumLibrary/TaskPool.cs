@@ -102,6 +102,7 @@ namespace TechnitiumLibrary
 
         public bool TryQueueTask(Func<object, Task> task, object state)
         {
+            ArgumentNullException.ThrowIfNull(task);
             return _channelWriter.TryWrite((task, state));
         }
 

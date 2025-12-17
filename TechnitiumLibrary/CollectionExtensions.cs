@@ -40,8 +40,10 @@ namespace TechnitiumLibrary
 
         public static IReadOnlyList<T2> Convert<T1, T2>(this IReadOnlyList<T1> array, Func<T1, T2> convert)
         {
-            T2[] newArray = new T2[array.Count];
+            ArgumentNullException.ThrowIfNull(array);
+            ArgumentNullException.ThrowIfNull(convert);
 
+            T2[] newArray = new T2[array.Count];
             for (int i = 0; i < array.Count; i++)
                 newArray[i] = convert(array[i]);
 
@@ -50,9 +52,11 @@ namespace TechnitiumLibrary
 
         public static IReadOnlyCollection<T2> Convert<T1, T2>(this IReadOnlyCollection<T1> collection, Func<T1, T2> convert)
         {
+            ArgumentNullException.ThrowIfNull(collection);
+            ArgumentNullException.ThrowIfNull(convert);
+
             T2[] newArray = new T2[collection.Count];
             int i = 0;
-
             foreach (T1 item in collection)
                 newArray[i++] = convert(item);
 
