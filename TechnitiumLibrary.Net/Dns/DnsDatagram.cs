@@ -450,7 +450,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                 if (isEmailAddress)
                 {
-                    i = domain.IndexOf('@');
+                    i = domain.LastIndexOf('@');
                     if (i < 0)
                         i = domain.IndexOf('.');
 
@@ -534,21 +534,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                 if (isEmailAddress)
                 {
-                    bool containsAt = false;
-
-                    for (int i = 0; i < domainPosition; i++)
-                    {
-                        if (domain[i] == '@')
-                        {
-                            containsAt = true;
-                            break;
-                        }
-                    }
-
-                    if (containsAt)
-                        domain[domainPosition++] = '.';
-                    else
-                        domain[domainPosition++] = '@';
+                    domain[domainPosition++] = '@';
 
                     isEmailAddress = false;
                 }
