@@ -312,7 +312,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
                     {
                         await using (CancellationTokenRegistration ctr = cancellationToken.Register(timeoutCancellationTokenSource.Cancel))
                         {
-                            if (await Task.WhenAny(sendAsyncTask, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != sendAsyncTask)
+                            if ((await Task.WhenAny(sendAsyncTask, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != sendAsyncTask) && (sendAsyncTask.Status != TaskStatus.RanToCompletion))
                                 continue; //send timed out; retry
                         }
 
@@ -327,7 +327,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
                     {
                         await using (CancellationTokenRegistration ctr = cancellationToken.Register(timeoutCancellationTokenSource.Cancel))
                         {
-                            if (await Task.WhenAny(transaction.Response, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != transaction.Response)
+                            if ((await Task.WhenAny(transaction.Response, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != transaction.Response) && (transaction.Response.Status != TaskStatus.RanToCompletion))
                                 continue; //timed out; retry
                         }
 
