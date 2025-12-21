@@ -1,6 +1,6 @@
 ﻿/*
 Technitium Library
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -98,7 +98,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             _nameServer = NameServerAddress.Parse(_forwarder);
             if (_nameServer.Protocol != _protocol)
-                _nameServer = _nameServer.ChangeProtocol(_protocol);
+                _nameServer = _nameServer.Clone(_protocol);
         }
 
         public DnsForwarderRecordData(Stream s)
@@ -392,7 +392,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 {
                     _nameServer = NameServerAddress.Parse(_forwarder);
                     if (_nameServer.Protocol != _protocol)
-                        _nameServer = _nameServer.ChangeProtocol(_protocol);
+                        _nameServer = _nameServer.Clone(_protocol);
                 }
 
                 return _nameServer;

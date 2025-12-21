@@ -514,7 +514,7 @@ namespace TechnitiumLibrary.Net.Dns
                         if ((cacheResponse is not null) && (cacheResponse.Answer.Count > 0) && (cacheResponse.Answer[0].Type == DnsResourceRecordType.AAAA))
                         {
                             resolved = true;
-                            newNameServers.Add(nameServer.UpdateAddress((cacheResponse.Answer[0].RDATA as DnsAAAARecordData).Address));
+                            newNameServers.Add(nameServer.Clone((cacheResponse.Answer[0].RDATA as DnsAAAARecordData).Address));
                         }
                     }
 
@@ -524,7 +524,7 @@ namespace TechnitiumLibrary.Net.Dns
                         if ((cacheResponse is not null) && (cacheResponse.Answer.Count > 0) && (cacheResponse.Answer[0].Type == DnsResourceRecordType.A))
                         {
                             resolved = true;
-                            newNameServers.Add(nameServer.UpdateAddress((cacheResponse.Answer[0].RDATA as DnsARecordData).Address));
+                            newNameServers.Add(nameServer.Clone((cacheResponse.Answer[0].RDATA as DnsARecordData).Address));
                         }
                     }
 
@@ -592,13 +592,13 @@ namespace TechnitiumLibrary.Net.Dns
                                                     case DnsResourceRecordType.AAAA:
                                                         found = true;
                                                         PopStack();
-                                                        nameServers[nameServerIndex] = nameServers[nameServerIndex].UpdateAddress((answer.RDATA as DnsAAAARecordData).Address);
+                                                        nameServers[nameServerIndex] = nameServers[nameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address);
 
                                                         for (int j = i + 1; j < cacheResponse.Answer.Count; j++)
                                                         {
                                                             answer = cacheResponse.Answer[j];
                                                             if (answer.Type == DnsResourceRecordType.AAAA)
-                                                                nameServers.Insert(nameServerIndex + (j - i), nameServers[nameServerIndex].UpdateAddress((answer.RDATA as DnsAAAARecordData).Address));
+                                                                nameServers.Insert(nameServerIndex + (j - i), nameServers[nameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address));
                                                         }
 
                                                         break;
@@ -606,13 +606,13 @@ namespace TechnitiumLibrary.Net.Dns
                                                     case DnsResourceRecordType.A:
                                                         found = true;
                                                         PopStack();
-                                                        nameServers[nameServerIndex] = nameServers[nameServerIndex].UpdateAddress((answer.RDATA as DnsARecordData).Address);
+                                                        nameServers[nameServerIndex] = nameServers[nameServerIndex].Clone((answer.RDATA as DnsARecordData).Address);
 
                                                         for (int j = i + 1; j < cacheResponse.Answer.Count; j++)
                                                         {
                                                             answer = cacheResponse.Answer[j];
                                                             if (answer.Type == DnsResourceRecordType.A)
-                                                                nameServers.Insert(nameServerIndex + (j - i), nameServers[nameServerIndex].UpdateAddress((answer.RDATA as DnsARecordData).Address));
+                                                                nameServers.Insert(nameServerIndex + (j - i), nameServers[nameServerIndex].Clone((answer.RDATA as DnsARecordData).Address));
                                                         }
 
                                                         break;
@@ -970,7 +970,7 @@ namespace TechnitiumLibrary.Net.Dns
                                     }
 
                                     if (!foundNoOrIpv6Glue)
-                                        nameServersToAdd.Add(nameServerWithIpv4Glue.UpdateIPEndPoint(null)); //add to allow future IPv6 address resolution if needed
+                                        nameServersToAdd.Add(nameServerWithIpv4Glue.Clone((IPEndPoint)null)); //add to allow future IPv6 address resolution if needed
                                 }
 
                                 foreach (NameServerAddress nameServer in nameServersToAdd)
@@ -1286,26 +1286,26 @@ namespace TechnitiumLibrary.Net.Dns
                                                 {
                                                     case DnsResourceRecordType.AAAA:
                                                         PopStack();
-                                                        nameServers[nameServerIndex] = nameServers[nameServerIndex].UpdateAddress((answer.RDATA as DnsAAAARecordData).Address);
+                                                        nameServers[nameServerIndex] = nameServers[nameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address);
 
                                                         for (int j = i + 1; j < response.Answer.Count; j++)
                                                         {
                                                             answer = response.Answer[j];
                                                             if (answer.Type == DnsResourceRecordType.AAAA)
-                                                                nameServers.Insert(nameServerIndex + (j - i), nameServers[nameServerIndex].UpdateAddress((answer.RDATA as DnsAAAARecordData).Address));
+                                                                nameServers.Insert(nameServerIndex + (j - i), nameServers[nameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address));
                                                         }
 
                                                         goto resolverLoop;
 
                                                     case DnsResourceRecordType.A:
                                                         PopStack();
-                                                        nameServers[nameServerIndex] = nameServers[nameServerIndex].UpdateAddress((answer.RDATA as DnsARecordData).Address);
+                                                        nameServers[nameServerIndex] = nameServers[nameServerIndex].Clone((answer.RDATA as DnsARecordData).Address);
 
                                                         for (int j = i + 1; j < response.Answer.Count; j++)
                                                         {
                                                             answer = response.Answer[j];
                                                             if (answer.Type == DnsResourceRecordType.A)
-                                                                nameServers.Insert(nameServerIndex + (j - i), nameServers[nameServerIndex].UpdateAddress((answer.RDATA as DnsARecordData).Address));
+                                                                nameServers.Insert(nameServerIndex + (j - i), nameServers[nameServerIndex].Clone((answer.RDATA as DnsARecordData).Address));
                                                         }
 
                                                         goto resolverLoop;
@@ -2572,24 +2572,56 @@ namespace TechnitiumLibrary.Net.Dns
             return v1.CompareTo(v2);
         }
 
+        private static void EnsureOneIpv4NameServerAtTop(List<NameServerAddress> nameServers)
+        {
+            if (nameServers.Count < 3)
+                return; //not enough name servers for this
+
+            for (int i = 0; i < nameServers.Count; i++)
+            {
+                if (nameServers[i].IsIPEndPointStale)
+                {
+                    if (i < 3)
+                        return; //this does not work for name servers with no IP address
+
+                    continue;
+                }
+
+                if (nameServers[i].IPEndPoint.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    if (i < 2)
+                        return; //one IPv4 name server is already present at top
+
+                    //swap this IPv4 name server to 2nd position
+                    NameServerAddress secondNameServer = nameServers[1];
+                    nameServers[1] = nameServers[i];
+                    nameServers[i] = secondNameServer;
+                    return;
+                }
+            }
+        }
+
         private static List<NameServerAddress> GetOrderedNameServersToPreferPerformance(IReadOnlyCollection<NameServerAddress> nameServers, bool prioritizeOnesWithIPAddress, bool preferIPv6)
         {
-            List<NameServerAddress> nameServersList = new List<NameServerAddress>(nameServers);
+            List<NameServerAddress> nameServersList = [.. nameServers];
 
             //Using Epsilon-Greedy Algorithm
             const int EPSILON = 5;
             int p = RandomNumberGenerator.GetInt32(100);
 
-            if (p < EPSILON)
-                nameServersList.Shuffle(); //exploration
-            else
-                nameServersList.Sort(CompareNameServersToPreferPerformance); //exploitation
+            nameServersList.Shuffle(); //always shuffle first to ensure randomness before sorting; covers exploration part of epsilon-greedy algorithm
+
+            if (p >= EPSILON)
+                nameServersList.Sort(CompareNameServersToPreferPerformance); //exploitation                
 
             if (prioritizeOnesWithIPAddress)
                 nameServersList.Sort(CompareNameServersToPreferOnesWithIPAddress); //sort name servers to prioritize ones with IP address
 
             if (preferIPv6)
+            {
                 nameServersList.Sort(CompareNameServersToPreferIPv6); //sort name servers to prefer IPv6
+                EnsureOneIpv4NameServerAtTop(nameServersList); //ensure one IPv4 name server at top
+            }
 
             return nameServersList;
         }
@@ -2601,18 +2633,16 @@ namespace TechnitiumLibrary.Net.Dns
 
             if (preferIPv6)
             {
-                List<NameServerAddress> nameServersList = new List<NameServerAddress>(IPv6_ROOT_HINTS.Count + IPv4_ROOT_HINTS.Count);
-
-                nameServersList.AddRange(IPv6_ROOT_HINTS);
-                nameServersList.AddRange(IPv4_ROOT_HINTS);
+                List<NameServerAddress> nameServersList = [.. IPv6_ROOT_HINTS, .. IPv4_ROOT_HINTS];
                 nameServersList.Shuffle();
                 nameServersList.Sort(CompareNameServersToPreferIPv6);
+                EnsureOneIpv4NameServerAtTop(nameServersList); //ensure one IPv4 name server at top
 
                 rootHints = nameServersList;
             }
             else
             {
-                List<NameServerAddress> nameServersList = new List<NameServerAddress>(IPv4_ROOT_HINTS);
+                List<NameServerAddress> nameServersList = [.. IPv4_ROOT_HINTS];
                 nameServersList.Shuffle();
 
                 rootHints = nameServersList;
@@ -3688,10 +3718,14 @@ namespace TechnitiumLibrary.Net.Dns
                     if (rrsigRecord.Type != DnsResourceRecordType.RRSIG)
                         continue;
 
+                    DnsRRSIGRecordData rrsig = rrsigRecord.RDATA as DnsRRSIGRecordData;
+
+                    //The RRSIG RR's Signer's Name field MUST be the name of the zone that contains the RRset.
+                    if ((rrsig.SignersName.Length > 0) && !rrsigRecord.Name.Equals(rrsig.SignersName, StringComparison.OrdinalIgnoreCase) && !rrsigRecord.Name.EndsWith("." + rrsig.SignersName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
                     if (rrsigRecord.Name.Equals(record.Name, StringComparison.OrdinalIgnoreCase))
                     {
-                        DnsRRSIGRecordData rrsig = rrsigRecord.RDATA as DnsRRSIGRecordData;
-
                         if (rrsig.TypeCovered == record.Type)
                         {
                             string signersName = rrsig.SignersName;
@@ -3703,7 +3737,7 @@ namespace TechnitiumLibrary.Net.Dns
                             break;
                         }
                     }
-                    else if ((record.Type == DnsResourceRecordType.CNAME) && record.Name.EndsWith("." + rrsigRecord.Name, StringComparison.OrdinalIgnoreCase) && ((rrsigRecord.RDATA as DnsRRSIGRecordData).TypeCovered == DnsResourceRecordType.DNAME))
+                    else if ((record.Type == DnsResourceRecordType.CNAME) && record.Name.EndsWith("." + rrsigRecord.Name, StringComparison.OrdinalIgnoreCase) && (rrsig.TypeCovered == DnsResourceRecordType.DNAME))
                     {
                         isRecordCovered = true;
                         break;
@@ -4462,7 +4496,7 @@ namespace TechnitiumLibrary.Net.Dns
                     {
                         //upgrade protocol to TCP when UDP is not supported by proxy and server is not bypassed
                         if ((server.Protocol == DnsTransportProtocol.Udp) && !await proxy.IsUdpAvailableAsync(cancellationToken))
-                            server = server.ChangeProtocol(DnsTransportProtocol.Tcp);
+                            server = server.Clone(DnsTransportProtocol.Tcp);
                     }
 
                     switch (server.Protocol)
@@ -4495,7 +4529,7 @@ namespace TechnitiumLibrary.Net.Dns
                                 if ((asyncRequest.Question.Count > 0) && (asyncRequest.Question[0].Type == DnsResourceRecordType.AXFR))
                                 {
                                     //use TCP for AXFR
-                                    server = server.ChangeProtocol(DnsTransportProtocol.Tcp);
+                                    server = server.Clone(DnsTransportProtocol.Tcp);
                                 }
                                 else if (_randomizeName)
                                 {
@@ -4514,7 +4548,7 @@ namespace TechnitiumLibrary.Net.Dns
                                     {
                                         if (server.Protocol == DnsTransportProtocol.Udp)
                                         {
-                                            server = server.ChangeProtocol(DnsTransportProtocol.Tcp);
+                                            server = server.Clone(DnsTransportProtocol.Tcp);
 
                                             if (_randomizeName)
                                             {
@@ -4667,7 +4701,7 @@ namespace TechnitiumLibrary.Net.Dns
                                             if (server.Protocol == DnsTransportProtocol.Udp)
                                             {
                                                 //unexpected large UDP response was received; switch protocols
-                                                server = server.ChangeProtocol(DnsTransportProtocol.Tcp);
+                                                server = server.Clone(DnsTransportProtocol.Tcp);
 
                                                 if (_randomizeName)
                                                 {
@@ -4718,7 +4752,7 @@ namespace TechnitiumLibrary.Net.Dns
                                     if (server.Protocol == DnsTransportProtocol.Udp)
                                     {
                                         //TCP fallback mechanism to use for any response validation failures
-                                        server = server.ChangeProtocol(DnsTransportProtocol.Tcp);
+                                        server = server.Clone(DnsTransportProtocol.Tcp);
 
                                         if (_randomizeName)
                                         {

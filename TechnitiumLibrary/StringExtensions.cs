@@ -39,11 +39,11 @@ namespace TechnitiumLibrary
 
         public static string Join<T>(this IEnumerable<T> values, char separator = ',')
         {
-            string strValue = null;
+            string strValue = "";
 
             foreach (T value in values)
             {
-                if (strValue is null)
+                if (strValue.Length == 0)
                     strValue = value.ToString();
                 else
                     strValue += separator + " " + value.ToString();
