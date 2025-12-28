@@ -44,7 +44,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             {
                 if (DnsClient.IsDomainNameUnicode(nameServer))
                     nameServer = DnsClient.ConvertDomainNameToAscii(nameServer);
-
                 DnsClient.IsDomainNameValid(nameServer, true);
 
                 if (IPAddress.TryParse(nameServer, out _))

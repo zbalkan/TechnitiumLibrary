@@ -42,7 +42,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             if (DnsClient.IsDomainNameUnicode(target))
                 target = DnsClient.ConvertDomainNameToAscii(target);
-
             DnsClient.IsDomainNameValid(target, true);
 
             _priority = priority;

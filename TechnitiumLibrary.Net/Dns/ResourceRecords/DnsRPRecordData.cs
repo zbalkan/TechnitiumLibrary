@@ -42,7 +42,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             if (DnsClient.IsDomainNameUnicode(txtDomain))
                 txtDomain = DnsClient.ConvertDomainNameToAscii(txtDomain);
-
             DnsClient.IsDomainNameValid(txtDomain, true);
 
             _mailbox = DnsSOARecordData.GetResponsiblePersonEmailFormat(mailbox);

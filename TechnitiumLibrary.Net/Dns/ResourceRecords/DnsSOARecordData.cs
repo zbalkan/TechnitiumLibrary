@@ -46,7 +46,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             if (DnsClient.IsDomainNameUnicode(primaryNameServer))
                 primaryNameServer = DnsClient.ConvertDomainNameToAscii(primaryNameServer);
-
             DnsClient.IsDomainNameValid(primaryNameServer, true);
 
             _primaryNameServer = primaryNameServer;
@@ -146,7 +145,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 string host = mailAddress.Host;
                 if (DnsClient.IsDomainNameUnicode(host))
                     host = DnsClient.ConvertDomainNameToAscii(host);
-
                 DnsClient.IsDomainNameValid(host, true);
             }
             else
@@ -154,7 +152,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 //validate domain name
                 if (DnsClient.IsDomainNameUnicode(responsiblePerson))
                     responsiblePerson = DnsClient.ConvertDomainNameToAscii(responsiblePerson);
-
                 DnsClient.IsDomainNameValid(responsiblePerson.Replace("\\.", "."), true);
 
                 //convert to email address

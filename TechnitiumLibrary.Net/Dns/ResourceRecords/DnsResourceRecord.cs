@@ -180,7 +180,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             if (DnsClient.IsDomainNameUnicode(name))
                 name = DnsClient.ConvertDomainNameToAscii(name);
-
             DnsClient.IsDomainNameValid(name, true);
 
             _name = name;

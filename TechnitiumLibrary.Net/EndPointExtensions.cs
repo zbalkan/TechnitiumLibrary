@@ -143,7 +143,7 @@ namespace TechnitiumLibrary.Net
                     IReadOnlyList<IPAddress> ipAddresses;
 
                     if (useRecursiveResolver)
-                        ipAddresses = await DnsClient.RecursiveResolveIPAsync(dep.Address, preferIPv6: family == AddressFamily.InterNetworkV6, cancellationToken: cancellationToken);
+                        ipAddresses = await DnsClient.Instance.RecursiveResolveIPAsync(dep.Address, preferIPv6: family == AddressFamily.InterNetworkV6, cancellationToken: cancellationToken);
                     else
                         ipAddresses = await System.Net.Dns.GetHostAddressesAsync(dep.Address, cancellationToken);
 

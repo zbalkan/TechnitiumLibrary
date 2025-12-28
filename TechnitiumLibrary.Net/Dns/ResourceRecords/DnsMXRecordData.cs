@@ -40,7 +40,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             if (DnsClient.IsDomainNameUnicode(exchange))
                 exchange = DnsClient.ConvertDomainNameToAscii(exchange);
-
             DnsClient.IsDomainNameValid(exchange, true);
 
             _preference = preference;

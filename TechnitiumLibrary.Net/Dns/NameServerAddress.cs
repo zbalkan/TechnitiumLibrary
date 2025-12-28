@@ -786,13 +786,13 @@ namespace TechnitiumLibrary.Net.Dns
 
             if (preferIPv6)
             {
-                response = await DnsClient.RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.AAAA, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, false, false, null, retries, timeout, concurrency, maxStackCount, cancellationToken);
+                response = await DnsClient.Instance.RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.AAAA, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, false, false, null, retries, timeout, concurrency, maxStackCount, cancellationToken);
                 serverIPs = DnsClient.ParseResponseAAAA(response);
             }
 
             if ((serverIPs is null) || (serverIPs.Count == 0))
             {
-                response = await DnsClient.RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.A, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, false, false, null, retries, timeout, concurrency, maxStackCount, cancellationToken);
+                response = await DnsClient.Instance.RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.A, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, false, false, null, retries, timeout, concurrency, maxStackCount, cancellationToken);
                 serverIPs = DnsClient.ParseResponseA(response);
             }
 
@@ -840,7 +840,7 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 try
                 {
-                    IReadOnlyList<string> ptrDomains = DnsClient.ParseResponsePTR(await DnsClient.RecursiveResolveQueryAsync(new DnsQuestionRecord(_ipEndPoint.Address, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, false, false, null, retries, timeout, concurrency, maxStackCount, cancellationToken));
+                    IReadOnlyList<string> ptrDomains = DnsClient.ParseResponsePTR(await DnsClient.Instance.RecursiveResolveQueryAsync(new DnsQuestionRecord(_ipEndPoint.Address, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, false, false, null, retries, timeout, concurrency, maxStackCount, cancellationToken));
                     if (ptrDomains.Count > 0)
                         _domainEndPoint = new DomainEndPoint(ptrDomains[0], _ipEndPoint.Port);
                 }

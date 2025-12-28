@@ -45,7 +45,6 @@ namespace TechnitiumLibrary.Net
 
             if (DnsClient.IsDomainNameUnicode(address))
                 address = DnsClient.ConvertDomainNameToAscii(address);
-
             DnsClient.IsDomainNameValid(address, true);
 
             _address = address;

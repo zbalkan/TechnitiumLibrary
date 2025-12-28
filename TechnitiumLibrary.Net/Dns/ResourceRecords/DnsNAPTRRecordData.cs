@@ -48,7 +48,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             if (DnsClient.IsDomainNameUnicode(replacement))
                 replacement = DnsClient.ConvertDomainNameToAscii(replacement);
-
             DnsClient.IsDomainNameValid(replacement, true);
 
             _order = order;

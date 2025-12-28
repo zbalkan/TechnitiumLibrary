@@ -39,7 +39,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             if (DnsClient.IsDomainNameUnicode(domain))
                 domain = DnsClient.ConvertDomainNameToAscii(domain);
-
             DnsClient.IsDomainNameValid(domain, true);
 
             _domain = domain;
