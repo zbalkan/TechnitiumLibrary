@@ -376,7 +376,7 @@ namespace TechnitiumLibrary.Net
                     }
                 }
 
-                if (throwException)
+                if (throwException && lastException is not null)
                     throw lastException;
             }
 

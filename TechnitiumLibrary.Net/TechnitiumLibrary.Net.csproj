@@ -20,6 +20,7 @@
 		<PackageId>TechnitiumLibrary.Net</PackageId>
 		<Version>13.2</Version>
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+		<Nullable>enable</Nullable>
 	</PropertyGroup>
 
 	<ItemGroup>
