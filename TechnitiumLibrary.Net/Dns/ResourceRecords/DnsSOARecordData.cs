@@ -44,9 +44,9 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public DnsSOARecordData(string primaryNameServer, string responsiblePerson, uint serial, uint refresh, uint retry, uint expire, uint minimum)
         {
-            if (DnsClient.IsDomainNameUnicode(primaryNameServer))
-                primaryNameServer = DnsClient.ConvertDomainNameToAscii(primaryNameServer);
-            DnsClient.IsDomainNameValid(primaryNameServer, true);
+            if (DnsClient.Helpers.IsDomainNameUnicode(primaryNameServer))
+                primaryNameServer = DnsClient.Helpers.ConvertDomainNameToAscii(primaryNameServer);
+            DnsClient.Helpers.IsDomainNameValid(primaryNameServer, true);
 
             _primaryNameServer = primaryNameServer;
             _responsiblePerson = GetResponsiblePersonEmailFormat(responsiblePerson);
@@ -143,16 +143,16 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 MailAddress mailAddress = new MailAddress(responsiblePerson);
 
                 string host = mailAddress.Host;
-                if (DnsClient.IsDomainNameUnicode(host))
-                    host = DnsClient.ConvertDomainNameToAscii(host);
-                DnsClient.IsDomainNameValid(host, true);
+                if (DnsClient.Helpers.IsDomainNameUnicode(host))
+                    host = DnsClient.Helpers.ConvertDomainNameToAscii(host);
+                DnsClient.Helpers.IsDomainNameValid(host, true);
             }
             else
             {
                 //validate domain name
-                if (DnsClient.IsDomainNameUnicode(responsiblePerson))
-                    responsiblePerson = DnsClient.ConvertDomainNameToAscii(responsiblePerson);
-                DnsClient.IsDomainNameValid(responsiblePerson.Replace("\\.", "."), true);
+                if (DnsClient.Helpers.IsDomainNameUnicode(responsiblePerson))
+                    responsiblePerson = DnsClient.Helpers.ConvertDomainNameToAscii(responsiblePerson);
+                DnsClient.Helpers.IsDomainNameValid(responsiblePerson.Replace("\\.", "."), true);
 
                 //convert to email address
                 int i = 0;
@@ -249,7 +249,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             jsonWriter.WriteString("PrimaryNameServer", _primaryNameServer);
 
-            if (DnsClient.TryConvertDomainNameToUnicode(_primaryNameServer, out string primaryNameServerIDN))
+            if (DnsClient.Helpers.TryConvertDomainNameToUnicode(_primaryNameServer, out string primaryNameServerIDN))
                 jsonWriter.WriteString("PrimaryNameServerIDN", primaryNameServerIDN);
 
             jsonWriter.WriteString("ResponsiblePerson", _responsiblePerson);

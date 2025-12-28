@@ -481,7 +481,7 @@ namespace TechnitiumLibrary.Net.Dns
                 {
                     _originDomain = await PopDomainAsync();
 
-                    if (!DnsClient.IsDomainNameValid(_originDomain))
+                    if (!DnsClient.Helpers.IsDomainNameValid(_originDomain))
                         throw new FormatException("The zone file parser failed to parse $ORIGIN 'domain-name' field on line # " + _lineNo + ".");
 
                     lastDomain = _originDomain;
@@ -524,7 +524,7 @@ namespace TechnitiumLibrary.Net.Dns
                     domain += "." + _originDomain;
                 }
 
-                if (!DnsClient.IsDomainNameValid(domain))
+                if (!DnsClient.Helpers.IsDomainNameValid(domain))
                     throw new FormatException("The zone file parser failed to parse 'domain-name' field on line # " + _lineNo + ".");
 
                 //parse RR

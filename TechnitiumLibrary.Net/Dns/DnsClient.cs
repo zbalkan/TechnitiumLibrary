@@ -101,6 +101,10 @@ namespace TechnitiumLibrary.Net.Dns
         readonly ConcurrentDictionary<Guid, Stack<InternalState>> _perQueryStacks = new ConcurrentDictionary<Guid, Stack<InternalState>>();
         readonly ConcurrentDictionary<Guid, InternalState> _perQueryHeadState = new ConcurrentDictionary<Guid, InternalState>();
 
+
+        readonly ConcurrentDictionary<Guid, QueryContext> _queries  =new ConcurrentDictionary<Guid, QueryContext>();
+
+
         #endregion
 
         #region constructor
@@ -252,150 +256,7 @@ namespace TechnitiumLibrary.Net.Dns
         }
 
         #endregion
-
         #region static
-        public static string ConvertDomainNameToAscii(string domain)
-        {
-            return _idnMapping.GetAscii(domain);
-        }
-
-        public static string ConvertDomainNameToUnicode(string domain)
-        {
-            return _idnMapping.GetUnicode(domain);
-        }
-
-        public static bool IsDomainNameUnicode(string domain)
-        {
-            foreach (char c in domain)
-            {
-                if (!char.IsAscii(c))
-                    return true;
-            }
-
-            return false;
-        }
-
-        public static bool IsDomainNameValid(string domain, bool throwException = false)
-        {
-            if (domain is null)
-            {
-                if (throwException)
-                    throw new ArgumentNullException(nameof(domain));
-
-                return false;
-            }
-
-            if (domain.Length == 0)
-                return true; //domain is root zone
-
-            if (domain.Length > 255)
-            {
-                if (throwException)
-                    throw new DnsClientException("Invalid domain name [" + domain + "]: length cannot exceed 255 bytes.");
-
-                return false;
-            }
-
-            int labelStart = 0;
-            int labelEnd;
-            int labelLength;
-            int labelChar;
-            int i;
-
-            do
-            {
-                labelEnd = domain.IndexOf('.', labelStart);
-                if (labelEnd < 0)
-                    labelEnd = domain.Length;
-
-                labelLength = labelEnd - labelStart;
-
-                if (labelLength == 0)
-                {
-                    if (throwException)
-                        throw new DnsClientException("Invalid domain name [" + domain + "]: label length cannot be 0 byte.");
-
-                    return false;
-                }
-
-                if (labelLength > 63)
-                {
-                    if (throwException)
-                        throw new DnsClientException("Invalid domain name [" + domain + "]: label length cannot exceed 63 bytes.");
-
-                    return false;
-                }
-
-                if (domain[labelStart] == '-')
-                {
-                    if (throwException)
-                        throw new DnsClientException("Invalid domain name [" + domain + "]: label cannot start with hyphen.");
-
-                    return false;
-                }
-
-                if (domain[labelEnd - 1] == '-')
-                {
-                    if (throwException)
-                        throw new DnsClientException("Invalid domain name [" + domain + "]: label cannot end with hyphen.");
-
-                    return false;
-                }
-
-                if (labelLength != 1 || domain[labelStart] != '*')
-                {
-                    for (i = labelStart; i < labelEnd; i++)
-                    {
-                        labelChar = domain[i];
-
-                        if ((labelChar >= 97) && (labelChar <= 122)) //[a-z]
-                            continue;
-
-                        if ((labelChar >= 65) && (labelChar <= 90)) //[A-Z]
-                            continue;
-
-                        if ((labelChar >= 48) && (labelChar <= 57)) //[0-9]
-                            continue;
-
-                        if (labelChar == 45) //[-]
-                            continue;
-
-                        if (labelChar == 95) //[_]
-                            continue;
-
-                        if (labelChar == 47) //[/]
-                            continue;
-
-                        if (throwException)
-                            throw new DnsClientException("Invalid domain name [" + domain + "]: invalid character [" + labelChar + "] was found.");
-
-                        return false;
-                    }
-                }
-
-                labelStart = labelEnd + 1;
-            }
-            while (labelEnd < domain.Length);
-
-            return true;
-        }
-
-        public static bool TryConvertDomainNameToUnicode(string domain, out string idn)
-        {
-            if (domain.Contains("xn--", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    idn = _idnMapping.GetUnicode(domain);
-                    return true;
-                }
-                catch
-                { }
-            }
-
-            idn = null;
-            return false;
-        }
 
         public static async Task ReloadRootHintsAsync()
         {

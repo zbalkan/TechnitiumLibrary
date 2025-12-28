@@ -40,9 +40,9 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public DnsSRVRecordData(ushort priority, ushort weight, ushort port, string target)
         {
-            if (DnsClient.IsDomainNameUnicode(target))
-                target = DnsClient.ConvertDomainNameToAscii(target);
-            DnsClient.IsDomainNameValid(target, true);
+            if (DnsClient.Helpers.IsDomainNameUnicode(target))
+                target = DnsClient.Helpers.ConvertDomainNameToAscii(target);
+            DnsClient.Helpers.IsDomainNameValid(target, true);
 
             _priority = priority;
             _weight = weight;
@@ -148,7 +148,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             jsonWriter.WriteNumber("Port", _port);
             jsonWriter.WriteString("Target", _target);
 
-            if (DnsClient.TryConvertDomainNameToUnicode(_target, out string targetIDN))
+            if (DnsClient.Helpers.TryConvertDomainNameToUnicode(_target, out string targetIDN))
                 jsonWriter.WriteString("TargetIDN", targetIDN);
 
             jsonWriter.WriteEndObject();

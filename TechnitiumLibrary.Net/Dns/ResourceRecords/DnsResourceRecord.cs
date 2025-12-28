@@ -178,9 +178,9 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public DnsResourceRecord(string name, DnsResourceRecordType type, DnsClass @class, uint ttl, DnsResourceRecordData rData)
         {
-            if (DnsClient.IsDomainNameUnicode(name))
-                name = DnsClient.ConvertDomainNameToAscii(name);
-            DnsClient.IsDomainNameValid(name, true);
+            if (DnsClient.Helpers.IsDomainNameUnicode(name))
+                name = DnsClient.Helpers.ConvertDomainNameToAscii(name);
+            DnsClient.Helpers.IsDomainNameValid(name, true);
 
             _name = name;
             _type = type;
@@ -647,7 +647,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             jsonWriter.WriteString("Name", _name);
 
-            if (DnsClient.TryConvertDomainNameToUnicode(_name, out string nameIDN))
+            if (DnsClient.Helpers.TryConvertDomainNameToUnicode(_name, out string nameIDN))
                 jsonWriter.WriteString("NameIDN", nameIDN);
 
             jsonWriter.WriteString("Type", _type.ToString());

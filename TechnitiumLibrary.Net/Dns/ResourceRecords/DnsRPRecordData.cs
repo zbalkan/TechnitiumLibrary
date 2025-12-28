@@ -40,9 +40,9 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public DnsRPRecordData(string mailbox = "", string txtDomain = "")
         {
-            if (DnsClient.IsDomainNameUnicode(txtDomain))
-                txtDomain = DnsClient.ConvertDomainNameToAscii(txtDomain);
-            DnsClient.IsDomainNameValid(txtDomain, true);
+            if (DnsClient.Helpers.IsDomainNameUnicode(txtDomain))
+                txtDomain = DnsClient.Helpers.ConvertDomainNameToAscii(txtDomain);
+            DnsClient.Helpers.IsDomainNameValid(txtDomain, true);
 
             _mailbox = DnsSOARecordData.GetResponsiblePersonEmailFormat(mailbox);
             _txtDomain = txtDomain;

@@ -22,6 +22,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using TechnitiumLibrary.Net.Dns;
+using static TechnitiumLibrary.Net.Dns.DnsClient;
 
 namespace TechnitiumLibrary.Net
 {
@@ -43,9 +44,9 @@ namespace TechnitiumLibrary.Net
             if (IPAddress.TryParse(address, out _))
                 throw new ArgumentException("Address must be a domain name: " + address, nameof(address));
 
-            if (DnsClient.IsDomainNameUnicode(address))
-                address = DnsClient.ConvertDomainNameToAscii(address);
-            DnsClient.IsDomainNameValid(address, true);
+            if (Helpers.IsDomainNameUnicode(address))
+                address = Helpers.ConvertDomainNameToAscii(address);
+            Helpers.IsDomainNameValid(address, true);
 
             _address = address;
             _port = port;
@@ -73,10 +74,10 @@ namespace TechnitiumLibrary.Net
                 return false;
             }
 
-            if (DnsClient.IsDomainNameUnicode(parts[0]))
-                parts[0] = DnsClient.ConvertDomainNameToAscii(parts[0]);
+            if (Helpers.IsDomainNameUnicode(parts[0]))
+                parts[0] = Helpers.ConvertDomainNameToAscii(parts[0]);
 
-            if (!DnsClient.IsDomainNameValid(parts[0]))
+            if (!Helpers.IsDomainNameValid(parts[0]))
             {
                 ep = null;
                 return false;

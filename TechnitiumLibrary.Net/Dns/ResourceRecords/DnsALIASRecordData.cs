@@ -117,7 +117,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             jsonWriter.WriteString("Type", _type.ToString());
             jsonWriter.WriteString("Domain", Domain);
 
-            if (DnsClient.TryConvertDomainNameToUnicode(Domain, out string domainIDN))
+            if (DnsClient.Helpers.TryConvertDomainNameToUnicode(Domain, out string domainIDN))
                 jsonWriter.WriteString("DomainIDN", domainIDN);
 
             jsonWriter.WriteEndObject();

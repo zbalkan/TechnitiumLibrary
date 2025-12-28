@@ -85,7 +85,7 @@ namespace TechnitiumLibrary.Net.Proxy
 
                 _type = NetProxyBypassItemType.NetworkAddress;
             }
-            else if (DnsClient.IsDomainNameValid(value))
+            else if (DnsClient.Helpers.IsDomainNameValid(value))
             {
                 _type = NetProxyBypassItemType.DomainName;
                 _domainName = value;

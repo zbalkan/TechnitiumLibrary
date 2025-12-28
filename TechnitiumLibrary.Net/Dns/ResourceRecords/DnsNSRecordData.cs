@@ -123,7 +123,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             jsonWriter.WriteString("NameServer", _nameServer);
 
-            if (DnsClient.TryConvertDomainNameToUnicode(_nameServer, out string nameServerIDN))
+            if (DnsClient.Helpers.TryConvertDomainNameToUnicode(_nameServer, out string nameServerIDN))
                 jsonWriter.WriteString("NameServerIDN", nameServerIDN);
 
             jsonWriter.WriteEndObject();

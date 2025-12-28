@@ -47,8 +47,8 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         public DnsNAPTRRecordData(ushort order, ushort preference, string flags, string services, string regexp, string replacement)
         {
             if (DnsClient.IsDomainNameUnicode(replacement))
-                replacement = DnsClient.ConvertDomainNameToAscii(replacement);
-            DnsClient.IsDomainNameValid(replacement, true);
+                replacement = DnsClient.Helpers.ConvertDomainNameToAscii(replacement);
+            DnsClient.Helpers.IsDomainNameValid(replacement, true);
 
             _order = order;
             _preference = preference;

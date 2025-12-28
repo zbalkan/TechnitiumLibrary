@@ -37,9 +37,9 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public DnsPTRRecordData(string domain)
         {
-            if (DnsClient.IsDomainNameUnicode(domain))
-                domain = DnsClient.ConvertDomainNameToAscii(domain);
-            DnsClient.IsDomainNameValid(domain, true);
+            if (DnsClient.Helpers.IsDomainNameUnicode(domain))
+                domain = DnsClient.Helpers.ConvertDomainNameToAscii(domain);
+            DnsClient.Helpers.IsDomainNameValid(domain, true);
 
             _domain = domain;
         }
@@ -114,7 +114,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             jsonWriter.WriteString("Domain", _domain);
 
-            if (DnsClient.TryConvertDomainNameToUnicode(_domain, out string domainIDN))
+            if (DnsClient.Helpers.TryConvertDomainNameToUnicode(_domain, out string domainIDN))
                 jsonWriter.WriteString("DomainIDN", domainIDN);
 
             jsonWriter.WriteEndObject();

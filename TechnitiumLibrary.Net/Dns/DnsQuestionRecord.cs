@@ -53,11 +53,11 @@ namespace TechnitiumLibrary.Net.Dns
 
         public DnsQuestionRecord(string name, DnsResourceRecordType type, DnsClass @class, bool validateName = true)
         {
-            if (DnsClient.IsDomainNameUnicode(name))
-                name = DnsClient.ConvertDomainNameToAscii(name);
+            if (DnsClient.Helpers.IsDomainNameUnicode(name))
+                name = DnsClient.Helpers.ConvertDomainNameToAscii(name);
 
             if (validateName)
-                DnsClient.IsDomainNameValid(name, true);
+                DnsClient.Helpers.IsDomainNameValid(name, true);
 
             _name = name;
             _type = type;
@@ -217,7 +217,7 @@ namespace TechnitiumLibrary.Net.Dns
 
             jsonWriter.WriteString("Name", _name);
 
-            if (DnsClient.TryConvertDomainNameToUnicode(_name, out string nameIDN))
+            if (DnsClient.Helpers.TryConvertDomainNameToUnicode(_name, out string nameIDN))
                 jsonWriter.WriteString("NameIDN", nameIDN);
 
             jsonWriter.WriteString("Type", _type.ToString());
