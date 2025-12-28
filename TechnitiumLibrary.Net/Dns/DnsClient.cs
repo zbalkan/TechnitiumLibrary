@@ -484,7 +484,7 @@ namespace TechnitiumLibrary.Net.Dns
                 ushort keyTag = 0;
                 DnssecAlgorithm algorithm = DnssecAlgorithm.Unknown;
                 DnssecDigestType digestType = DnssecDigestType.Unknown;
-                string digest = null;
+                string? digest = null;
 
                 foreach (XmlNode childNode in keyDigestNode.ChildNodes)
                 {
@@ -587,7 +587,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        private void TriggerNsResolution(IDnsCache cache, NetProxy proxy, bool preferIPv6, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, int retries, int timeout, int concurrency, int maxStackCount, bool asyncNsResolution, Dictionary<string, object> asyncNsResolutionTasks)
+        private void TriggerNsResolution(IDnsCache cache, NetProxy? proxy, bool preferIPv6, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, int retries, int timeout, int concurrency, int maxStackCount, bool asyncNsResolution, Dictionary<string, object> asyncNsResolutionTasks)
         {
             if (!asyncNsResolution || (asyncNsResolutionTasks.Count == 0))
                 return;
@@ -611,10 +611,9 @@ namespace TechnitiumLibrary.Net.Dns
             }, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Current);
         }
 
-        public Task<DnsDatagram> RecursiveResolveQueryAsync(DnsQuestionRecord question, IDnsCache cache = null, NetProxy proxy = null, bool preferIPv6 = false, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, CancellationToken cancellationToken = default)
+        public Task<DnsDatagram> RecursiveResolveQueryAsync(DnsQuestionRecord question, IDnsCache? cache = null, NetProxy? proxy = null, bool preferIPv6 = false, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress? eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, CancellationToken cancellationToken = default)
         {
-            if (cache is null)
-                cache = new DnsCache();
+            cache ??= new DnsCache();
 
             return ResolveQueryAsync(question, delegate (DnsQuestionRecord q)
             {
@@ -622,15 +621,14 @@ namespace TechnitiumLibrary.Net.Dns
             });
         }
 
-        public async Task<IReadOnlyList<IPAddress>> RecursiveResolveIPAsync(string domain, IDnsCache cache = null, NetProxy proxy = null, bool preferIPv6 = false, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<IPAddress>> RecursiveResolveIPAsync(string domain, IDnsCache? cache = null, NetProxy? proxy = null, bool preferIPv6 = false, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress? eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, CancellationToken cancellationToken = default)
         {
-            if (cache is null)
-                cache = new DnsCache();
+            cache ??= new DnsCache();
 
-            Task<DnsDatagram> ipv6Task = preferIPv6 ? RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.AAAA, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, cancellationToken) : null;
+            Task<DnsDatagram>? ipv6Task = preferIPv6 ? RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.AAAA, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, cancellationToken) : null;
             Task<DnsDatagram> ipv4Task = RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.A, DnsClass.IN), cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, cancellationToken);
 
-            IReadOnlyList<IPAddress> ipv6Addresses = preferIPv6 ? ParseResponseAAAA(await ipv6Task) : null;
+            IReadOnlyList<IPAddress>? ipv6Addresses = preferIPv6 ? ParseResponseAAAA(await ipv6Task) : null;
             IReadOnlyList<IPAddress> ipv4Addresses = ParseResponseA(await ipv4Task);
 
             List<IPAddress> ipAddresses = new List<IPAddress>((ipv6Addresses is null ? 0 : ipv6Addresses.Count) + ipv4Addresses.Count);
@@ -645,10 +643,10 @@ namespace TechnitiumLibrary.Net.Dns
 
         public static async Task<IReadOnlyList<IPAddress>> ResolveIPAsync(IDnsClient dnsClient, string domain, bool preferIPv6 = false, CancellationToken cancellationToken = default)
         {
-            Task<DnsDatagram> ipv6Task = preferIPv6 ? dnsClient.ResolveAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.AAAA, DnsClass.IN), cancellationToken) : null;
+            Task<DnsDatagram>? ipv6Task = preferIPv6 ? dnsClient.ResolveAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.AAAA, DnsClass.IN), cancellationToken) : null;
             Task<DnsDatagram> ipv4Task = dnsClient.ResolveAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.A, DnsClass.IN), cancellationToken);
 
-            IReadOnlyList<IPAddress> ipv6Addresses = preferIPv6 ? ParseResponseAAAA(await ipv6Task) : null;
+            IReadOnlyList<IPAddress>? ipv6Addresses = preferIPv6 ? ParseResponseAAAA(await ipv6Task) : null;
             IReadOnlyList<IPAddress> ipv4Addresses = ParseResponseA(await ipv4Task);
 
             List<IPAddress> ipAddresses = new List<IPAddress>((ipv6Addresses is null ? 0 : ipv6Addresses.Count) + ipv4Addresses.Count);
@@ -976,7 +974,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        public static IReadOnlyList<DnsTLSARecordData> ParseResponseTLSA(DnsDatagram response)
+        public static IReadOnlyList<DnsTLSARecordData>? ParseResponseTLSA(DnsDatagram response)
         {
             string domain = response.Question[0].Name;
 
@@ -998,7 +996,7 @@ namespace TechnitiumLibrary.Net.Dns
                             switch (record.Type)
                             {
                                 case DnsResourceRecordType.TLSA:
-                                    DnsTLSARecordData tlsa = record.RDATA as DnsTLSARecordData;
+                                    DnsTLSARecordData? tlsa = record.RDATA as DnsTLSARecordData;
 
                                     switch (tlsa.CertificateUsage)
                                     {
@@ -1091,7 +1089,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        public static DnsSOARecordData ParseResponseSOA(DnsDatagram response)
+        public static DnsSOARecordData? ParseResponseSOA(DnsDatagram response)
         {
             string domain = response.Question[0].Name;
 
@@ -1311,7 +1309,7 @@ namespace TechnitiumLibrary.Net.Dns
             string lastDSOwnerName = lastDSRecords[0].Name;
             DnsClass @class = response.Question[0].Class;
             List<DnsResourceRecord> allDnsKeyRecords = new List<DnsResourceRecord>(4);
-            List<string> unsignedZones = null;
+            List<string>? unsignedZones = null;
 
             //add current dns key
             allDnsKeyRecords.AddRange(currentDnsKeyRecords);
@@ -1348,8 +1346,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                 if (dnsKeyRecords is null)
                 {
-                    if (unsignedZones is null)
-                        unsignedZones = new List<string>(2);
+                    unsignedZones ??= new List<string>(2);
 
                     unsignedZones.Add(signersName);
                 }
@@ -1380,7 +1377,7 @@ namespace TechnitiumLibrary.Net.Dns
                                     //For every wildcard expansion, we need to prove that the expansion was allowed.
 
                                     //validate wildcard
-                                    DnsRRSIGRecordData rrsig = rrsigRecord.RDATA as DnsRRSIGRecordData;
+                                    DnsRRSIGRecordData? rrsig = rrsigRecord.RDATA as DnsRRSIGRecordData;
                                     DnsResourceRecordType typeCovered = rrsig.TypeCovered;
                                     DnssecProofOfNonExistence proofOfNonExistence = await GetValidatedProofOfNonExistenceAsync(response, rrsigRecord.Name, typeCovered, true, nextCloserName, rrsig.SignersName);
                                     switch (proofOfNonExistence)
@@ -1634,7 +1631,7 @@ namespace TechnitiumLibrary.Net.Dns
                         //The RRSIG RR and the RRset MUST have the same owner name and the same class.
                         if (rrsigRecord.Name.Equals(ownerName, StringComparison.OrdinalIgnoreCase) && (rrsigRecord.Class == rrsetClass))
                         {
-                            DnsRRSIGRecordData rrsig = rrsigRecord.RDATA as DnsRRSIGRecordData;
+                            DnsRRSIGRecordData? rrsig = rrsigRecord.RDATA as DnsRRSIGRecordData;
 
                             //The RRSIG RR's Signer's Name field MUST be the name of the zone that contains the RRset.
                             if ((rrsig.SignersName.Length > 0) && !ownerName.Equals(rrsig.SignersName, StringComparison.OrdinalIgnoreCase) && !ownerName.EndsWith("." + rrsig.SignersName, StringComparison.OrdinalIgnoreCase))
@@ -1801,7 +1798,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        private async Task<IReadOnlyList<DnsResourceRecord>> FindDnsKeyForAsync(string ownerName, DnsClass @class, IReadOnlyList<DnsResourceRecord> currentDnsKeyRecords, DnsClient dnsClient, IDnsCache cache, ushort udpPayloadSize, DnsDatagram originalResponse, CancellationToken cancellationToken)
+        private async Task<IReadOnlyList<DnsResourceRecord>?> FindDnsKeyForAsync(string ownerName, DnsClass @class, IReadOnlyList<DnsResourceRecord> currentDnsKeyRecords, DnsClient dnsClient, IDnsCache cache, ushort udpPayloadSize, DnsDatagram originalResponse, CancellationToken cancellationToken)
         {
             string dnsKeyOwnerName = currentDnsKeyRecords[0].Name;
 
@@ -1809,7 +1806,7 @@ namespace TechnitiumLibrary.Net.Dns
                 throw new InvalidOperationException();
 
             string[] labels = ownerName.Split('.');
-            string nextDomain = null;
+            string? nextDomain = null;
 
             for (int i = 0; i < labels.Length; i++)
             {
@@ -1900,7 +1897,7 @@ namespace TechnitiumLibrary.Net.Dns
                     if (dnsKeyRecord.Type != DnsResourceRecordType.DNSKEY)
                         continue;
 
-                    DnsDNSKEYRecordData dnsKey = dnsKeyRecord.RDATA as DnsDNSKEYRecordData;
+                    DnsDNSKEYRecordData? dnsKey = dnsKeyRecord.RDATA as DnsDNSKEYRecordData;
 
                     if (dnsKey.Flags.HasFlag(DnsDnsKeyFlag.Revoke))
                         continue; //cannot use revoked DNSKEY to validate the DNSKEY response
@@ -1912,7 +1909,7 @@ namespace TechnitiumLibrary.Net.Dns
                         if (!dsRecord.Name.Equals(dnsKeyQuestion.Name, StringComparison.OrdinalIgnoreCase))
                             continue;
 
-                        DnsDSRecordData ds = dsRecord.RDATA as DnsDSRecordData;
+                        DnsDSRecordData? ds = dsRecord.RDATA as DnsDSRecordData;
 
                         if ((ds.KeyTag == dnsKey.ComputedKeyTag) && (ds.Algorithm == dnsKey.Algorithm) && DnsDSRecordData.IsDigestTypeSupported(ds.DigestType))
                         {
@@ -2238,7 +2235,7 @@ namespace TechnitiumLibrary.Net.Dns
             return dsRecords;
         }
 
-        private static async Task<DnssecProofOfNonExistence> GetValidatedProofOfNonExistenceAsync(DnsDatagram response, string domain, DnsResourceRecordType type, bool wildcardAnswerValidation = false, string wildcardNextCloserName = null, string wildcardZoneName = null)
+        private static async Task<DnssecProofOfNonExistence> GetValidatedProofOfNonExistenceAsync(DnsDatagram response, string domain, DnsResourceRecordType type, bool wildcardAnswerValidation = false, string? wildcardNextCloserName = null, string? wildcardZoneName = null)
         {
             //authority section may contain both NSEC and NSEC3 records corresponding to different CNAME records in answer section
             bool hasNSEC = false;
@@ -2335,7 +2332,7 @@ namespace TechnitiumLibrary.Net.Dns
                     if (rrsigRecord.Type != DnsResourceRecordType.RRSIG)
                         continue;
 
-                    DnsRRSIGRecordData rrsig = rrsigRecord.RDATA as DnsRRSIGRecordData;
+                    DnsRRSIGRecordData? rrsig = rrsigRecord.RDATA as DnsRRSIGRecordData;
 
                     //The RRSIG RR's Signer's Name field MUST be the name of the zone that contains the RRset.
                     if ((rrsig.SignersName.Length > 0) && !rrsigRecord.Name.Equals(rrsig.SignersName, StringComparison.OrdinalIgnoreCase) && !rrsigRecord.Name.EndsWith("." + rrsig.SignersName, StringComparison.OrdinalIgnoreCase))
@@ -2576,7 +2573,7 @@ namespace TechnitiumLibrary.Net.Dns
                     }
 
                     DnsDatagram lastResponse = response;
-                    DnsDatagram newResponse = null;
+                    DnsDatagram? newResponse = null;
                     double responseRtt = 0.0;
 
                     if (response.Metadata is not null)
@@ -2676,7 +2673,7 @@ namespace TechnitiumLibrary.Net.Dns
             return response;
         }
 
-        protected virtual async Task<DnsDatagram> InternalResolveAsync(DnsDatagram request, Func<DnsDatagram, CancellationToken, Task<DnsDatagram>> getValidatedResponseAsync = null, bool doNotReorderNameServers = false, CancellationToken cancellationToken = default)
+        protected virtual async Task<DnsDatagram> InternalResolveAsync(DnsDatagram request, Func<DnsDatagram, CancellationToken, Task<DnsDatagram>>? getValidatedResponseAsync = null, bool doNotReorderNameServers = false, CancellationToken cancellationToken = default)
         {
             //get servers
             IReadOnlyList<NameServerAddress> servers;
@@ -2700,9 +2697,9 @@ namespace TechnitiumLibrary.Net.Dns
             //init _parameters
             object nextServerLock = new object();
             int nextServerIndex = 0;
-            IDnsCache nsResolveCache = null;
+            IDnsCache? nsResolveCache = null;
 
-            NameServerAddress GetNextServer()
+            NameServerAddress? GetNextServer()
             {
                 lock (nextServerLock)
                 {
@@ -2716,8 +2713,8 @@ namespace TechnitiumLibrary.Net.Dns
             async Task<DnsDatagram> DoResolveAsync(CancellationToken cancellationToken)
             {
                 DnsDatagram asyncRequest = request.CloneHeadersAndQuestions(); //clone request (headers + question section) so that qname randomization does not pollute request question section and does not cause issue with parallel tasks
-                DnsDatagram lastResponse = null;
-                Exception lastException = null;
+                DnsDatagram? lastResponse = null;
+                Exception? lastException = null;
 
                 while (true) //next server loop
                 {
@@ -2744,8 +2741,7 @@ namespace TechnitiumLibrary.Net.Dns
                     {
                         if (server.IsIPEndPointStale)
                         {
-                            if (nsResolveCache is null)
-                                nsResolveCache = _cache is null ? new DnsCache() : _cache;
+                            nsResolveCache ??= _cache is null ? new DnsCache() : _cache;
 
                             //recursive resolve name server only when proxy is null else let proxy resolve it to allow using .onion or private domains
                             try
@@ -3128,8 +3124,8 @@ namespace TechnitiumLibrary.Net.Dns
                         tasks.Add(delayTask);
 
                         //wait for first positive response, or for all tasks to fault, or timeout
-                        DnsDatagram lastResponse = null;
-                        Exception lastException = null;
+                        DnsDatagram? lastResponse = null;
+                        Exception? lastException = null;
 
                         while (true)
                         {
@@ -3510,15 +3506,14 @@ namespace TechnitiumLibrary.Net.Dns
 
         #region public
 
-        public async Task<DnsDatagram> RecursiveResolveAsync(DnsQuestionRecord question, IDnsCache cache = null, NetProxy proxy = null, bool preferIPv6 = false, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, bool minimalResponse = false, bool asyncNsResolution = false, List<DnsDatagram> rawResponses = null, CancellationToken cancellationToken = default)
+        public async Task<DnsDatagram> RecursiveResolveAsync(DnsQuestionRecord question, IDnsCache? cache = null, NetProxy? proxy = null, bool preferIPv6 = false, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress? eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, bool minimalResponse = false, bool asyncNsResolution = false, List<DnsDatagram>? rawResponses = null, CancellationToken cancellationToken = default)
         {
             if ((udpPayloadSize < 512) && (dnssecValidation || (eDnsClientSubnet is not null)))
                 throw new ArgumentOutOfRangeException(nameof(udpPayloadSize), "EDNS cannot be disabled by setting UDP payload size to less than 512 when DNSSEC validation or EDNS Client Subnet is enabled.");
 
             EDnsOption[] eDnsClientSubnetOption = EDnsClientSubnetOptionData.GetEDnsClientSubnetOption(eDnsClientSubnet);
 
-            if (cache is null)
-                cache = new DnsCache();
+            cache ??= new DnsCache();
 
             if (qnameMinimization)
             {
@@ -3529,25 +3524,18 @@ namespace TechnitiumLibrary.Net.Dns
             List<EDnsExtendedDnsErrorOptionData> extendedDnsErrors = new List<EDnsExtendedDnsErrorOptionData>();
 
             //async resolve all name servers
-            Dictionary<string, object> asyncNsResolutionTasks = null;
+            Dictionary<string, object>? asyncNsResolutionTasks = null;
 
             if (asyncNsResolution)
                 asyncNsResolutionTasks = new Dictionary<string, object>();
 
             ResetState(question, qnameMinimization, dnssecValidation);
 
-            void PushStack(string nextQName, DnsResourceRecordType nextQType)
-            {
-                _resolverStack.Push(CurrentState.DeepClone());
-                ResetState(question, qnameMinimization, dnssecValidation, nextQName, nextQType);
-            }
-
-            void PopStack()
-            {
-                if (!_resolverStack.TryPop(out var data)) return;
-                CurrentState = data;
-            }
-
+            return await RunStackLoop(question, cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, minimalResponse, asyncNsResolution, rawResponses, eDnsClientSubnetOption, extendedDnsErrors, asyncNsResolutionTasks, cancellationToken);
+        }
+        
+        private async Task<DnsDatagram> RunStackLoop(DnsQuestionRecord question, IDnsCache cache, NetProxy? proxy, bool preferIPv6, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, NetworkAddress eDnsClientSubnet, int retries, int timeout, int concurrency, int maxStackCount, bool minimalResponse, bool asyncNsResolution, List<DnsDatagram> rawResponses, EDnsOption[] eDnsClientSubnetOption, List<EDnsExtendedDnsErrorOptionData> extendedDnsErrors, Dictionary<string, object> asyncNsResolutionTasks, CancellationToken cancellationToken)
+        {
             while (true) //stack loop
             {
                 if (_resolverStack.Count > maxStackCount)
@@ -3573,347 +3561,10 @@ namespace TechnitiumLibrary.Net.Dns
                     throw new DnsClientException("DnsClient recursive resolution exceeded the maximum stack count for domain: " + question.Name.ToLowerInvariant());
                 }
 
-                //query cache
+                (bool flowControl, DnsDatagram value) = await QueryCache(question, cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, eDnsClientSubnetOption, extendedDnsErrors, asyncNsResolutionTasks);
+                if (!flowControl)
                 {
-                    //query cache without CD flag to not get response from "bad cache" and DO flag, if validation is enabled, to get DNSSEC records for correctly reading DS from response
-                    DnsDatagram cacheRequest = new DnsDatagram(0, false, DnsOpcode.StandardQuery, false, false, true, false, false, false, DnsResponseCode.NoError, new DnsQuestionRecord[] { question }, null, null, null, udpPayloadSize, dnssecValidation ? EDnsHeaderFlags.DNSSEC_OK : EDnsHeaderFlags.None, _resolverStack.IsEmpty ? eDnsClientSubnetOption : null);
-                    DnsDatagram cacheResponse = await cache.QueryAsync(cacheRequest, findClosestNameServers: true);
-                    if (cacheResponse is not null)
-                    {
-                        extendedDnsErrors.AddRange(cacheResponse.DnsClientExtendedErrors);
-
-                        switch (cacheResponse.RCODE)
-                        {
-                            case DnsResponseCode.NoError:
-                                {
-                                    if (cacheResponse.Answer.Count > 0)
-                                    {
-                                        if (_resolverStack.IsEmpty)
-                                        {
-                                            TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-                                            return cacheResponse;
-                                        }
-                                        else
-                                        {
-                                            bool found = false;
-
-                                            for (int i = 0; i < cacheResponse.Answer.Count; i++)
-                                            {
-                                                DnsResourceRecord answer = cacheResponse.Answer[i];
-                                                switch (answer.Type)
-                                                {
-                                                    case DnsResourceRecordType.AAAA:
-                                                        found = true;
-                                                        PopStack();
-                                                        CurrentState.NameServers[CurrentState.NameServerIndex] = CurrentState.NameServers[CurrentState.NameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address);
-
-                                                        for (int j = i + 1; j < cacheResponse.Answer.Count; j++)
-                                                        {
-                                                            answer = cacheResponse.Answer[j];
-                                                            if (answer.Type == DnsResourceRecordType.AAAA)
-                                                                CurrentState.NameServers.Insert(CurrentState.NameServerIndex + (j - i), CurrentState.NameServers[CurrentState.NameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address));
-                                                        }
-
-                                                        break;
-
-                                                    case DnsResourceRecordType.A:
-                                                        found = true;
-                                                        PopStack();
-                                                        CurrentState.NameServers[CurrentState.NameServerIndex] = CurrentState.NameServers[CurrentState.NameServerIndex].Clone((answer.RDATA as DnsARecordData).Address);
-
-                                                        for (int j = i + 1; j < cacheResponse.Answer.Count; j++)
-                                                        {
-                                                            answer = cacheResponse.Answer[j];
-                                                            if (answer.Type == DnsResourceRecordType.A)
-                                                                CurrentState.NameServers.Insert(CurrentState.NameServerIndex + (j - i), CurrentState.NameServers[CurrentState.NameServerIndex].Clone((answer.RDATA as DnsARecordData).Address));
-                                                        }
-
-                                                        break;
-
-                                                    case DnsResourceRecordType.DS:
-                                                        found = true;
-
-                                                        Tuple<bool, IReadOnlyList<DnsResourceRecord>> tupleCacheDSRecords = await TryGetDSFromResponseAsync(cacheResponse, cacheResponse.Question[0].Name);
-                                                        if (!tupleCacheDSRecords.Item1)
-                                                            throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + cacheResponse.Question[0].Name.ToLowerInvariant(), cacheResponse);
-
-                                                        IReadOnlyList<DnsResourceRecord> cacheDSRecords = tupleCacheDSRecords.Item2;
-
-                                                        extendedDnsErrors.AddRange(cacheResponse.DnsClientExtendedErrors);
-
-                                                        PopStack();
-
-                                                        if (cacheDSRecords is null)
-                                                        {
-                                                            //zone is unsigned
-                                                            //disabling DNSSEC validation
-                                                            CurrentState.DnssecValidationState = false;
-                                                            CurrentState.LastDSRecords = null;
-                                                        }
-                                                        else if (cacheDSRecords.Count > 0)
-                                                        {
-                                                            CurrentState.LastDSRecords = cacheDSRecords;
-                                                        }
-                                                        break;
-                                                }
-
-                                                if (found)
-                                                    break;
-                                            }
-
-                                            //proceed to resolver loop
-                                        }
-                                    }
-                                    else if (cacheResponse.Authority.Count > 0)
-                                    {
-                                        DnsResourceRecord firstAuthority = cacheResponse.FindFirstAuthorityRecord();
-
-                                        if (firstAuthority.Type == DnsResourceRecordType.SOA)
-                                        {
-                                            if (_resolverStack.IsEmpty)
-                                            {
-                                                TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-                                                return cacheResponse;
-                                            }
-                                            else
-                                            {
-                                                //NO DATA - domain does not resolve 
-                                                PopStack();
-
-                                                switch (cacheResponse.Question[0].Type)
-                                                {
-                                                    case DnsResourceRecordType.A:
-                                                    case DnsResourceRecordType.AAAA:
-                                                        //didnt find IP for current name server; try next name server
-                                                        CurrentState.NameServerIndex++; //increment to skip current name server
-                                                        break;
-
-                                                    case DnsResourceRecordType.DS:
-                                                        //DS does not exists so the zone is unsigned
-                                                        //disabling DNSSEC validation
-                                                        CurrentState.DnssecValidationState = false;
-                                                        CurrentState.LastDSRecords = null;
-                                                        break;
-                                                }
-
-                                                //proceed to resolver loop
-                                            }
-                                        }
-                                        else
-                                        {
-                                            string nextZoneCut = null;
-                                            bool nextDnssecValidationState = CurrentState.DnssecValidationState;
-                                            IReadOnlyList<DnsResourceRecord> nextDSRecords = CurrentState.LastDSRecords;
-                                            List<NameServerAddress> nextNameServers = null;
-
-                                            nextNameServers = NameServerAddress.GetNameServersFromResponse(cacheResponse, preferIPv6, false);
-                                            InspectCacheNameServersForLoops(nextNameServers, _resolverStack);
-
-                                            if (nextNameServers.Count > 0)
-                                            {
-                                                //found name servers from response
-                                                nextZoneCut = firstAuthority.Name;
-
-                                                if (CurrentState.DnssecValidationState)
-                                                {
-                                                    Tuple<bool, IReadOnlyList<DnsResourceRecord>> tupleCacheDsRecords = await TryGetDSFromResponseAsync(cacheResponse, nextZoneCut);
-                                                    if (tupleCacheDsRecords.Item1)
-                                                    {
-                                                        IReadOnlyList<DnsResourceRecord> cacheDsRecords = tupleCacheDsRecords.Item2;
-
-                                                        extendedDnsErrors.AddRange(cacheResponse.DnsClientExtendedErrors);
-
-                                                        //get DS records from response
-                                                        if (cacheDsRecords is null)
-                                                        {
-                                                            //disabling DNSSEC validation
-                                                            nextDnssecValidationState = false;
-                                                            nextDSRecords = null;
-                                                        }
-                                                        else if (cacheDsRecords.Count > 0)
-                                                        {
-                                                            //found DS records in cache
-                                                            nextDSRecords = cacheDsRecords;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            else
-                                            {
-                                                //didnt find NS from response
-                                                //find name servers with glue from cache for closest parent zone
-                                                string currentDomain = question.Name;
-
-                                                while (true)
-                                                {
-                                                    //get parent domain
-                                                    int i = currentDomain.IndexOf('.');
-                                                    if (i < 0)
-                                                        break;
-
-                                                    currentDomain = currentDomain.Substring(i + 1);
-
-                                                    //find name servers with glue; cannot find DS with this query
-                                                    DnsDatagram cachedNsResponse = await cache.QueryAsync(new DnsDatagram(0, false, DnsOpcode.StandardQuery, false, false, true, false, false, false, DnsResponseCode.NoError, new DnsQuestionRecord[] { new DnsQuestionRecord(currentDomain, DnsResourceRecordType.NS, DnsClass.IN) }), findClosestNameServers: true);
-                                                    if (cachedNsResponse is null)
-                                                        continue;
-
-                                                    nextNameServers = NameServerAddress.GetNameServersFromResponse(cachedNsResponse, preferIPv6, false);
-                                                    InspectCacheNameServersForLoops(nextNameServers, _resolverStack);
-
-                                                    if (nextNameServers.Count > 0)
-                                                    {
-                                                        //found NS for parent from cache
-                                                        nextZoneCut = null;
-
-                                                        if (cachedNsResponse.Answer.Count > 0)
-                                                        {
-                                                            foreach (DnsResourceRecord record in cachedNsResponse.Answer)
-                                                            {
-                                                                if (record.Type == DnsResourceRecordType.NS)
-                                                                {
-                                                                    nextZoneCut = record.Name;
-                                                                    break;
-                                                                }
-                                                            }
-                                                        }
-
-                                                        if ((nextZoneCut is null) && (cachedNsResponse.Authority.Count > 0))
-                                                        {
-                                                            foreach (DnsResourceRecord record in cachedNsResponse.Authority)
-                                                            {
-                                                                if (record.Type == DnsResourceRecordType.NS)
-                                                                {
-                                                                    nextZoneCut = record.Name;
-                                                                    break;
-                                                                }
-                                                            }
-                                                        }
-
-                                                        if (nextZoneCut is null)
-                                                            nextNameServers.Clear(); //cannot determine zone cut for these name servers; do not use them
-
-                                                        break;
-                                                    }
-                                                }
-                                            }
-
-                                            if (nextNameServers.Count > 0)
-                                            {
-                                                //found NS and/or DS (or proof of no DS)
-                                                bool prioritizeOnesWithIPAddress = asyncNsResolution || (!_resolverStack.IsEmpty);
-
-                                                if (question.ZoneCut is not null)
-                                                    question.ZoneCut = nextZoneCut;
-                                                CurrentState = new InternalState(
-                                                    question: question,
-                                                    zoneCut: nextZoneCut,
-                                                    dnssecValidationState: nextDnssecValidationState,
-                                                    lastDSRecords: nextDSRecords,
-                                                    nameServers: GetOrderedNameServersToPreferPerformance(nextNameServers, prioritizeOnesWithIPAddress, preferIPv6),
-                                                    nameServerIndex: 0,
-                                                    hopCount: 0,
-                                                    lastResponse: null,
-                                                    lastException: null);
-                                            }
-                                        }
-                                    }
-                                    else
-                                    {
-                                        //both answer and authority sections are empty
-                                        if (_resolverStack.IsEmpty)
-                                        {
-                                            TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-                                            return cacheResponse;
-                                        }
-                                        else
-                                        {
-                                            //domain does not resolve
-                                            PopStack();
-
-                                            switch (cacheResponse.Question[0].Type)
-                                            {
-                                                case DnsResourceRecordType.A:
-                                                case DnsResourceRecordType.AAAA:
-                                                    //current name server domain does not resolve
-                                                    CurrentState.NameServerIndex++; //increment to skip current name server
-                                                    break;
-
-                                                case DnsResourceRecordType.DS:
-                                                    //DS does not resolve so cannot proceed
-                                                    throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + cacheResponse.Question[0].Name.ToLowerInvariant(), cacheResponse);
-                                            }
-
-                                            //proceed to resolver loop
-                                        }
-                                    }
-                                }
-                                break;
-
-                            case DnsResponseCode.NxDomain:
-                                {
-                                    if (_resolverStack.IsEmpty)
-                                    {
-                                        TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-                                        return cacheResponse;
-                                    }
-                                    else
-                                    {
-                                        //domain does not exists
-                                        PopStack();
-
-                                        switch (cacheResponse.Question[0].Type)
-                                        {
-                                            case DnsResourceRecordType.A:
-                                            case DnsResourceRecordType.AAAA:
-                                                //current name server domain does not exists
-                                                CurrentState.NameServerIndex++; //increment to skip current name server
-                                                break;
-
-                                            case DnsResourceRecordType.DS:
-                                                //DS does not exists so the zone is unsigned
-                                                //disabling DNSSEC validation
-                                                CurrentState.DnssecValidationState = false;
-                                                CurrentState.LastDSRecords = null;
-                                                break;
-                                        }
-
-                                        //proceed to resolver loop
-                                        break;
-                                    }
-                                }
-
-                            default:
-                                {
-                                    if (_resolverStack.IsEmpty)
-                                    {
-                                        TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-                                        return cacheResponse;
-                                    }
-                                    else
-                                    {
-                                        //domain does not resolve
-                                        PopStack();
-
-                                        switch (cacheResponse.Question[0].Type)
-                                        {
-                                            case DnsResourceRecordType.A:
-                                            case DnsResourceRecordType.AAAA:
-                                                //current name server domain does not resolve; try next name server
-                                                CurrentState.NameServerIndex++; //increment to skip current name server
-                                                break;
-
-                                            case DnsResourceRecordType.DS:
-                                                //DS does not resolve so cannot proceed
-                                                throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + cacheResponse.Question[0].Name.ToLowerInvariant(), cacheResponse);
-                                        }
-
-                                        //proceed to resolver loop
-                                        break;
-                                    }
-                                }
-                        }
-                    }
+                    return value;
                 }
 
                 if ((CurrentState.NameServers is null) || (CurrentState.NameServers.Count == 0))
@@ -3929,7 +3580,7 @@ namespace TechnitiumLibrary.Net.Dns
                     if ((CurrentState.LastDSRecords is not null) && !CurrentState.LastDSRecords[0].Name.Equals(CurrentState.ZoneCut, StringComparison.OrdinalIgnoreCase))
                     {
                         //find the DS for current zone cut recursively in next stack
-                        PushStack(CurrentState.ZoneCut, DnsResourceRecordType.DS);
+                        PushStack(CurrentState.ZoneCut, DnsResourceRecordType.DS, question, qnameMinimization, dnssecValidation);
                         goto stackLoop;
                     }
 
@@ -4041,7 +3692,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                                 if (wasIPv6Attempted)
                                 {
-                                    PushStack(currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.A);
+                                    PushStack(currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.A, question, qnameMinimization, dnssecValidation);
                                 }
                                 else
                                 {
@@ -4055,12 +3706,12 @@ namespace TechnitiumLibrary.Net.Dns
                                         referralLimit++;
                                     }
 
-                                    PushStack(currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.AAAA);
+                                    PushStack(currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.AAAA, question, qnameMinimization, dnssecValidation);
                                 }
                             }
                             else
                             {
-                                PushStack(currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.A);
+                                PushStack(currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.A, question, qnameMinimization, dnssecValidation);
                             }
 
                             goto stackLoop;
@@ -4072,7 +3723,7 @@ namespace TechnitiumLibrary.Net.Dns
                         dnsClient._retries = retries;
                         dnsClient._timeout = timeout;
 
-                        DnsDatagram request = new DnsDatagram(0,
+                        DnsDatagram request = new DnsDatagram(ID: 0,
                                                               isResponse: false,
                                                               OPCODE: DnsOpcode.StandardQuery,
                                                               authoritativeAnswer: false,
@@ -4088,7 +3739,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                               additional: null,
                                                               udpPayloadSize: udpPayloadSize,
                                                               ednsFlags: dnssecValidation ? EDnsHeaderFlags.DNSSEC_OK : EDnsHeaderFlags.None,
-                                                              options: (_resolverStack.IsEmpty) && CurrentState.ZoneCut.Contains('.') ? eDnsClientSubnetOption : null);
+                                                              options: (_resolverStack.IsEmpty) && CurrentState.ZoneCut!.Contains('.') ? eDnsClientSubnetOption : null);
                         DnsDatagram response;
 
                         try
@@ -4881,6 +4532,383 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
+        private async Task<(bool flowControl, DnsDatagram value)> QueryCache(DnsQuestionRecord question, IDnsCache cache, NetProxy? proxy, bool preferIPv6, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, int retries, int timeout, int concurrency, int maxStackCount, bool asyncNsResolution, EDnsOption[] eDnsClientSubnetOption, List<EDnsExtendedDnsErrorOptionData> extendedDnsErrors, Dictionary<string, object> asyncNsResolutionTasks)
+        {
+            //query cache
+            {
+                //query cache without CD flag to not get response from "bad cache" and DO flag, if validation is enabled, to get DNSSEC records for correctly reading DS from response
+                DnsDatagram cacheRequest = new DnsDatagram(
+                    ID: 0,
+                    isResponse: false,
+                    OPCODE: DnsOpcode.StandardQuery,
+                    authoritativeAnswer: false,
+                    truncation: false,
+                    recursionDesired: true,
+                    recursionAvailable: false,
+                    authenticData: false,
+                    checkingDisabled: false,
+                    RCODE: DnsResponseCode.NoError,
+                    question: new DnsQuestionRecord[] { question },
+                    answer: null,
+                    authority: null,
+                    additional: null,
+                    udpPayloadSize: udpPayloadSize,
+                    ednsFlags: dnssecValidation ? EDnsHeaderFlags.DNSSEC_OK : EDnsHeaderFlags.None,
+                    options: _resolverStack.IsEmpty ? eDnsClientSubnetOption : null);
+                DnsDatagram cacheResponse = await cache.QueryAsync(cacheRequest, findClosestNameServers: true);
+                if (cacheResponse is not null)
+                {
+                    extendedDnsErrors.AddRange(cacheResponse.DnsClientExtendedErrors);
+
+                    switch (cacheResponse.RCODE)
+                    {
+                        case DnsResponseCode.NoError:
+                            {
+                                if (cacheResponse.Answer.Count > 0)
+                                {
+                                    if (_resolverStack.IsEmpty)
+                                    {
+                                        TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+                                        return (flowControl: false, value: cacheResponse);
+                                    }
+                                    else
+                                    {
+                                        bool found = false;
+
+                                        for (int i = 0; i < cacheResponse.Answer.Count; i++)
+                                        {
+                                            DnsResourceRecord answer = cacheResponse.Answer[i];
+                                            switch (answer.Type)
+                                            {
+                                                case DnsResourceRecordType.AAAA:
+                                                    found = true;
+                                                    PopStack();
+                                                    CurrentState.NameServers[CurrentState.NameServerIndex] = CurrentState.NameServers[CurrentState.NameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address);
+
+                                                    for (int j = i + 1; j < cacheResponse.Answer.Count; j++)
+                                                    {
+                                                        answer = cacheResponse.Answer[j];
+                                                        if (answer.Type == DnsResourceRecordType.AAAA)
+                                                            CurrentState.NameServers.Insert(CurrentState.NameServerIndex + (j - i), CurrentState.NameServers[CurrentState.NameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address));
+                                                    }
+
+                                                    break;
+
+                                                case DnsResourceRecordType.A:
+                                                    found = true;
+                                                    PopStack();
+                                                    CurrentState.NameServers[CurrentState.NameServerIndex] = CurrentState.NameServers[CurrentState.NameServerIndex].Clone((answer.RDATA as DnsARecordData).Address);
+
+                                                    for (int j = i + 1; j < cacheResponse.Answer.Count; j++)
+                                                    {
+                                                        answer = cacheResponse.Answer[j];
+                                                        if (answer.Type == DnsResourceRecordType.A)
+                                                            CurrentState.NameServers.Insert(CurrentState.NameServerIndex + (j - i), CurrentState.NameServers[CurrentState.NameServerIndex].Clone((answer.RDATA as DnsARecordData).Address));
+                                                    }
+
+                                                    break;
+
+                                                case DnsResourceRecordType.DS:
+                                                    found = true;
+
+                                                    Tuple<bool, IReadOnlyList<DnsResourceRecord>> tupleCacheDSRecords = await TryGetDSFromResponseAsync(cacheResponse, cacheResponse.Question[0].Name);
+                                                    if (!tupleCacheDSRecords.Item1)
+                                                        throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + cacheResponse.Question[0].Name.ToLowerInvariant(), cacheResponse);
+
+                                                    IReadOnlyList<DnsResourceRecord> cacheDSRecords = tupleCacheDSRecords.Item2;
+
+                                                    extendedDnsErrors.AddRange(cacheResponse.DnsClientExtendedErrors);
+
+                                                    PopStack();
+
+                                                    if (cacheDSRecords is null)
+                                                    {
+                                                        //zone is unsigned
+                                                        //disabling DNSSEC validation
+                                                        CurrentState.DnssecValidationState = false;
+                                                        CurrentState.LastDSRecords = null;
+                                                    }
+                                                    else if (cacheDSRecords.Count > 0)
+                                                    {
+                                                        CurrentState.LastDSRecords = cacheDSRecords;
+                                                    }
+                                                    break;
+                                            }
+
+                                            if (found)
+                                                break;
+                                        }
+
+                                        //proceed to resolver loop
+                                    }
+                                }
+                                else if (cacheResponse.Authority?.Count > 0)
+                                {
+                                    DnsResourceRecord firstAuthority = cacheResponse.FindFirstAuthorityRecord();
+
+                                    if (firstAuthority.Type == DnsResourceRecordType.SOA)
+                                    {
+                                        if (_resolverStack.IsEmpty)
+                                        {
+                                            TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+                                            return (flowControl: false, value: cacheResponse);
+                                        }
+                                        else
+                                        {
+                                            //NO DATA - domain does not resolve 
+                                            PopStack();
+
+                                            switch (cacheResponse.Question[0].Type)
+                                            {
+                                                case DnsResourceRecordType.A:
+                                                case DnsResourceRecordType.AAAA:
+                                                    //didnt find IP for current name server; try next name server
+                                                    CurrentState.NameServerIndex++; //increment to skip current name server
+                                                    break;
+
+                                                case DnsResourceRecordType.DS:
+                                                    //DS does not exists so the zone is unsigned
+                                                    //disabling DNSSEC validation
+                                                    CurrentState.DnssecValidationState = false;
+                                                    CurrentState.LastDSRecords = null;
+                                                    break;
+                                            }
+
+                                            //proceed to resolver loop
+                                        }
+                                    }
+                                    else
+                                    {
+                                        string? nextZoneCut = null;
+                                        bool nextDnssecValidationState = CurrentState.DnssecValidationState;
+                                        IReadOnlyList<DnsResourceRecord>? nextDSRecords = CurrentState.LastDSRecords;
+                                        List<NameServerAddress>? nextNameServers = null;
+
+                                        nextNameServers = NameServerAddress.GetNameServersFromResponse(cacheResponse, preferIPv6, false);
+                                        InspectCacheNameServersForLoops(nextNameServers, _resolverStack);
+
+                                        if (nextNameServers.Count > 0)
+                                        {
+                                            //found name servers from response
+                                            nextZoneCut = firstAuthority.Name;
+
+                                            if (CurrentState.DnssecValidationState)
+                                            {
+                                                Tuple<bool, IReadOnlyList<DnsResourceRecord>> tupleCacheDsRecords = await TryGetDSFromResponseAsync(cacheResponse, nextZoneCut);
+                                                if (tupleCacheDsRecords.Item1)
+                                                {
+                                                    IReadOnlyList<DnsResourceRecord> cacheDsRecords = tupleCacheDsRecords.Item2;
+
+                                                    extendedDnsErrors.AddRange(cacheResponse.DnsClientExtendedErrors);
+
+                                                    //get DS records from response
+                                                    if (cacheDsRecords is null)
+                                                    {
+                                                        //disabling DNSSEC validation
+                                                        nextDnssecValidationState = false;
+                                                        nextDSRecords = null;
+                                                    }
+                                                    else if (cacheDsRecords.Count > 0)
+                                                    {
+                                                        //found DS records in cache
+                                                        nextDSRecords = cacheDsRecords;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        else
+                                        {
+                                            //didnt find NS from response
+                                            //find name servers with glue from cache for closest parent zone
+                                            string currentDomain = question.Name;
+
+                                            while (true)
+                                            {
+                                                //get parent domain
+                                                int i = currentDomain.IndexOf('.');
+                                                if (i < 0)
+                                                    break;
+
+                                                currentDomain = currentDomain.Substring(i + 1);
+
+                                                //find name servers with glue; cannot find DS with this query
+                                                DnsDatagram cachedNsResponse = await cache.QueryAsync(new DnsDatagram(0, false, DnsOpcode.StandardQuery, false, false, true, false, false, false, DnsResponseCode.NoError, new DnsQuestionRecord[] { new DnsQuestionRecord(currentDomain, DnsResourceRecordType.NS, DnsClass.IN) }), findClosestNameServers: true);
+                                                if (cachedNsResponse is null)
+                                                    continue;
+
+                                                nextNameServers = NameServerAddress.GetNameServersFromResponse(cachedNsResponse, preferIPv6, false);
+                                                InspectCacheNameServersForLoops(nextNameServers, _resolverStack);
+
+                                                if (nextNameServers.Count > 0)
+                                                {
+                                                    //found NS for parent from cache
+                                                    nextZoneCut = null;
+
+                                                    if (cachedNsResponse.Answer.Count > 0)
+                                                    {
+                                                        foreach (DnsResourceRecord record in cachedNsResponse.Answer)
+                                                        {
+                                                            if (record.Type == DnsResourceRecordType.NS)
+                                                            {
+                                                                nextZoneCut = record.Name;
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if ((nextZoneCut is null) && (cachedNsResponse.Authority.Count > 0))
+                                                    {
+                                                        foreach (DnsResourceRecord record in cachedNsResponse.Authority)
+                                                        {
+                                                            if (record.Type == DnsResourceRecordType.NS)
+                                                            {
+                                                                nextZoneCut = record.Name;
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (nextZoneCut is null)
+                                                        nextNameServers.Clear(); //cannot determine zone cut for these name servers; do not use them
+
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if (nextNameServers.Count > 0)
+                                        {
+                                            //found NS and/or DS (or proof of no DS)
+                                            bool prioritizeOnesWithIPAddress = asyncNsResolution || (!_resolverStack.IsEmpty);
+
+                                            if (question.ZoneCut is not null)
+                                                question.ZoneCut = nextZoneCut;
+                                            CurrentState = new InternalState(
+                                                question: question,
+                                                zoneCut: nextZoneCut,
+                                                dnssecValidationState: nextDnssecValidationState,
+                                                lastDSRecords: nextDSRecords,
+                                                nameServers: GetOrderedNameServersToPreferPerformance(nextNameServers, prioritizeOnesWithIPAddress, preferIPv6),
+                                                nameServerIndex: 0,
+                                                hopCount: 0,
+                                                lastResponse: null,
+                                                lastException: null);
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    //both answer and authority sections are empty
+                                    if (_resolverStack.IsEmpty)
+                                    {
+                                        TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+                                        return (flowControl: false, value: cacheResponse);
+                                    }
+                                    else
+                                    {
+                                        //domain does not resolve
+                                        PopStack();
+
+                                        switch (cacheResponse.Question[0].Type)
+                                        {
+                                            case DnsResourceRecordType.A:
+                                            case DnsResourceRecordType.AAAA:
+                                                //current name server domain does not resolve
+                                                CurrentState.NameServerIndex++; //increment to skip current name server
+                                                break;
+
+                                            case DnsResourceRecordType.DS:
+                                                //DS does not resolve so cannot proceed
+                                                throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + cacheResponse.Question[0].Name.ToLowerInvariant(), cacheResponse);
+                                        }
+
+                                        //proceed to resolver loop
+                                    }
+                                }
+                            }
+                            break;
+
+                        case DnsResponseCode.NxDomain:
+                            {
+                                if (_resolverStack.IsEmpty)
+                                {
+                                    TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+                                    return (flowControl: false, value: cacheResponse);
+                                }
+                                else
+                                {
+                                    //domain does not exists
+                                    PopStack();
+
+                                    switch (cacheResponse.Question[0].Type)
+                                    {
+                                        case DnsResourceRecordType.A:
+                                        case DnsResourceRecordType.AAAA:
+                                            //current name server domain does not exists
+                                            CurrentState.NameServerIndex++; //increment to skip current name server
+                                            break;
+
+                                        case DnsResourceRecordType.DS:
+                                            //DS does not exists so the zone is unsigned
+                                            //disabling DNSSEC validation
+                                            CurrentState.DnssecValidationState = false;
+                                            CurrentState.LastDSRecords = null;
+                                            break;
+                                    }
+
+                                    //proceed to resolver loop
+                                    break;
+                                }
+                            }
+
+                        default:
+                            {
+                                if (_resolverStack.IsEmpty)
+                                {
+                                    TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+                                    return (flowControl: false, value: cacheResponse);
+                                }
+                                else
+                                {
+                                    //domain does not resolve
+                                    PopStack();
+
+                                    switch (cacheResponse.Question[0].Type)
+                                    {
+                                        case DnsResourceRecordType.A:
+                                        case DnsResourceRecordType.AAAA:
+                                            //current name server domain does not resolve; try next name server
+                                            CurrentState.NameServerIndex++; //increment to skip current name server
+                                            break;
+
+                                        case DnsResourceRecordType.DS:
+                                            //DS does not resolve so cannot proceed
+                                            throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + cacheResponse.Question[0].Name.ToLowerInvariant(), cacheResponse);
+                                    }
+
+                                    //proceed to resolver loop
+                                    break;
+                                }
+                            }
+                    }
+                }
+            }
+
+            return (flowControl: true, value: null);
+        }
+
+        private void PopStack()
+        {
+            if (!_resolverStack.TryPop(out var data)) return;
+            CurrentState = data;
+        }
+
+        private void PushStack(string nextQName, DnsResourceRecordType nextQType, DnsQuestionRecord question, bool qnameMinimization, bool dnssecValidation)
+        {
+            _resolverStack.Push(CurrentState.DeepClone());
+            ResetState(question, qnameMinimization, dnssecValidation, nextQName, nextQType);
+        }
+
         private void ResetState(DnsQuestionRecord question, bool qnameMinimization, bool dnssecValidation, string? nextQName = null, DnsResourceRecordType? nextQType = null)
         {
             if (nextQName != null && nextQType != null)
@@ -4989,8 +5017,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         public void AddTrustAnchor(string domain, DnsDSRecordData dsRecord)
         {
-            if (_trustAnchors is null)
-                _trustAnchors = new Dictionary<string, IReadOnlyList<DnsResourceRecord>>();
+            _trustAnchors ??= new Dictionary<string, IReadOnlyList<DnsResourceRecord>>();
 
             DnsResourceRecord dsRR = new DnsResourceRecord(domain, DnsResourceRecordType.DS, DnsClass.IN, 0, dsRecord);
 
@@ -5125,8 +5152,7 @@ namespace TechnitiumLibrary.Net.Dns
         {
             get
             {
-                if (_trustAnchors is null)
-                    _trustAnchors = new Dictionary<string, IReadOnlyList<DnsResourceRecord>>();
+                _trustAnchors ??= new Dictionary<string, IReadOnlyList<DnsResourceRecord>>();
 
                 return _trustAnchors;
             }

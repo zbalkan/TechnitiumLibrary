@@ -79,7 +79,7 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
             return new EDnsOption[] { new EDnsOption(EDnsOptionCode.EDNS_CLIENT_SUBNET, new EDnsClientSubnetOptionData(sourcePrefixLength, scopePrefixLength, address)) };
         }
 
-        public static EDnsOption[] GetEDnsClientSubnetOption(NetworkAddress eDnsClientSubnet)
+        public static EDnsOption[]? GetEDnsClientSubnetOption(NetworkAddress eDnsClientSubnet)
         {
             if (eDnsClientSubnet is null)
                 return null;

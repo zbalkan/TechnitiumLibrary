@@ -50,8 +50,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         public DnsOPTRecordData(Stream s)
             : base(s)
         {
-            if (_options is null)
-                _options = Array.Empty<EDnsOption>();
+            _options ??= Array.Empty<EDnsOption>();
         }
 
         #endregion
@@ -67,8 +66,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             {
                 EDnsOption option = new EDnsOption(s);
 
-                if (options is null)
-                    options = new List<EDnsOption>(1);
+                options ??= new List<EDnsOption>(1);
 
                 options.Add(option);
 

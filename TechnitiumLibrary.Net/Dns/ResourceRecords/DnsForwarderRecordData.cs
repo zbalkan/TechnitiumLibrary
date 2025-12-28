@@ -82,11 +82,9 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                     _proxyUsername = proxyUsername;
                     _proxyPassword = proxyPassword;
 
-                    if (_proxyUsername is null)
-                        _proxyUsername = string.Empty;
+                    _proxyUsername ??= string.Empty;
 
-                    if (_proxyPassword is null)
-                        _proxyPassword = string.Empty;
+                    _proxyPassword ??= string.Empty;
 
                     break;
             }
@@ -256,7 +254,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         #region public
 
-        public NetProxy GetProxy(NetProxy defaultProxy)
+        public NetProxy? GetProxy(NetProxy defaultProxy)
         {
             switch (_proxyType)
             {

@@ -100,7 +100,7 @@ namespace TechnitiumLibrary.Net
             return (ip[0] & 0xE0) == 0x20;
         }
 
-        public static NetworkInfo GetDefaultIPv4NetworkInfo()
+        public static NetworkInfo? GetDefaultIPv4NetworkInfo()
         {
             foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
             {
@@ -189,7 +189,7 @@ namespace TechnitiumLibrary.Net
             return null;
         }
 
-        public static NetworkInfo GetDefaultIPv6NetworkInfo(bool skipTeredo = false)
+        public static NetworkInfo? GetDefaultIPv6NetworkInfo(bool skipTeredo = false)
         {
             foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
             {

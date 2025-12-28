@@ -350,8 +350,7 @@ namespace TechnitiumLibrary.Net
 
         public static async Task<bool> IsWebAccessibleAsync(Uri[] uriCheckList = null, NetProxy proxy = null, HttpClientNetworkType networkType = HttpClientNetworkType.Default, int timeout = 10000, bool throwException = false)
         {
-            if (uriCheckList == null)
-                uriCheckList = [new Uri("https://www.google.com/"), new Uri("https://www.microsoft.com/")];
+            uriCheckList ??= [new Uri("https://www.google.com/"), new Uri("https://www.microsoft.com/")];
 
             HttpClientNetworkHandler networkHandler = new HttpClientNetworkHandler();
             networkHandler.Proxy = proxy;

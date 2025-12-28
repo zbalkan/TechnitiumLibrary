@@ -88,8 +88,7 @@ namespace TechnitiumLibrary.Net.Proxy
             _connectionManager = connectionManager;
             _method = method;
 
-            if (_connectionManager == null)
-                _connectionManager = new DefaultProxyServerConnectionManager();
+            _connectionManager ??= new DefaultProxyServerConnectionManager();
 
             //accept requests async
             int tasks = Environment.ProcessorCount;
@@ -244,7 +243,7 @@ namespace TechnitiumLibrary.Net.Proxy
 
             #region private
 
-            private EndPoint GetOriginalDestination()
+            private EndPoint? GetOriginalDestination()
             {
                 try
                 {

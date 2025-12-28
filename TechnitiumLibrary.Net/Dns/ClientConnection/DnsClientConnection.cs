@@ -215,8 +215,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
 
                         NetProxy proxyKey = proxy;
 
-                        if (proxyKey is null)
-                            proxyKey = NetProxy.NONE;
+                        proxyKey ??= NetProxy.NONE;
 
                         return existingTcpConnection.GetOrAdd(proxyKey, delegate (NetProxy netProxyKey)
                         {
@@ -235,8 +234,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
 
                         NetProxy proxyKey = proxy;
 
-                        if (proxyKey is null)
-                            proxyKey = NetProxy.NONE;
+                        proxyKey ??= NetProxy.NONE;
 
                         return existingTlsConnection.GetOrAdd(proxyKey, delegate (NetProxy netProxyKey)
                         {
@@ -255,8 +253,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
 
                         NetProxy proxyKey = proxy;
 
-                        if (proxyKey is null)
-                            proxyKey = NetProxy.NONE;
+                        proxyKey ??= NetProxy.NONE;
 
                         return existingHttpsConnection.GetOrAdd(proxyKey, delegate (NetProxy netProxyKey)
                         {
@@ -275,8 +272,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
 
                         NetProxy proxyKey = proxy;
 
-                        if (proxyKey is null)
-                            proxyKey = NetProxy.NONE;
+                        proxyKey ??= NetProxy.NONE;
 
                         return existingQuicConnection.GetOrAdd(proxyKey, delegate (NetProxy netProxyKey)
                         {
@@ -374,7 +370,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
                 throw new DnsClientResponseSpoofedException("Invalid response was received: query ID mismatch."); //possible spoof attempt for UDP transport since QNAME, QTYPE, QCLASS & ECS match but ID does not match
         }
 
-        protected static Tuple<IPEndPoint, byte[]> GetIPv4SourceEP()
+        protected static Tuple<IPEndPoint, byte[]>? GetIPv4SourceEP()
         {
             if (_ipv4SourceEPs is null)
                 return null;
@@ -392,7 +388,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
             }
         }
 
-        protected static Tuple<IPEndPoint, byte[]> GetIPv6SourceEP()
+        protected static Tuple<IPEndPoint, byte[]>? GetIPv6SourceEP()
         {
             if (_ipv6SourceEPs is null)
                 return null;
@@ -457,8 +453,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
         {
             get
             {
-                if (_ipv4SourceAddresses is null)
-                    _ipv4SourceAddresses = new NetworkAddress[] { new NetworkAddress(IPAddress.Any, 32) };
+                _ipv4SourceAddresses ??= new NetworkAddress[] { new NetworkAddress(IPAddress.Any, 32) };
 
                 return _ipv4SourceAddresses;
             }
@@ -502,8 +497,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
         {
             get
             {
-                if (_ipv6SourceAddresses is null)
-                    _ipv6SourceAddresses = new NetworkAddress[] { new NetworkAddress(IPAddress.IPv6Any, 128) };
+                _ipv6SourceAddresses ??= new NetworkAddress[] { new NetworkAddress(IPAddress.IPv6Any, 128) };
 
                 return _ipv6SourceAddresses;
             }

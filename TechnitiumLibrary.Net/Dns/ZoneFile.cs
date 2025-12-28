@@ -294,7 +294,7 @@ namespace TechnitiumLibrary.Net.Dns
             return ttl;
         }
 
-        internal async Task<string> PopItemAsync(bool newEntry = false)
+        internal async Task<string?> PopItemAsync(bool newEntry = false)
         {
             if (newEntry)
             {
@@ -418,7 +418,7 @@ namespace TechnitiumLibrary.Net.Dns
             return sb.ToString();
         }
 
-        internal async Task<Stream> GetRData()
+        internal async Task<Stream?> GetRData()
         {
             _line = _line.TrimStart(_trimSeperator);
 
@@ -613,7 +613,7 @@ namespace TechnitiumLibrary.Net.Dns
             return records;
         }
 
-        private async Task<string> PopCommentAsync()
+        private async Task<string?> PopCommentAsync()
         {
             while (_line.Length > 0)
             {
@@ -633,7 +633,7 @@ namespace TechnitiumLibrary.Net.Dns
             return null;
         }
 
-        private static string PopWord(ref string line)
+        private static string? PopWord(ref string line)
         {
             line = line.TrimStart(_trimSeperator);
 

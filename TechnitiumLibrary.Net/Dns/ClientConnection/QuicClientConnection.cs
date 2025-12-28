@@ -136,7 +136,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
 
         #region private
 
-        private async Task<QuicConnection> GetConnectionAsync(int timeout, CancellationToken cancellationToken)
+        private async Task<QuicConnection?> GetConnectionAsync(int timeout, CancellationToken cancellationToken)
         {
             if (_quicConnection is not null)
                 return _quicConnection;

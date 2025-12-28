@@ -57,15 +57,14 @@ namespace TechnitiumLibrary.Net.Dns
             if (_udpPayloadSize < 512)
                 _udpPayloadSize = 512;
 
-            if (_options is null)
-                _options = Array.Empty<EDnsOption>();
+            _options ??= Array.Empty<EDnsOption>();
         }
 
         #endregion
 
         #region static
 
-        public static DnsDatagramEdns ReadOPTFrom(IReadOnlyList<DnsResourceRecord> additional, DnsResponseCode RCODE)
+        public static DnsDatagramEdns? ReadOPTFrom(IReadOnlyList<DnsResourceRecord> additional, DnsResponseCode RCODE)
         {
             DnsResourceRecord opt = null;
 

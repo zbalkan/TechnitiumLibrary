@@ -144,7 +144,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         #region private
 
-        internal static string GetParentZone(string domain, bool returnRoot = false)
+        internal static string? GetParentZone(string domain, bool returnRoot = false)
         {
             if (domain.Length > 0)
             {
@@ -176,7 +176,7 @@ namespace TechnitiumLibrary.Net.Dns
             CacheRecords(resourceRecords, eDnsClientSubnet, responseMetadata);
         }
 
-        private IReadOnlyList<DnsResourceRecord> GetClosestReferralNameServers(string domain, bool dnssecOk)
+        private IReadOnlyList<DnsResourceRecord>? GetClosestReferralNameServers(string domain, bool dnssecOk)
         {
             domain = domain.ToLowerInvariant();
 
@@ -451,8 +451,7 @@ namespace TechnitiumLibrary.Net.Dns
                                         continue;
 
                                     //add NSEC/NSEC3 for the wildcard proof
-                                    if (newAuthority is null)
-                                        newAuthority = new List<DnsResourceRecord>(2);
+                                    newAuthority ??= new List<DnsResourceRecord>(2);
 
                                     IReadOnlyList<DnsResourceRecord> nsecRecords = answerRecordInfo.NSECRecords;
                                     if (nsecRecords is not null)
@@ -1847,24 +1846,21 @@ namespace TechnitiumLibrary.Net.Dns
 
             internal void AddGlueRecord(DnsResourceRecord glueRecord)
             {
-                if (_glueRecords is null)
-                    _glueRecords = new List<DnsResourceRecord>(2);
+                _glueRecords ??= new List<DnsResourceRecord>(2);
 
                 _glueRecords.Add(glueRecord);
             }
 
             internal void AddRRSIGRecord(DnsResourceRecord rrsigRecord)
             {
-                if (_rrsigRecords is null)
-                    _rrsigRecords = new List<DnsResourceRecord>(1);
+                _rrsigRecords ??= new List<DnsResourceRecord>(1);
 
                 _rrsigRecords.Add(rrsigRecord);
             }
 
             internal void AddNSECRecord(DnsResourceRecord nsecRecord)
             {
-                if (_nsecRecords is null)
-                    _nsecRecords = new List<DnsResourceRecord>(2);
+                _nsecRecords ??= new List<DnsResourceRecord>(2);
 
                 _nsecRecords.Add(nsecRecord);
             }

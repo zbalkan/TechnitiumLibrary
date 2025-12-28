@@ -63,8 +63,7 @@ namespace TechnitiumLibrary.Net.Proxy
             _connectionManager = connectionManager;
             _authenticationManager = authenticationManager;
 
-            if (_connectionManager == null)
-                _connectionManager = new DefaultProxyServerConnectionManager();
+            _connectionManager ??= new DefaultProxyServerConnectionManager();
 
             //accept requests async
             int tasks = Environment.ProcessorCount;

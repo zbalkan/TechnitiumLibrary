@@ -75,7 +75,7 @@ namespace TechnitiumLibrary.Net.Proxy
             return new HttpProxy(proxyEP, credential);
         }
 
-        public static NetProxy CreateSystemHttpProxy()
+        public static NetProxy? CreateSystemHttpProxy()
         {
             IWebProxy proxy = WebRequest.DefaultWebProxy;
             if (proxy == null)
@@ -167,8 +167,7 @@ namespace TechnitiumLibrary.Net.Proxy
             if (IsBypassed(destination))
                 return destination;
 
-            if (_httpProxyServer == null)
-                _httpProxyServer = new HttpProxyServer(this);
+            _httpProxyServer ??= new HttpProxyServer(this);
 
             return new Uri("http://" + _httpProxyServer.LocalEndPoint.ToString());
         }

@@ -140,8 +140,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         {
             get
             {
-                if (_metadata is null)
-                    _metadata = new NameServerMetadata();
+                _metadata ??= new NameServerMetadata();
 
                 return _metadata;
             }

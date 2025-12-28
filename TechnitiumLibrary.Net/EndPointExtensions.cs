@@ -128,7 +128,7 @@ namespace TechnitiumLibrary.Net
             }
         }
 
-        public static async Task<IPEndPoint> GetIPEndPointAsync(this EndPoint ep, AddressFamily family = AddressFamily.Unspecified, bool useRecursiveResolver = false, CancellationToken cancellationToken = default)
+        public static async Task<IPEndPoint?> GetIPEndPointAsync(this EndPoint ep, AddressFamily family = AddressFamily.Unspecified, bool useRecursiveResolver = false, CancellationToken cancellationToken = default)
         {
             switch (ep.AddressFamily)
             {

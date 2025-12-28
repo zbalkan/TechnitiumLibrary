@@ -61,8 +61,7 @@ namespace TechnitiumLibrary.Net.Proxy
             _connectivityCheckEPs = connectivityCheckEPs;
             _redundancyOnly = redundancyOnly;
 
-            if (_connectivityCheckEPs == null)
-                _connectivityCheckEPs = new EndPoint[] { new DomainEndPoint("www.google.com", 443), new DomainEndPoint("www.microsoft.com", 443) };
+            _connectivityCheckEPs ??= new EndPoint[] { new DomainEndPoint("www.google.com", 443), new DomainEndPoint("www.microsoft.com", 443) };
 
             _workingIpv4ConnectionManagers = _ipv4ConnectionManagers;
             _workingIpv6ConnectionManagers = _ipv6ConnectionManagers;
@@ -193,7 +192,7 @@ namespace TechnitiumLibrary.Net.Proxy
 
         #region private
 
-        private async Task<IProxyServerConnectionManager> CheckConnectivityAsync(IProxyServerConnectionManager connectionManager)
+        private async Task<IProxyServerConnectionManager?> CheckConnectivityAsync(IProxyServerConnectionManager connectionManager)
         {
             Exception lastException = null;
 

@@ -272,8 +272,7 @@ namespace TechnitiumLibrary.Net.Proxy
             ArraySegment<byte> recvData = new ArraySegment<byte>(datagram, dataOffset, dataSize);
             recvData.CopyTo(buffer);
 
-            if (_relayEP == null)
-                _relayEP = result.RemoteEndPoint; //set new relay ep
+            _relayEP ??= result.RemoteEndPoint; //set new relay ep
 
             return new SocketReceiveFromResult() { ReceivedBytes = dataSize, RemoteEndPoint = remoteEP };
         }

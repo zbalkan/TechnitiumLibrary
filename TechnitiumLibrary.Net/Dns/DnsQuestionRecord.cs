@@ -113,7 +113,7 @@ namespace TechnitiumLibrary.Net.Dns
             return Encoding.ASCII.GetString(asciiName);
         }
 
-        private static string GetMinimizedName(string name, string zoneCut)
+        private static string? GetMinimizedName(string name, string zoneCut)
         {
             //www.example.com
             //com

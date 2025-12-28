@@ -44,8 +44,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         public DnsUnknownRecordData(Stream s)
             : base(s)
         {
-            if (_data is null)
-                _data = Array.Empty<byte>();
+            _data ??= Array.Empty<byte>();
         }
 
         #endregion

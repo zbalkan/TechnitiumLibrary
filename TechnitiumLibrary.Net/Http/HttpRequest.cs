@@ -59,7 +59,7 @@ namespace TechnitiumLibrary.Net.Http
 
         #region static
 
-        public static async Task<HttpRequest> ReadRequestAsync(Stream stream, int maxContentLength = -1, CancellationToken cancellationToken = default)
+        public static async Task<HttpRequest?> ReadRequestAsync(Stream stream, int maxContentLength = -1, CancellationToken cancellationToken = default)
         {
             HttpRequest httpRequest = new HttpRequest();
 

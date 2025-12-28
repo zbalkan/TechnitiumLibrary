@@ -48,7 +48,7 @@ namespace TechnitiumLibrary.Net
 
         #region private
 
-        private IpEntry GetFloorEntry(IpEntry entry)
+        private IpEntry? GetFloorEntry(IpEntry entry)
         {
             int i = _ipLookupList.BinarySearch(entry);
             if (i >= 0)
@@ -70,7 +70,7 @@ namespace TechnitiumLibrary.Net
             }
         }
 
-        private IpEntry GetCeilingEntry(IpEntry entry)
+        private IpEntry? GetCeilingEntry(IpEntry entry)
         {
             int i = _ipLookupList.BinarySearch(entry);
             if (i >= 0)

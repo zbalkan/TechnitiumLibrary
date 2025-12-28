@@ -107,7 +107,7 @@ namespace TechnitiumLibrary.Net.Dns
         private DnsDatagram()
         { }
 
-        public DnsDatagram(ushort ID, bool isResponse, DnsOpcode OPCODE, bool authoritativeAnswer, bool truncation, bool recursionDesired, bool recursionAvailable, bool authenticData, bool checkingDisabled, DnsResponseCode RCODE, IReadOnlyList<DnsQuestionRecord> question, IReadOnlyList<DnsResourceRecord> answer = null, IReadOnlyList<DnsResourceRecord> authority = null, IReadOnlyList<DnsResourceRecord> additional = null, ushort udpPayloadSize = ushort.MinValue, EDnsHeaderFlags ednsFlags = EDnsHeaderFlags.None, IReadOnlyList<EDnsOption> options = null)
+        public DnsDatagram(ushort ID, bool isResponse, DnsOpcode OPCODE, bool authoritativeAnswer, bool truncation, bool recursionDesired, bool recursionAvailable, bool authenticData, bool checkingDisabled, DnsResponseCode RCODE, IReadOnlyList<DnsQuestionRecord> question, IReadOnlyList<DnsResourceRecord>? answer = null, IReadOnlyList<DnsResourceRecord>? authority = null, IReadOnlyList<DnsResourceRecord>? additional = null, ushort udpPayloadSize = ushort.MinValue, EDnsHeaderFlags ednsFlags = EDnsHeaderFlags.None, IReadOnlyList<EDnsOption>? options = null)
         {
             _ID = ID;
 
@@ -141,14 +141,11 @@ namespace TechnitiumLibrary.Net.Dns
             _authority = authority;
             _additional = additional;
 
-            if (_question is null)
-                _question = Array.Empty<DnsQuestionRecord>();
+            _question ??= Array.Empty<DnsQuestionRecord>();
 
-            if (_answer is null)
-                _answer = Array.Empty<DnsResourceRecord>();
+            _answer ??= Array.Empty<DnsResourceRecord>();
 
-            if (_authority is null)
-                _authority = Array.Empty<DnsResourceRecord>();
+            _authority ??= Array.Empty<DnsResourceRecord>();
 
             if (_additional is null)
             {
@@ -298,17 +295,13 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 datagram._parsingException = ex;
 
-                if (datagram._question is null)
-                    datagram._question = Array.Empty<DnsQuestionRecord>();
+                datagram._question ??= Array.Empty<DnsQuestionRecord>();
 
-                if (datagram._answer is null)
-                    datagram._answer = Array.Empty<DnsResourceRecord>();
+                datagram._answer ??= Array.Empty<DnsResourceRecord>();
 
-                if (datagram._authority is null)
-                    datagram._authority = Array.Empty<DnsResourceRecord>();
+                datagram._authority ??= Array.Empty<DnsResourceRecord>();
 
-                if (datagram._additional is null)
-                    datagram._additional = Array.Empty<DnsResourceRecord>();
+                datagram._additional ??= Array.Empty<DnsResourceRecord>();
             }
 
             datagram._size = Convert.ToInt32(s.Position);
@@ -608,8 +601,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         internal void AddDnsClientExtendedError(IReadOnlyCollection<EDnsExtendedDnsErrorOptionData> dnsErrors)
         {
-            if (_dnsClientExtendedErrors is null)
-                _dnsClientExtendedErrors = new List<EDnsExtendedDnsErrorOptionData>();
+            _dnsClientExtendedErrors ??= new List<EDnsExtendedDnsErrorOptionData>();
 
             foreach (EDnsExtendedDnsErrorOptionData dnsError in dnsErrors)
             {
@@ -620,8 +612,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         internal void AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData dnsError)
         {
-            if (_dnsClientExtendedErrors is null)
-                _dnsClientExtendedErrors = new List<EDnsExtendedDnsErrorOptionData>();
+            _dnsClientExtendedErrors ??= new List<EDnsExtendedDnsErrorOptionData>();
 
             if (!_dnsClientExtendedErrors.Contains(dnsError))
                 _dnsClientExtendedErrors.Add(dnsError);
@@ -658,14 +649,11 @@ namespace TechnitiumLibrary.Net.Dns
 
         public DnsDatagram Clone(IReadOnlyList<DnsResourceRecord> answer = null, IReadOnlyList<DnsResourceRecord> authority = null, IReadOnlyList<DnsResourceRecord> additional = null)
         {
-            if (answer is null)
-                answer = _answer;
+            answer ??= _answer;
 
-            if (authority is null)
-                authority = _authority;
+            authority ??= _authority;
 
-            if (additional is null)
-                additional = _additional;
+            additional ??= _additional;
 
             DnsDatagram datagram = new DnsDatagram(_ID, _QR == 1, _OPCODE, _AA == 1, _TC == 1, _RD == 1, _RA == 1, _AD == 1, _CD == 1, _RCODE, _question, answer, authority, additional);
 
@@ -776,7 +764,7 @@ namespace TechnitiumLibrary.Net.Dns
             return Clone(null, null, newAdditional);
         }
 
-        public EDnsClientSubnetOptionData GetEDnsClientSubnetOption(bool noShadow = false)
+        public EDnsClientSubnetOptionData? GetEDnsClientSubnetOption(bool noShadow = false)
         {
             if (!noShadow)
             {
@@ -916,7 +904,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        public DnsResourceRecord GetLastAnswerRecord()
+        public DnsResourceRecord? GetLastAnswerRecord()
         {
             if (_question.Count == 0)
                 return null;
@@ -962,7 +950,7 @@ namespace TechnitiumLibrary.Net.Dns
             return firstAuthority.Type;
         }
 
-        public DnsResourceRecord FindFirstAuthorityRecord()
+        public DnsResourceRecord? FindFirstAuthorityRecord()
         {
             foreach (DnsResourceRecord record in _authority)
             {
@@ -2128,13 +2116,13 @@ namespace TechnitiumLibrary.Net.Dns
         public IReadOnlyList<DnsQuestionRecord> Question
         { get { return _question; } }
 
-        public IReadOnlyList<DnsResourceRecord> Answer
+        public IReadOnlyList<DnsResourceRecord>? Answer
         { get { return _answer; } }
 
-        public IReadOnlyList<DnsResourceRecord> Authority
+        public IReadOnlyList<DnsResourceRecord>? Authority
         { get { return _authority; } }
 
-        public IReadOnlyList<DnsResourceRecord> Additional
+        public IReadOnlyList<DnsResourceRecord>? Additional
         { get { return _additional; } }
 
         public bool IsSigned
@@ -2151,7 +2139,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        public string TsigKeyName
+        public string? TsigKeyName
         {
             get
             {

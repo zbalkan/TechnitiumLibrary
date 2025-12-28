@@ -304,8 +304,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
                     Transaction transaction = new Transaction(request);
 
                     Task<bool> sendAsyncTask = SendDnsDatagramAsync(request, timeout, transaction, cancellationToken);
-                    if (firstSendAsyncTask is null)
-                        firstSendAsyncTask = sendAsyncTask;
+                    firstSendAsyncTask ??= sendAsyncTask;
 
                     //wait for request with timeout
                     using (CancellationTokenSource timeoutCancellationTokenSource = new CancellationTokenSource())

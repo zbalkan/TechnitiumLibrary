@@ -233,8 +233,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                     _afdPart[i] = buffer[i];
                 }
 
-                if (_afdPart is null)
-                    _afdPart = [];
+                _afdPart ??= [];
 
                 _networkAddress = networkAddress;
             }
@@ -274,7 +273,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             #region internal
 
-            internal static async Task<APItem> FromZoneFileEntryAsync(ZoneFile zoneFile)
+            internal static async Task<APItem?> FromZoneFileEntryAsync(ZoneFile zoneFile)
             {
                 string apItem = await zoneFile.PopItemAsync();
                 if (apItem is null)

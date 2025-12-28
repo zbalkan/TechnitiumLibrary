@@ -64,8 +64,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         protected override void WriteRecordData(Stream s, List<DnsDomainOffset> domainEntries, bool canonicalForm)
         {
-            if (_rData is null)
-                _rData = _address.GetAddressBytes();
+            _rData ??= _address.GetAddressBytes();
 
             s.Write(_rData);
         }

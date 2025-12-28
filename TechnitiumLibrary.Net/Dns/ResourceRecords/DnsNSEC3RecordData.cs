@@ -226,8 +226,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 string nsec3ZoneName = GetHashedOwnerNameZoneNameFrom(nsec3Record.Name);
                 string nextHashedOwnerName = nsec3._nextHashedOwnerName + (nsec3ZoneName.Length > 0 ? "." + nsec3ZoneName : "");
 
-                if (hashedNextCloserName is null)
-                    hashedNextCloserName = nsec3.ComputeHashedOwnerName(nextCloserName) + (closestEncloserZoneName.Length > 0 ? "." + closestEncloserZoneName : "");
+                hashedNextCloserName ??= nsec3.ComputeHashedOwnerName(nextCloserName) + (closestEncloserZoneName.Length > 0 ? "." + closestEncloserZoneName : "");
 
                 if (DnsNSECRecordData.IsDomainCovered(nsec3Record.Name, nextHashedOwnerName, hashedNextCloserName))
                 {
@@ -265,8 +264,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 string nsec3ZoneName = GetHashedOwnerNameZoneNameFrom(nsec3Record.Name);
                 string nextHashedOwnerName = nsec3._nextHashedOwnerName + (nsec3ZoneName.Length > 0 ? "." + nsec3ZoneName : "");
 
-                if (hashedWildcardDomainName is null)
-                    hashedWildcardDomainName = nsec3.ComputeHashedOwnerName(wildcardDomain) + (closestEncloserZoneName.Length > 0 ? "." + closestEncloserZoneName : "");
+                hashedWildcardDomainName ??= nsec3.ComputeHashedOwnerName(wildcardDomain) + (closestEncloserZoneName.Length > 0 ? "." + closestEncloserZoneName : "");
 
                 if (nsec3Record.Name.Equals(hashedWildcardDomainName, StringComparison.OrdinalIgnoreCase))
                 {
@@ -337,7 +335,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             return domain.Substring(i + 1);
         }
 
-        private static string GetParentZone(string domain)
+        private static string? GetParentZone(string domain)
         {
             if (domain.Length == 0)
                 return null; //no parent for root

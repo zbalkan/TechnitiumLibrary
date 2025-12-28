@@ -69,8 +69,7 @@ namespace TechnitiumLibrary.Net.Proxy
             _connectionManager = connectionManager;
             _authenticationManager = authenticationManager;
 
-            if (_connectionManager == null)
-                _connectionManager = new DefaultProxyServerConnectionManager();
+            _connectionManager ??= new DefaultProxyServerConnectionManager();
 
             //accept requests async
             int tasks = Environment.ProcessorCount;
@@ -142,7 +141,7 @@ namespace TechnitiumLibrary.Net.Proxy
 
         #region static
 
-        internal static async Task<EndPoint> ReadEndPointAsync(Stream s, CancellationToken cancellationToken)
+        internal static async Task<EndPoint?> ReadEndPointAsync(Stream s, CancellationToken cancellationToken)
         {
             byte[] buffer = new byte[2];
 

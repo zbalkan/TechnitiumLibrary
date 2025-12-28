@@ -42,7 +42,7 @@ namespace TechnitiumLibrary.Net.Dns
             {
             }
 
-            public InternalState(DnsQuestionRecord question, string zoneCut, bool dnssecValidationState, IReadOnlyList<DnsResourceRecord> lastDSRecords, IList<NameServerAddress> nameServers, int nameServerIndex, int hopCount, DnsDatagram lastResponse, Exception lastException)
+            public InternalState(DnsQuestionRecord question, string? zoneCut, bool dnssecValidationState, IReadOnlyList<DnsResourceRecord>? lastDSRecords, IList<NameServerAddress> nameServers, int nameServerIndex, int hopCount, DnsDatagram? lastResponse, Exception? lastException)
             {
                 Question = question;
                 ZoneCut = zoneCut;
