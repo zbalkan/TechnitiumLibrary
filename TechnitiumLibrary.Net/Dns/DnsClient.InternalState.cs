@@ -35,7 +35,7 @@ namespace TechnitiumLibrary.Net.Dns
             public Exception? LastException;
             public DnsDatagram? LastResponse;
             public int NameServerIndex;
-            public IList<NameServerAddress> NameServers;
+            public IList<NameServerAddress>? NameServers;
             public DnsQuestionRecord Question;
             public string? ZoneCut;
             public InternalState()
