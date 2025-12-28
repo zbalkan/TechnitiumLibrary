@@ -3597,776 +3597,12 @@ namespace TechnitiumLibrary.Net.Dns
                     return null;
                 }
 
-                //query name servers one by one upto referral limit
-                int referralLimit = Math.Min(_perQueryHeadState[queryId].NameServers.Count, MAX_NS_TO_QUERY_PER_REFERRAL);
+                var res = await QueryNameServers(queryId, question, cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, minimalResponse, asyncNsResolution, rawResponses, eDnsClientSubnetOption, extendedDnsErrors, asyncNsResolutionTasks, cancellationToken);
+                if (!res.HasValue) return null;
 
-                for (; _perQueryHeadState[queryId].NameServerIndex < referralLimit; _perQueryHeadState[queryId].NameServerIndex++) //try next server loop
+                if (!res.Value.flowControl)
                 {
-                    int currentNameServerIndex = _perQueryHeadState[queryId].NameServerIndex;
-
-                    //attempt to find name servers that are resolved for concurrent querying
-                    List<NameServerAddress> resolvedNameServers = new List<NameServerAddress>(referralLimit - _perQueryHeadState[queryId].NameServerIndex);
-
-                    for (int i = _perQueryHeadState[queryId].NameServerIndex; i < referralLimit; i++)
-                    {
-                        if (_perQueryHeadState[queryId].NameServers[i].IPEndPoint is null)
-                            break;
-
-                        resolvedNameServers.Add(_perQueryHeadState[queryId].NameServers[i]);
-                    }
-
-                    DnsClient dnsClient;
-
-                    if (resolvedNameServers.Count > 0)
-                    {
-                        //attempt to do concurrent requests to resolved name servers
-                        _perQueryHeadState[queryId].NameServerIndex += resolvedNameServers.Count - 1; //set index to avoid querying these selected name servers again
-
-                        dnsClient = new DnsClient(resolvedNameServers);
-                        dnsClient._concurrency = concurrency;
-
-                        if (preferIPv6)
-                        {
-                            //find name server with no glue or no ipv6 glue and add additional name server entry to allow attempt over ipv6
-                            List<NameServerAddress> nameServersToAdd = new List<NameServerAddress>();
-
-                            foreach (NameServerAddress nameServerWithIpv4Glue in _perQueryHeadState[queryId].NameServers)
-                            {
-                                if ((nameServerWithIpv4Glue.IPEndPoint is null) || (nameServerWithIpv4Glue.IPEndPoint.AddressFamily == AddressFamily.InterNetworkV6))
-                                    continue; //has no glue or ipv6 glue
-
-                                bool foundNoOrIpv6Glue = false;
-
-                                foreach (NameServerAddress nameServer in _perQueryHeadState[queryId].NameServers)
-                                {
-                                    if (nameServerWithIpv4Glue.DomainEndPoint.Address.Equals(nameServer.DomainEndPoint.Address, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        if ((nameServer.IPEndPoint is null) || (nameServer.IPEndPoint.AddressFamily == AddressFamily.InterNetworkV6))
-                                        {
-                                            foundNoOrIpv6Glue = true;
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                if (!foundNoOrIpv6Glue)
-                                    nameServersToAdd.Add(nameServerWithIpv4Glue.Clone((IPEndPoint)null)); //add to allow future IPv6 address resolution if needed
-                            }
-
-                            foreach (NameServerAddress nameServer in nameServersToAdd)
-                            {
-                                _perQueryHeadState[queryId].NameServers.Add(nameServer);
-
-                                if (asyncNsResolution)
-                                    asyncNsResolutionTasks.TryAdd(nameServer.DomainEndPoint.Address.ToLowerInvariant(), null);
-                            }
-
-                            referralLimit += nameServersToAdd.Count;
-                        }
-                    }
-                    else
-                    {
-                        //do sequential request to current name server after resolving it
-                        NameServerAddress currentNameServer = _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex];
-
-                        if (preferIPv6)
-                        {
-                            bool wasIPv4Attempted = false;
-                            bool wasIPv6Attempted = false;
-
-                            for (int i = 0; i < _perQueryHeadState[queryId].NameServerIndex; i++)
-                            {
-                                NameServerAddress attemptedNameServer = _perQueryHeadState[queryId].NameServers[i];
-
-                                if (attemptedNameServer.DomainEndPoint.Address.Equals(currentNameServer.DomainEndPoint.Address, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    if (attemptedNameServer.IPEndPoint is null)
-                                    {
-                                        //AAAA resolution failed earlier
-                                        wasIPv6Attempted = true;
-                                        break;
-                                    }
-
-                                    switch (attemptedNameServer.IPEndPoint.AddressFamily)
-                                    {
-                                        case AddressFamily.InterNetwork:
-                                            wasIPv4Attempted = true;
-                                            break;
-
-                                        case AddressFamily.InterNetworkV6:
-                                            wasIPv6Attempted = true;
-                                            break;
-                                    }
-                                }
-
-                                if (wasIPv4Attempted && wasIPv6Attempted)
-                                    break;
-                            }
-
-                            if (wasIPv6Attempted)
-                            {
-                                PushStack(queryId, currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.A, question, qnameMinimization, dnssecValidation);
-                            }
-                            else
-                            {
-                                if (!wasIPv4Attempted)
-                                {
-                                    _perQueryHeadState[queryId].NameServers.Add(currentNameServer); //add to allow future IPv4 address resolution if needed
-
-                                    if (asyncNsResolution)
-                                        asyncNsResolutionTasks.TryAdd(currentNameServer.DomainEndPoint.Address.ToLowerInvariant(), null);
-
-                                    referralLimit++;
-                                }
-
-                                PushStack(queryId, currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.AAAA, question, qnameMinimization, dnssecValidation);
-                            }
-                        }
-                        else
-                        {
-                            PushStack(queryId, currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.A, question, qnameMinimization, dnssecValidation);
-                        }
-
-                        return null;
-                    }
-
-                    dnsClient._proxy = proxy;
-                    dnsClient._randomizeName = randomizeName;
-                    dnsClient._dnssecValidation = _perQueryHeadState[queryId].DnssecValidationState;
-                    dnsClient._retries = retries;
-                    dnsClient._timeout = timeout;
-
-                    DnsDatagram request = new DnsDatagram(ID: 0,
-                                                          isResponse: false,
-                                                          OPCODE: DnsOpcode.StandardQuery,
-                                                          authoritativeAnswer: false,
-                                                          truncation: false,
-                                                          recursionDesired: false,
-                                                          recursionAvailable: false,
-                                                          authenticData: false,
-                                                          checkingDisabled: false,
-                                                          RCODE: DnsResponseCode.NoError,
-                                                          question: [question],
-                                                          answer: null,
-                                                          authority: null,
-                                                          additional: null,
-                                                          udpPayloadSize: udpPayloadSize,
-                                                          ednsFlags: dnssecValidation ? EDnsHeaderFlags.DNSSEC_OK : EDnsHeaderFlags.None,
-                                                          options: (_perQueryStacks[queryId].Count == 0) && _perQueryHeadState[queryId].ZoneCut!.Contains('.') ? eDnsClientSubnetOption : null);
-                    DnsDatagram response;
-
-                    try
-                    {
-                        response = await dnsClient.InternalResolveAsync(request, async delegate (DnsDatagram response, CancellationToken cancellationToken1)
-                        {
-                            cancellationToken1.ThrowIfCancellationRequested();
-
-                            rawResponses?.Add(response);
-
-                            //sanitize response
-                            response = DnsClientSanitizers.SanitizeResponseAnswerForQName(response);
-                            response = DnsClientSanitizers.SanitizeResponseAnswerForZoneCut(response, _perQueryHeadState[queryId].ZoneCut); //sanitize answer section
-                            response = DnsClientSanitizers.SanitizeResponseAuthorityForZoneCut(response, _perQueryHeadState[queryId].ZoneCut); //sanitize authority section
-                            response = DnsClientSanitizers.SanitizeResponseAdditionalForZoneCut(response, _perQueryHeadState[queryId].ZoneCut); //sanitize additional section
-
-                            if (_perQueryHeadState[queryId].DnssecValidationState)
-                            {
-                                //dnssec validate response
-                                try
-                                {
-                                    await DnssecValidateResponseAsync(response, _perQueryHeadState[queryId].LastDSRecords, dnsClient, cache, udpPayloadSize, cancellationToken1);
-                                }
-                                catch (DnsClientResponseDnssecValidationException ex)
-                                {
-                                    if ((ex.Response.Question.Count > 0) && ex.Response.Question[0].Equals(question))
-                                        throw; //validation failure for same question; throw same exception
-
-                                    //validation failure for a different question; preserve current response in new exception
-                                    response.AddDnsClientExtendedErrorFrom(ex.Response);
-                                    throw new DnsClientResponseDnssecValidationException(ex.Message, response, ex);
-                                }
-
-                                //sanitize response after DNSSEC validation
-                                response = DnsClientSanitizers.SanitizeResponseAfterDnssecValidation(response);
-                            }
-                            else if (dnssecValidation)
-                            {
-                                //set insecure status
-                                response.SetDnssecStatusForAllRecords(DnssecStatus.Insecure);
-                            }
-                            else
-                            {
-                                //dnssec validation is disabled
-                                response.SetDnssecStatusForAllRecords(DnssecStatus.Disabled);
-                            }
-
-                            //check if referral response was received from the authoritative name server for the same zone cut
-                            if ((response.RCODE == DnsResponseCode.NoError) && (response.Answer.Count == 0) && (response.Authority.Count > 0))
-                            {
-                                foreach (DnsResourceRecord authorityRecord in response.Authority)
-                                {
-                                    if ((authorityRecord.Type == DnsResourceRecordType.NS) && authorityRecord.Name.Equals(_perQueryHeadState[queryId].ZoneCut, StringComparison.OrdinalIgnoreCase))
-                                        throw new DnsClientResponseNotPreferredException(response); //found referral response with authority name servers that match the zone cut
-                                }
-                            }
-
-                            return response;
-                        }, true, cancellationToken);
-                    }
-                    catch (DnsClientResponseDnssecValidationException ex)
-                    {
-                        if (question.ZoneCut is not null)
-                        {
-                            //QNAME minimization can encounter NO DATA response with unsupported NSEC3 iterations value
-                            bool unsupportedNSEC3IterationsValue = false;
-
-                            if (ex.Response is not null)
-                            {
-                                extendedDnsErrors.AddRange(ex.Response.DnsClientExtendedErrors);
-
-                                foreach (EDnsExtendedDnsErrorOptionData eDnsOption in ex.Response.DnsClientExtendedErrors)
-                                {
-                                    if (eDnsOption.InfoCode == EDnsExtendedDnsErrorCode.UnsupportedNSEC3IterationsValue)
-                                    {
-                                        unsupportedNSEC3IterationsValue = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (unsupportedNSEC3IterationsValue)
-                            {
-                                if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    if (question.Type == question.MinimizedType)
-                                    {
-                                        //domain wont resolve
-                                    }
-                                    else
-                                    {
-                                        //disable QNAME minimization and query again to current server to get correct type response
-                                        question.ZoneCut = null;
-                                        _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                        continue;
-                                    }
-                                }
-                                else
-                                {
-                                    //use minimized name as zone cut and query again to current server to move to next label
-                                    question.ZoneCut = question.MinimizedName;
-                                    _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                    continue;
-                                }
-                            }
-                        }
-
-                        //continue for loop to next name server since current name server may be out of sync
-                        _perQueryHeadState[queryId].LastException = ex;
-                        continue; //try next name server
-                    }
-                    catch (DnsClientResponseValidationException ex)
-                    {
-                        if (question.ZoneCut is not null)
-                        {
-                            if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (question.Type == question.MinimizedType)
-                                {
-                                    //domain wont resolve
-                                }
-                                else
-                                {
-                                    //disable QNAME minimization and query again to current server to get correct type response
-                                    question.ZoneCut = null;
-                                    _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                    continue;
-                                }
-                            }
-                            else
-                            {
-                                //use minimized name as zone cut and query again to current server to move to next label
-                                question.ZoneCut = question.MinimizedName;
-                                _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                continue;
-                            }
-                        }
-
-                        //continue for loop to next name server since current name server may be misconfigured
-                        _perQueryHeadState[queryId].LastException = ex;
-                        continue; //try next name server
-                    }
-                    catch (Exception ex)
-                    {
-                        _perQueryHeadState[queryId].LastException = ex;
-                        continue; //try next name server
-                    }
-
-                    //add any previous extended dns errors for caching
-                    if ((response.RCODE != DnsResponseCode.NoError) && (extendedDnsErrors.Count > 0))
-                        response.AddDnsClientExtendedError(extendedDnsErrors);
-
-                    //cache response
-                    cache.CacheResponse(response, false, _perQueryHeadState[queryId].ZoneCut);
-
-                    //set as last response
-                    _perQueryHeadState[queryId].LastResponse = response;
-
-                    extendedDnsErrors.AddRange(response.DnsClientExtendedErrors);
-
-                    switch (response.RCODE)
-                    {
-                        case DnsResponseCode.NoError:
-                            {
-                                if (response.Answer.Count > 0)
-                                {
-                                    bool qnameMatches = response.Answer[0].Name.Equals(question.Name, StringComparison.OrdinalIgnoreCase);
-                                    bool foundDNAME = false;
-
-                                    if (!qnameMatches)
-                                    {
-                                        foreach (DnsResourceRecord answer in response.Answer)
-                                        {
-                                            if ((answer.Type == DnsResourceRecordType.DNAME) && question.Name.EndsWith("." + answer.Name, StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                foundDNAME = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if (qnameMatches || foundDNAME) //checking for DNAME too
-                                    {
-                                        if (question.Type == question.MinimizedType)
-                                        {
-                                            //found answer as QNAME minimization uses A, AAAA, or DS type queries
-                                        }
-                                        else if (question.ZoneCut is not null)
-                                        {
-                                            //disable QNAME minimization and query again to current server to get correct type response
-                                            question.ZoneCut = null;
-                                            _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                            continue;
-                                        }
-                                    }
-                                    else if (question.ZoneCut is not null)
-                                    {
-                                        //disable QNAME minimization and query again to current server
-                                        question.ZoneCut = null;
-                                        _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                        continue;
-                                    }
-                                    else
-                                    {
-                                        //continue to next name server since current name server may be misconfigured
-                                        continue;
-                                    }
-
-                                    if (_perQueryStacks[queryId].Count == 0)
-                                    {
-                                        TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-
-                                        if (extendedDnsErrors.Count > 0)
-                                            response.AddDnsClientExtendedError(extendedDnsErrors);
-
-                                        if (minimalResponse)
-                                            return GetMinimalResponseWithoutNSAndGlue(response);
-
-                                        return response;
-                                    }
-                                    else
-                                    {
-                                        for (int i = 0; i < response.Answer.Count; i++)
-                                        {
-                                            DnsResourceRecord answer = response.Answer[i];
-                                            switch (answer.Type)
-                                            {
-                                                case DnsResourceRecordType.AAAA:
-                                                    PopStack(queryId);
-                                                    _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex] = _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address);
-
-                                                    for (int j = i + 1; j < response.Answer.Count; j++)
-                                                    {
-                                                        answer = response.Answer[j];
-                                                        if (answer.Type == DnsResourceRecordType.AAAA)
-                                                            _perQueryHeadState[queryId].NameServers.Insert(_perQueryHeadState[queryId].NameServerIndex + (j - i),
-                                                                _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address));
-                                                    }
-
-                                                    goto resolverLoop;
-
-                                                case DnsResourceRecordType.A:
-                                                    PopStack(queryId);
-                                                    _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex] = _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex].Clone((answer.RDATA as DnsARecordData).Address);
-
-                                                    for (int j = i + 1; j < response.Answer.Count; j++)
-                                                    {
-                                                        answer = response.Answer[j];
-                                                        if (answer.Type == DnsResourceRecordType.A)
-                                                            _perQueryHeadState[queryId].NameServers.Insert(_perQueryHeadState[queryId].NameServerIndex + (j - i), _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex].Clone((answer.RDATA as DnsARecordData).Address));
-                                                    }
-
-                                                    goto resolverLoop;
-
-                                                case DnsResourceRecordType.DS:
-                                                    Tuple<bool, IReadOnlyList<DnsResourceRecord>> tupleDsRecords = await TryGetDSFromResponseAsync(response, request.Question[0].Name);
-                                                    if (!tupleDsRecords.Item1)
-                                                        throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + request.Question[0].Name.ToLowerInvariant(), response);
-
-                                                    IReadOnlyList<DnsResourceRecord> dsRecords = tupleDsRecords.Item2;
-
-                                                    extendedDnsErrors.AddRange(response.DnsClientExtendedErrors);
-
-                                                    PopStack(queryId);
-
-                                                    if (dsRecords is null)
-                                                    {
-                                                        //zone is unsigned
-                                                        //disabling DNSSEC validation
-                                                        _perQueryHeadState[queryId].DnssecValidationState = false;
-                                                        _perQueryHeadState[queryId].LastDSRecords = null;
-                                                    }
-                                                    else if (dsRecords.Count > 0)
-                                                    {
-                                                        _perQueryHeadState[queryId].LastDSRecords = dsRecords;
-                                                    }
-
-                                                    goto resolverLoop;
-                                            }
-                                        }
-
-                                        //didnt find IP/DS for current name server
-                                        continue; //try next name server
-                                    }
-                                }
-                                else if (response.Authority.Count > 0)
-                                {
-                                    DnsResourceRecord firstAuthority = response.FindFirstAuthorityRecord();
-
-                                    if (firstAuthority.Type == DnsResourceRecordType.SOA)
-                                    {
-                                        if (_perQueryHeadState[queryId].DnssecValidationState && (firstAuthority.DnssecStatus == DnssecStatus.Insecure))
-                                        {
-                                            //found the current zone as unsigned since SOA status is insecure so disable DNSSEC validation
-                                            //disabling DNSSEC validation
-                                            _perQueryHeadState[queryId].DnssecValidationState = false;
-                                            _perQueryHeadState[queryId].LastDSRecords = null;
-                                        }
-
-                                        if (question.ZoneCut is not null)
-                                        {
-                                            if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                if (question.Type == question.MinimizedType)
-                                                {
-                                                    //record does not exists
-                                                }
-                                                else
-                                                {
-                                                    //disable QNAME minimization and query again to current server to get correct type response
-                                                    question.ZoneCut = null;
-                                                    _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                                    continue;
-                                                }
-                                            }
-                                            else
-                                            {
-                                                //use minimized name as zone cut and query again to current server to move to next label
-                                                question.ZoneCut = question.MinimizedName;
-                                                _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                                continue;
-                                            }
-                                        }
-
-                                        //NO DATA - no entry for given type
-                                        if (_perQueryStacks[queryId].Count == 0)
-                                        {
-                                            TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-
-                                            if (extendedDnsErrors.Count > 0)
-                                                response.AddDnsClientExtendedError(extendedDnsErrors);
-
-                                            if (minimalResponse)
-                                                return GetMinimalResponseWithoutNSAndGlue(response);
-
-                                            return response;
-                                        }
-                                        else
-                                        {
-                                            //NO DATA - domain does not resolve 
-                                            PopStack(queryId);
-
-                                            switch (request.Question[0].Type)
-                                            {
-                                                case DnsResourceRecordType.A:
-                                                case DnsResourceRecordType.AAAA:
-                                                    //didnt find IP for current name server; try next name server
-                                                    _perQueryHeadState[queryId].NameServerIndex++; //increment to skip current name server
-                                                    break;
-
-                                                case DnsResourceRecordType.DS:
-                                                    //DS does not exists so the zone is unsigned
-                                                    //disabling DNSSEC validation
-                                                    _perQueryHeadState[queryId].DnssecValidationState = false;
-                                                    _perQueryHeadState[queryId].LastDSRecords = null;
-                                                    break;
-                                            }
-
-                                            goto resolverLoop;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        //check if referral response was received from the authoritative name server for the same zone cut
-                                        bool continueNextNameServer = false;
-
-                                        foreach (DnsResourceRecord authorityRecord in response.Authority)
-                                        {
-                                            if ((authorityRecord.Type == DnsResourceRecordType.NS) && authorityRecord.Name.Equals(_perQueryHeadState[queryId].ZoneCut, StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                //referral response with authority name servers that match the zone cut
-                                                if (_perQueryStacks[queryId].Count == 0)
-                                                {
-                                                    //continue for loop to next name server since current name server may be misconfigured
-                                                    continueNextNameServer = true;
-                                                    break;
-                                                }
-                                                else
-                                                {
-                                                    //unable to resolve current name server domain
-                                                    //pop and try next name server
-                                                    PopStack(queryId);
-                                                    _perQueryHeadState[queryId].NameServerIndex++; //increment to skip current name server
-
-                                                    goto resolverLoop;
-                                                }
-                                            }
-                                        }
-
-                                        if (continueNextNameServer)
-                                            break; //continue for loop to next name server since current name server may be misconfigured
-
-                                        //check for hop limit
-                                        if (_perQueryHeadState[queryId].HopCount >= MAX_DELEGATION_HOPS)
-                                        {
-                                            //max hop count reached
-                                            if (_perQueryStacks[queryId].Count == 0)
-                                            {
-                                                //cannot proceed forever; return what we have and stop
-                                                TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-
-                                                if (extendedDnsErrors.Count > 0)
-                                                    response.AddDnsClientExtendedError(extendedDnsErrors);
-
-                                                if (minimalResponse)
-                                                    return GetMinimalResponseWithoutNSAndGlue(response);
-
-                                                return response;
-                                            }
-                                            else
-                                            {
-                                                //unable to resolve current name server domain due to hop limit
-                                                //pop and try next name server
-                                                PopStack(queryId);
-                                                _perQueryHeadState[queryId].NameServerIndex++; //increment to skip current name server
-
-                                                goto resolverLoop;
-                                            }
-                                        }
-
-                                        //get next hop name servers with loopback filter to prevent loops in resolution
-                                        List<NameServerAddress> nextNameServers = NameServerAddress.GetNameServersFromResponse(response, preferIPv6, true);
-
-                                        if (nextNameServers.Count > 0)
-                                        {
-                                            string nextZoneCut = firstAuthority.Name;
-                                            bool nextDnssecValidationState = _perQueryHeadState[queryId].DnssecValidationState;
-                                            IReadOnlyList<DnsResourceRecord> nextDSRecords = _perQueryHeadState[queryId].LastDSRecords;
-
-                                            if (_perQueryHeadState[queryId].DnssecValidationState)
-                                            {
-                                                Tuple<bool, IReadOnlyList<DnsResourceRecord>> tupleDsRecords = await TryGetDSFromResponseAsync(response, nextZoneCut);
-                                                if (tupleDsRecords.Item1)
-                                                {
-                                                    IReadOnlyList<DnsResourceRecord> dsRecords = tupleDsRecords.Item2;
-
-                                                    extendedDnsErrors.AddRange(response.DnsClientExtendedErrors);
-
-                                                    //get DS records from response
-                                                    if (dsRecords is null)
-                                                    {
-                                                        //next zone cut is validated to be unsigned
-                                                        //disabling DNSSEC validation
-                                                        nextDnssecValidationState = false;
-                                                        nextDSRecords = null;
-                                                    }
-                                                    else if (dsRecords.Count > 0)
-                                                    {
-                                                        nextDSRecords = dsRecords;
-                                                    }
-                                                }
-                                            }
-
-                                            nextNameServers = await ResolveNameServerAddressesFromCacheAsync(nextNameServers, cache, preferIPv6);
-                                            nextNameServers.Shuffle(); //do initial shuffle to avoid querying the same first NS everytime
-
-                                            bool prioritizeOnesWithIPAddress = asyncNsResolution || (_perQueryStacks[queryId].Count > 0);
-
-                                            if (question.ZoneCut is not null)
-                                                question.ZoneCut = nextZoneCut;
-
-                                            _perQueryHeadState[queryId].ZoneCut = nextZoneCut;
-                                            _perQueryHeadState[queryId].DnssecValidationState = nextDnssecValidationState;
-                                            _perQueryHeadState[queryId].LastDSRecords = nextDSRecords;
-                                            _perQueryHeadState[queryId].NameServers = GetOrderedNameServersToPreferPerformance(nextNameServers, prioritizeOnesWithIPAddress, preferIPv6);
-                                            _perQueryHeadState[queryId].NameServerIndex = 0;
-                                            _perQueryHeadState[queryId].HopCount++;
-                                            _perQueryHeadState[queryId].LastResponse = null; //reset last response for current zone cut
-
-                                            //add to async NS resolution task list
-                                            if (asyncNsResolution)
-                                            {
-                                                int maxNsResolutions = Math.Min(nextNameServers.Count, MAX_NS_TO_QUERY_PER_REFERRAL);
-
-                                                foreach (NameServerAddress nextNameServer in nextNameServers)
-                                                {
-                                                    if (nextNameServer.IPEndPoint is null)
-                                                    {
-                                                        if (asyncNsResolutionTasks.TryAdd(nextNameServer.DomainEndPoint.Address.ToLowerInvariant(), null))
-                                                        {
-                                                            maxNsResolutions--;
-
-                                                            if (maxNsResolutions < 1)
-                                                                break;
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            goto resolverLoop;
-                                        }
-
-                                        //continue for loop to next name server since current name server may be misconfigured
-                                        break;
-                                    }
-                                }
-                                else
-                                {
-                                    //empty response: no answer, no authority
-                                    if (question.ZoneCut is not null)
-                                    {
-                                        if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            if (question.Type == question.MinimizedType)
-                                            {
-                                                //record does not exists
-                                            }
-                                            else
-                                            {
-                                                //disable QNAME minimization and query again to current server to get correct type response
-                                                question.ZoneCut = null;
-                                                _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                                continue;
-                                            }
-                                        }
-                                        else
-                                        {
-                                            //use minimized name as zone cut and query again to current server to move to next label
-                                            question.ZoneCut = question.MinimizedName;
-                                            _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                            continue;
-                                        }
-                                    }
-
-                                    //continue for loop to next name server since current name server may be misconfigured
-                                    break;
-                                }
-                            }
-
-                        case DnsResponseCode.NxDomain:
-                            {
-                                if (question.ZoneCut is not null)
-                                {
-                                    if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase) && (question.Type == question.MinimizedType))
-                                    {
-                                        //domain does not exists
-                                    }
-                                    else
-                                    {
-                                        //disable QNAME minimization and query again to current server to confirm full name response
-                                        question.ZoneCut = null;
-                                        _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                        continue;
-                                    }
-                                }
-
-                                if (_perQueryStacks[queryId].Count == 0)
-                                {
-                                    TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
-
-                                    if (extendedDnsErrors.Count > 0)
-                                        response.AddDnsClientExtendedError(extendedDnsErrors);
-
-                                    if (minimalResponse)
-                                        return GetMinimalResponseWithoutNSAndGlue(response);
-
-                                    return response;
-                                }
-                                else
-                                {
-                                    //domain does not exists
-                                    PopStack(queryId);
-
-                                    switch (request.Question[0].Type)
-                                    {
-                                        case DnsResourceRecordType.A:
-                                        case DnsResourceRecordType.AAAA:
-                                            //current name server domain does not exists
-                                            _perQueryHeadState[queryId].NameServerIndex++; //increment to skip current name server
-                                            break;
-
-                                        case DnsResourceRecordType.DS:
-                                            //DS does not exists so the zone is unsigned
-                                            //disabling DNSSEC validation
-                                            _perQueryHeadState[queryId].DnssecValidationState = false;
-                                            _perQueryHeadState[queryId].LastDSRecords = null;
-                                            break;
-                                    }
-
-                                    goto resolverLoop;
-                                }
-                            }
-
-                        default:
-                            {
-                                if (question.ZoneCut is not null)
-                                {
-                                    if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        if (question.Type == question.MinimizedType)
-                                        {
-                                            //domain wont resolve
-                                        }
-                                        else
-                                        {
-                                            //disable QNAME minimization and query again to current server to get correct type response
-                                            question.ZoneCut = null;
-                                            _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                            continue;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        //use minimized name as zone cut and query again to current server to move to next label
-                                        question.ZoneCut = question.MinimizedName;
-                                        _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
-                                        continue;
-                                    }
-                                }
-
-                                //continue for loop to next name server since current name server may be misconfigured
-                                break;
-                            }
-                    }
+                    return res.Value.value;
                 }
 
                 //no successfull response was received from any of the name servers
@@ -4537,9 +3773,784 @@ namespace TechnitiumLibrary.Net.Dns
 
                     //proceed to resolver loop
                 }
-
-            resolverLoop:;
             }
+        }
+
+        private async Task<(bool flowControl, DnsDatagram? value)?> QueryNameServers(Guid queryId, DnsQuestionRecord question, IDnsCache cache, NetProxy? proxy, bool preferIPv6, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, int retries, int timeout, int concurrency, int maxStackCount, bool minimalResponse, bool asyncNsResolution, List<DnsDatagram> rawResponses, EDnsOption[] eDnsClientSubnetOption, List<EDnsExtendedDnsErrorOptionData> extendedDnsErrors, Dictionary<string, object> asyncNsResolutionTasks, CancellationToken cancellationToken)
+        {
+            //query name servers one by one upto referral limit
+            int referralLimit = Math.Min(_perQueryHeadState[queryId].NameServers.Count, MAX_NS_TO_QUERY_PER_REFERRAL);
+
+            for (; _perQueryHeadState[queryId].NameServerIndex < referralLimit; _perQueryHeadState[queryId].NameServerIndex++) //try next server loop
+            {
+                int currentNameServerIndex = _perQueryHeadState[queryId].NameServerIndex;
+
+                //attempt to find name servers that are resolved for concurrent querying
+                List<NameServerAddress> resolvedNameServers = new List<NameServerAddress>(referralLimit - _perQueryHeadState[queryId].NameServerIndex);
+
+                for (int i = _perQueryHeadState[queryId].NameServerIndex; i < referralLimit; i++)
+                {
+                    if (_perQueryHeadState[queryId].NameServers[i].IPEndPoint is null)
+                        break;
+
+                    resolvedNameServers.Add(_perQueryHeadState[queryId].NameServers[i]);
+                }
+
+                DnsClient dnsClient;
+
+                if (resolvedNameServers.Count > 0)
+                {
+                    //attempt to do concurrent requests to resolved name servers
+                    _perQueryHeadState[queryId].NameServerIndex += resolvedNameServers.Count - 1; //set index to avoid querying these selected name servers again
+
+                    dnsClient = new DnsClient(resolvedNameServers);
+                    dnsClient._concurrency = concurrency;
+
+                    if (preferIPv6)
+                    {
+                        //find name server with no glue or no ipv6 glue and add additional name server entry to allow attempt over ipv6
+                        List<NameServerAddress> nameServersToAdd = new List<NameServerAddress>();
+
+                        foreach (NameServerAddress nameServerWithIpv4Glue in _perQueryHeadState[queryId].NameServers)
+                        {
+                            if ((nameServerWithIpv4Glue.IPEndPoint is null) || (nameServerWithIpv4Glue.IPEndPoint.AddressFamily == AddressFamily.InterNetworkV6))
+                                continue; //has no glue or ipv6 glue
+
+                            bool foundNoOrIpv6Glue = false;
+
+                            foreach (NameServerAddress nameServer in _perQueryHeadState[queryId].NameServers)
+                            {
+                                if (nameServerWithIpv4Glue.DomainEndPoint.Address.Equals(nameServer.DomainEndPoint.Address, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if ((nameServer.IPEndPoint is null) || (nameServer.IPEndPoint.AddressFamily == AddressFamily.InterNetworkV6))
+                                    {
+                                        foundNoOrIpv6Glue = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!foundNoOrIpv6Glue)
+                                nameServersToAdd.Add(nameServerWithIpv4Glue.Clone((IPEndPoint)null)); //add to allow future IPv6 address resolution if needed
+                        }
+
+                        foreach (NameServerAddress nameServer in nameServersToAdd)
+                        {
+                            _perQueryHeadState[queryId].NameServers.Add(nameServer);
+
+                            if (asyncNsResolution)
+                                asyncNsResolutionTasks.TryAdd(nameServer.DomainEndPoint.Address.ToLowerInvariant(), null);
+                        }
+
+                        referralLimit += nameServersToAdd.Count;
+                    }
+                }
+                else
+                {
+                    //do sequential request to current name server after resolving it
+                    NameServerAddress currentNameServer = _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex];
+
+                    if (preferIPv6)
+                    {
+                        bool wasIPv4Attempted = false;
+                        bool wasIPv6Attempted = false;
+
+                        for (int i = 0; i < _perQueryHeadState[queryId].NameServerIndex; i++)
+                        {
+                            NameServerAddress attemptedNameServer = _perQueryHeadState[queryId].NameServers[i];
+
+                            if (attemptedNameServer.DomainEndPoint.Address.Equals(currentNameServer.DomainEndPoint.Address, StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (attemptedNameServer.IPEndPoint is null)
+                                {
+                                    //AAAA resolution failed earlier
+                                    wasIPv6Attempted = true;
+                                    break;
+                                }
+
+                                switch (attemptedNameServer.IPEndPoint.AddressFamily)
+                                {
+                                    case AddressFamily.InterNetwork:
+                                        wasIPv4Attempted = true;
+                                        break;
+
+                                    case AddressFamily.InterNetworkV6:
+                                        wasIPv6Attempted = true;
+                                        break;
+                                }
+                            }
+
+                            if (wasIPv4Attempted && wasIPv6Attempted)
+                                break;
+                        }
+
+                        if (wasIPv6Attempted)
+                        {
+                            PushStack(queryId, currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.A, question, qnameMinimization, dnssecValidation);
+                        }
+                        else
+                        {
+                            if (!wasIPv4Attempted)
+                            {
+                                _perQueryHeadState[queryId].NameServers.Add(currentNameServer); //add to allow future IPv4 address resolution if needed
+
+                                if (asyncNsResolution)
+                                    asyncNsResolutionTasks.TryAdd(currentNameServer.DomainEndPoint.Address.ToLowerInvariant(), null);
+
+                                referralLimit++;
+                            }
+
+                            PushStack(queryId, currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.AAAA, question, qnameMinimization, dnssecValidation);
+                        }
+                    }
+                    else
+                    {
+                        PushStack(queryId, currentNameServer.DomainEndPoint.Address, DnsResourceRecordType.A, question, qnameMinimization, dnssecValidation);
+                    }
+
+                    return (flowControl: false, value: null);
+                }
+
+                dnsClient._proxy = proxy;
+                dnsClient._randomizeName = randomizeName;
+                dnsClient._dnssecValidation = _perQueryHeadState[queryId].DnssecValidationState;
+                dnsClient._retries = retries;
+                dnsClient._timeout = timeout;
+
+                DnsDatagram request = new DnsDatagram(ID: 0,
+                                                      isResponse: false,
+                                                      OPCODE: DnsOpcode.StandardQuery,
+                                                      authoritativeAnswer: false,
+                                                      truncation: false,
+                                                      recursionDesired: false,
+                                                      recursionAvailable: false,
+                                                      authenticData: false,
+                                                      checkingDisabled: false,
+                                                      RCODE: DnsResponseCode.NoError,
+                                                      question: [question],
+                                                      answer: null,
+                                                      authority: null,
+                                                      additional: null,
+                                                      udpPayloadSize: udpPayloadSize,
+                                                      ednsFlags: dnssecValidation ? EDnsHeaderFlags.DNSSEC_OK : EDnsHeaderFlags.None,
+                                                      options: (_perQueryStacks[queryId].Count == 0) && _perQueryHeadState[queryId].ZoneCut!.Contains('.') ? eDnsClientSubnetOption : null);
+                DnsDatagram response;
+
+                try
+                {
+                    response = await dnsClient.InternalResolveAsync(request, async delegate (DnsDatagram response, CancellationToken cancellationToken1)
+                    {
+                        cancellationToken1.ThrowIfCancellationRequested();
+
+                        rawResponses?.Add(response);
+
+                        //sanitize response
+                        response = DnsClientSanitizers.SanitizeResponseAnswerForQName(response);
+                        response = DnsClientSanitizers.SanitizeResponseAnswerForZoneCut(response, _perQueryHeadState[queryId].ZoneCut); //sanitize answer section
+                        response = DnsClientSanitizers.SanitizeResponseAuthorityForZoneCut(response, _perQueryHeadState[queryId].ZoneCut); //sanitize authority section
+                        response = DnsClientSanitizers.SanitizeResponseAdditionalForZoneCut(response, _perQueryHeadState[queryId].ZoneCut); //sanitize additional section
+
+                        if (_perQueryHeadState[queryId].DnssecValidationState)
+                        {
+                            //dnssec validate response
+                            try
+                            {
+                                await DnssecValidateResponseAsync(response, _perQueryHeadState[queryId].LastDSRecords, dnsClient, cache, udpPayloadSize, cancellationToken1);
+                            }
+                            catch (DnsClientResponseDnssecValidationException ex)
+                            {
+                                if ((ex.Response.Question.Count > 0) && ex.Response.Question[0].Equals(question))
+                                    throw; //validation failure for same question; throw same exception
+
+                                //validation failure for a different question; preserve current response in new exception
+                                response.AddDnsClientExtendedErrorFrom(ex.Response);
+                                throw new DnsClientResponseDnssecValidationException(ex.Message, response, ex);
+                            }
+
+                            //sanitize response after DNSSEC validation
+                            response = DnsClientSanitizers.SanitizeResponseAfterDnssecValidation(response);
+                        }
+                        else if (dnssecValidation)
+                        {
+                            //set insecure status
+                            response.SetDnssecStatusForAllRecords(DnssecStatus.Insecure);
+                        }
+                        else
+                        {
+                            //dnssec validation is disabled
+                            response.SetDnssecStatusForAllRecords(DnssecStatus.Disabled);
+                        }
+
+                        //check if referral response was received from the authoritative name server for the same zone cut
+                        if ((response.RCODE == DnsResponseCode.NoError) && (response.Answer.Count == 0) && (response.Authority.Count > 0))
+                        {
+                            foreach (DnsResourceRecord authorityRecord in response.Authority)
+                            {
+                                if ((authorityRecord.Type == DnsResourceRecordType.NS) && authorityRecord.Name.Equals(_perQueryHeadState[queryId].ZoneCut, StringComparison.OrdinalIgnoreCase))
+                                    throw new DnsClientResponseNotPreferredException(response); //found referral response with authority name servers that match the zone cut
+                            }
+                        }
+
+                        return response;
+                    }, true, cancellationToken);
+                }
+                catch (DnsClientResponseDnssecValidationException ex)
+                {
+                    if (question.ZoneCut is not null)
+                    {
+                        //QNAME minimization can encounter NO DATA response with unsupported NSEC3 iterations value
+                        bool unsupportedNSEC3IterationsValue = false;
+
+                        if (ex.Response is not null)
+                        {
+                            extendedDnsErrors.AddRange(ex.Response.DnsClientExtendedErrors);
+
+                            foreach (EDnsExtendedDnsErrorOptionData eDnsOption in ex.Response.DnsClientExtendedErrors)
+                            {
+                                if (eDnsOption.InfoCode == EDnsExtendedDnsErrorCode.UnsupportedNSEC3IterationsValue)
+                                {
+                                    unsupportedNSEC3IterationsValue = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (unsupportedNSEC3IterationsValue)
+                        {
+                            if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (question.Type == question.MinimizedType)
+                                {
+                                    //domain wont resolve
+                                }
+                                else
+                                {
+                                    //disable QNAME minimization and query again to current server to get correct type response
+                                    question.ZoneCut = null;
+                                    _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                    continue;
+                                }
+                            }
+                            else
+                            {
+                                //use minimized name as zone cut and query again to current server to move to next label
+                                question.ZoneCut = question.MinimizedName;
+                                _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                continue;
+                            }
+                        }
+                    }
+
+                    //continue for loop to next name server since current name server may be out of sync
+                    _perQueryHeadState[queryId].LastException = ex;
+                    continue; //try next name server
+                }
+                catch (DnsClientResponseValidationException ex)
+                {
+                    if (question.ZoneCut is not null)
+                    {
+                        if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (question.Type == question.MinimizedType)
+                            {
+                                //domain wont resolve
+                            }
+                            else
+                            {
+                                //disable QNAME minimization and query again to current server to get correct type response
+                                question.ZoneCut = null;
+                                _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            //use minimized name as zone cut and query again to current server to move to next label
+                            question.ZoneCut = question.MinimizedName;
+                            _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                            continue;
+                        }
+                    }
+
+                    //continue for loop to next name server since current name server may be misconfigured
+                    _perQueryHeadState[queryId].LastException = ex;
+                    continue; //try next name server
+                }
+                catch (Exception ex)
+                {
+                    _perQueryHeadState[queryId].LastException = ex;
+                    continue; //try next name server
+                }
+
+                //add any previous extended dns errors for caching
+                if ((response.RCODE != DnsResponseCode.NoError) && (extendedDnsErrors.Count > 0))
+                    response.AddDnsClientExtendedError(extendedDnsErrors);
+
+                //cache response
+                cache.CacheResponse(response, false, _perQueryHeadState[queryId].ZoneCut);
+
+                //set as last response
+                _perQueryHeadState[queryId].LastResponse = response;
+
+                extendedDnsErrors.AddRange(response.DnsClientExtendedErrors);
+
+                switch (response.RCODE)
+                {
+                    case DnsResponseCode.NoError:
+                        {
+                            if (response.Answer.Count > 0)
+                            {
+                                bool qnameMatches = response.Answer[0].Name.Equals(question.Name, StringComparison.OrdinalIgnoreCase);
+                                bool foundDNAME = false;
+
+                                if (!qnameMatches)
+                                {
+                                    foreach (DnsResourceRecord answer in response.Answer)
+                                    {
+                                        if ((answer.Type == DnsResourceRecordType.DNAME) && question.Name.EndsWith("." + answer.Name, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            foundDNAME = true;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if (qnameMatches || foundDNAME) //checking for DNAME too
+                                {
+                                    if (question.Type == question.MinimizedType)
+                                    {
+                                        //found answer as QNAME minimization uses A, AAAA, or DS type queries
+                                    }
+                                    else if (question.ZoneCut is not null)
+                                    {
+                                        //disable QNAME minimization and query again to current server to get correct type response
+                                        question.ZoneCut = null;
+                                        _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                        continue;
+                                    }
+                                }
+                                else if (question.ZoneCut is not null)
+                                {
+                                    //disable QNAME minimization and query again to current server
+                                    question.ZoneCut = null;
+                                    _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                    continue;
+                                }
+                                else
+                                {
+                                    //continue to next name server since current name server may be misconfigured
+                                    continue;
+                                }
+
+                                if (_perQueryStacks[queryId].Count == 0)
+                                {
+                                    TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+
+                                    if (extendedDnsErrors.Count > 0)
+                                        response.AddDnsClientExtendedError(extendedDnsErrors);
+
+                                    if (minimalResponse)
+                                        return (flowControl: false, value: GetMinimalResponseWithoutNSAndGlue(response));
+
+                                    return (flowControl: false, value: response);
+                                }
+                                else
+                                {
+                                    for (int i = 0; i < response.Answer.Count; i++)
+                                    {
+                                        DnsResourceRecord answer = response.Answer[i];
+                                        switch (answer.Type)
+                                        {
+                                            case DnsResourceRecordType.AAAA:
+                                                PopStack(queryId);
+                                                _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex] = _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address);
+
+                                                for (int j = i + 1; j < response.Answer.Count; j++)
+                                                {
+                                                    answer = response.Answer[j];
+                                                    if (answer.Type == DnsResourceRecordType.AAAA)
+                                                        _perQueryHeadState[queryId].NameServers.Insert(_perQueryHeadState[queryId].NameServerIndex + (j - i),
+                                                            _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex].Clone((answer.RDATA as DnsAAAARecordData).Address));
+                                                }
+
+                                                return null;
+
+                                            case DnsResourceRecordType.A:
+                                                PopStack(queryId);
+                                                _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex] = _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex].Clone((answer.RDATA as DnsARecordData).Address);
+
+                                                for (int j = i + 1; j < response.Answer.Count; j++)
+                                                {
+                                                    answer = response.Answer[j];
+                                                    if (answer.Type == DnsResourceRecordType.A)
+                                                        _perQueryHeadState[queryId].NameServers.Insert(_perQueryHeadState[queryId].NameServerIndex + (j - i), _perQueryHeadState[queryId].NameServers[_perQueryHeadState[queryId].NameServerIndex].Clone((answer.RDATA as DnsARecordData).Address));
+                                                }
+
+                                                return null;
+
+                                            case DnsResourceRecordType.DS:
+                                                Tuple<bool, IReadOnlyList<DnsResourceRecord>> tupleDsRecords = await TryGetDSFromResponseAsync(response, request.Question[0].Name);
+                                                if (!tupleDsRecords.Item1)
+                                                    throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + request.Question[0].Name.ToLowerInvariant(), response);
+
+                                                IReadOnlyList<DnsResourceRecord> dsRecords = tupleDsRecords.Item2;
+
+                                                extendedDnsErrors.AddRange(response.DnsClientExtendedErrors);
+
+                                                PopStack(queryId);
+
+                                                if (dsRecords is null)
+                                                {
+                                                    //zone is unsigned
+                                                    //disabling DNSSEC validation
+                                                    _perQueryHeadState[queryId].DnssecValidationState = false;
+                                                    _perQueryHeadState[queryId].LastDSRecords = null;
+                                                }
+                                                else if (dsRecords.Count > 0)
+                                                {
+                                                    _perQueryHeadState[queryId].LastDSRecords = dsRecords;
+                                                }
+
+                                                return null;
+                                        }
+                                    }
+
+                                    //didnt find IP/DS for current name server
+                                    continue; //try next name server
+                                }
+                            }
+                            else if (response.Authority.Count > 0)
+                            {
+                                DnsResourceRecord firstAuthority = response.FindFirstAuthorityRecord();
+
+                                if (firstAuthority.Type == DnsResourceRecordType.SOA)
+                                {
+                                    if (_perQueryHeadState[queryId].DnssecValidationState && (firstAuthority.DnssecStatus == DnssecStatus.Insecure))
+                                    {
+                                        //found the current zone as unsigned since SOA status is insecure so disable DNSSEC validation
+                                        //disabling DNSSEC validation
+                                        _perQueryHeadState[queryId].DnssecValidationState = false;
+                                        _perQueryHeadState[queryId].LastDSRecords = null;
+                                    }
+
+                                    if (question.ZoneCut is not null)
+                                    {
+                                        if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            if (question.Type == question.MinimizedType)
+                                            {
+                                                //record does not exists
+                                            }
+                                            else
+                                            {
+                                                //disable QNAME minimization and query again to current server to get correct type response
+                                                question.ZoneCut = null;
+                                                _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                                continue;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            //use minimized name as zone cut and query again to current server to move to next label
+                                            question.ZoneCut = question.MinimizedName;
+                                            _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                            continue;
+                                        }
+                                    }
+
+                                    //NO DATA - no entry for given type
+                                    if (_perQueryStacks[queryId].Count == 0)
+                                    {
+                                        TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+
+                                        if (extendedDnsErrors.Count > 0)
+                                            response.AddDnsClientExtendedError(extendedDnsErrors);
+
+                                        if (minimalResponse)
+                                            return (flowControl: false, value: GetMinimalResponseWithoutNSAndGlue(response));
+
+                                        return (flowControl: false, value: response);
+                                    }
+                                    else
+                                    {
+                                        //NO DATA - domain does not resolve 
+                                        PopStack(queryId);
+
+                                        switch (request.Question[0].Type)
+                                        {
+                                            case DnsResourceRecordType.A:
+                                            case DnsResourceRecordType.AAAA:
+                                                //didnt find IP for current name server; try next name server
+                                                _perQueryHeadState[queryId].NameServerIndex++; //increment to skip current name server
+                                                break;
+
+                                            case DnsResourceRecordType.DS:
+                                                //DS does not exists so the zone is unsigned
+                                                //disabling DNSSEC validation
+                                                _perQueryHeadState[queryId].DnssecValidationState = false;
+                                                _perQueryHeadState[queryId].LastDSRecords = null;
+                                                break;
+                                        }
+
+                                        return null;
+                                    }
+                                }
+                                else
+                                {
+                                    //check if referral response was received from the authoritative name server for the same zone cut
+                                    bool continueNextNameServer = false;
+
+                                    foreach (DnsResourceRecord authorityRecord in response.Authority)
+                                    {
+                                        if ((authorityRecord.Type == DnsResourceRecordType.NS) && authorityRecord.Name.Equals(_perQueryHeadState[queryId].ZoneCut, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            //referral response with authority name servers that match the zone cut
+                                            if (_perQueryStacks[queryId].Count == 0)
+                                            {
+                                                //continue for loop to next name server since current name server may be misconfigured
+                                                continueNextNameServer = true;
+                                                break;
+                                            }
+                                            else
+                                            {
+                                                //unable to resolve current name server domain
+                                                //pop and try next name server
+                                                PopStack(queryId);
+                                                _perQueryHeadState[queryId].NameServerIndex++; //increment to skip current name server
+
+                                                return null;
+                                            }
+                                        }
+                                    }
+
+                                    if (continueNextNameServer)
+                                        break; //continue for loop to next name server since current name server may be misconfigured
+
+                                    //check for hop limit
+                                    if (_perQueryHeadState[queryId].HopCount >= MAX_DELEGATION_HOPS)
+                                    {
+                                        //max hop count reached
+                                        if (_perQueryStacks[queryId].Count == 0)
+                                        {
+                                            //cannot proceed forever; return what we have and stop
+                                            TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+
+                                            if (extendedDnsErrors.Count > 0)
+                                                response.AddDnsClientExtendedError(extendedDnsErrors);
+
+                                            if (minimalResponse)
+                                                return (flowControl: false, value: GetMinimalResponseWithoutNSAndGlue(response));
+
+                                            return (flowControl: false, value: response);
+                                        }
+                                        else
+                                        {
+                                            //unable to resolve current name server domain due to hop limit
+                                            //pop and try next name server
+                                            PopStack(queryId);
+                                            _perQueryHeadState[queryId].NameServerIndex++; //increment to skip current name server
+
+                                            return null;
+                                        }
+                                    }
+
+                                    //get next hop name servers with loopback filter to prevent loops in resolution
+                                    List<NameServerAddress> nextNameServers = NameServerAddress.GetNameServersFromResponse(response, preferIPv6, true);
+
+                                    if (nextNameServers.Count > 0)
+                                    {
+                                        string nextZoneCut = firstAuthority.Name;
+                                        bool nextDnssecValidationState = _perQueryHeadState[queryId].DnssecValidationState;
+                                        IReadOnlyList<DnsResourceRecord> nextDSRecords = _perQueryHeadState[queryId].LastDSRecords;
+
+                                        if (_perQueryHeadState[queryId].DnssecValidationState)
+                                        {
+                                            Tuple<bool, IReadOnlyList<DnsResourceRecord>> tupleDsRecords = await TryGetDSFromResponseAsync(response, nextZoneCut);
+                                            if (tupleDsRecords.Item1)
+                                            {
+                                                IReadOnlyList<DnsResourceRecord> dsRecords = tupleDsRecords.Item2;
+
+                                                extendedDnsErrors.AddRange(response.DnsClientExtendedErrors);
+
+                                                //get DS records from response
+                                                if (dsRecords is null)
+                                                {
+                                                    //next zone cut is validated to be unsigned
+                                                    //disabling DNSSEC validation
+                                                    nextDnssecValidationState = false;
+                                                    nextDSRecords = null;
+                                                }
+                                                else if (dsRecords.Count > 0)
+                                                {
+                                                    nextDSRecords = dsRecords;
+                                                }
+                                            }
+                                        }
+
+                                        nextNameServers = await ResolveNameServerAddressesFromCacheAsync(nextNameServers, cache, preferIPv6);
+                                        nextNameServers.Shuffle(); //do initial shuffle to avoid querying the same first NS everytime
+
+                                        bool prioritizeOnesWithIPAddress = asyncNsResolution || (_perQueryStacks[queryId].Count > 0);
+
+                                        if (question.ZoneCut is not null)
+                                            question.ZoneCut = nextZoneCut;
+
+                                        _perQueryHeadState[queryId].ZoneCut = nextZoneCut;
+                                        _perQueryHeadState[queryId].DnssecValidationState = nextDnssecValidationState;
+                                        _perQueryHeadState[queryId].LastDSRecords = nextDSRecords;
+                                        _perQueryHeadState[queryId].NameServers = GetOrderedNameServersToPreferPerformance(nextNameServers, prioritizeOnesWithIPAddress, preferIPv6);
+                                        _perQueryHeadState[queryId].NameServerIndex = 0;
+                                        _perQueryHeadState[queryId].HopCount++;
+                                        _perQueryHeadState[queryId].LastResponse = null; //reset last response for current zone cut
+
+                                        //add to async NS resolution task list
+                                        if (asyncNsResolution)
+                                        {
+                                            int maxNsResolutions = Math.Min(nextNameServers.Count, MAX_NS_TO_QUERY_PER_REFERRAL);
+
+                                            foreach (NameServerAddress nextNameServer in nextNameServers)
+                                            {
+                                                if (nextNameServer.IPEndPoint is null)
+                                                {
+                                                    if (asyncNsResolutionTasks.TryAdd(nextNameServer.DomainEndPoint.Address.ToLowerInvariant(), null))
+                                                    {
+                                                        maxNsResolutions--;
+
+                                                        if (maxNsResolutions < 1)
+                                                            break;
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        return null;
+                                    }
+
+                                    //continue for loop to next name server since current name server may be misconfigured
+                                    break;
+                                }
+                            }
+                            else
+                            {
+                                //empty response: no answer, no authority
+                                if (question.ZoneCut is not null)
+                                {
+                                    if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        if (question.Type == question.MinimizedType)
+                                        {
+                                            //record does not exists
+                                        }
+                                        else
+                                        {
+                                            //disable QNAME minimization and query again to current server to get correct type response
+                                            question.ZoneCut = null;
+                                            _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                            continue;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        //use minimized name as zone cut and query again to current server to move to next label
+                                        question.ZoneCut = question.MinimizedName;
+                                        _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                        continue;
+                                    }
+                                }
+
+                                //continue for loop to next name server since current name server may be misconfigured
+                                break;
+                            }
+                        }
+
+                    case DnsResponseCode.NxDomain:
+                        {
+                            if (question.ZoneCut is not null)
+                            {
+                                if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase) && (question.Type == question.MinimizedType))
+                                {
+                                    //domain does not exists
+                                }
+                                else
+                                {
+                                    //disable QNAME minimization and query again to current server to confirm full name response
+                                    question.ZoneCut = null;
+                                    _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                    continue;
+                                }
+                            }
+
+                            if (_perQueryStacks[queryId].Count == 0)
+                            {
+                                TriggerNsResolution(cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, retries, timeout, concurrency, maxStackCount, asyncNsResolution, asyncNsResolutionTasks);
+
+                                if (extendedDnsErrors.Count > 0)
+                                    response.AddDnsClientExtendedError(extendedDnsErrors);
+
+                                if (minimalResponse)
+                                    return (flowControl: false, value: GetMinimalResponseWithoutNSAndGlue(response));
+
+                                return (flowControl: false, value: response);
+                            }
+                            else
+                            {
+                                //domain does not exists
+                                PopStack(queryId);
+
+                                switch (request.Question[0].Type)
+                                {
+                                    case DnsResourceRecordType.A:
+                                    case DnsResourceRecordType.AAAA:
+                                        //current name server domain does not exists
+                                        _perQueryHeadState[queryId].NameServerIndex++; //increment to skip current name server
+                                        break;
+
+                                    case DnsResourceRecordType.DS:
+                                        //DS does not exists so the zone is unsigned
+                                        //disabling DNSSEC validation
+                                        _perQueryHeadState[queryId].DnssecValidationState = false;
+                                        _perQueryHeadState[queryId].LastDSRecords = null;
+                                        break;
+                                }
+
+                                return null;
+                            }
+                        }
+
+                    default:
+                        {
+                            if (question.ZoneCut is not null)
+                            {
+                                if (question.Name.Equals(question.MinimizedName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (question.Type == question.MinimizedType)
+                                    {
+                                        //domain wont resolve
+                                    }
+                                    else
+                                    {
+                                        //disable QNAME minimization and query again to current server to get correct type response
+                                        question.ZoneCut = null;
+                                        _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                        continue;
+                                    }
+                                }
+                                else
+                                {
+                                    //use minimized name as zone cut and query again to current server to move to next label
+                                    question.ZoneCut = question.MinimizedName;
+                                    _perQueryHeadState[queryId].NameServerIndex = currentNameServerIndex - 1;
+                                    continue;
+                                }
+                            }
+
+                            //continue for loop to next name server since current name server may be misconfigured
+                            break;
+                        }
+                }
+            }
+
+            return (flowControl: true, value: null);
         }
 
         private async Task<(bool flowControl, DnsDatagram value)> QueryCache(Guid queryId, DnsQuestionRecord question, IDnsCache cache, NetProxy? proxy, bool preferIPv6, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, int retries, int timeout, int concurrency, int maxStackCount, bool asyncNsResolution, EDnsOption[] eDnsClientSubnetOption, List<EDnsExtendedDnsErrorOptionData> extendedDnsErrors, Dictionary<string, object> asyncNsResolutionTasks)
