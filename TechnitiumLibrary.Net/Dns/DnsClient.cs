@@ -4701,9 +4701,7 @@ namespace TechnitiumLibrary.Net.Dns
                                         string? nextZoneCut = null;
                                         bool nextDnssecValidationState = _perQueryHeadState[queryId].DnssecValidationState;
                                         IReadOnlyList<DnsResourceRecord>? nextDSRecords = _perQueryHeadState[queryId].LastDSRecords;
-                                        List<NameServerAddress>? nextNameServers = null;
-
-                                        nextNameServers = NameServerAddress.GetNameServersFromResponse(cacheResponse, preferIPv6, false);
+                                        List<NameServerAddress>? nextNameServers = NameServerAddress.GetNameServersFromResponse(cacheResponse, preferIPv6, false);
                                         InspectCacheNameServersForLoops(nextNameServers, _perQueryStacks[queryId]);
 
                                         if (nextNameServers.Count > 0)
@@ -4756,9 +4754,9 @@ namespace TechnitiumLibrary.Net.Dns
                                                     continue;
 
                                                 nextNameServers = NameServerAddress.GetNameServersFromResponse(cachedNsResponse, preferIPv6, false);
-                                                InspectCacheNameServersForLoops(nextNameServers, _perQueryStacks[queryId]);
+                                                InspectCacheNameServersForLoops(null, _perQueryStacks[queryId]);
 
-                                                if (nextNameServers.Count > 0)
+                                                if (((List<NameServerAddress>?)null).Count > 0)
                                                 {
                                                     //found NS for parent from cache
                                                     nextZoneCut = null;
@@ -4788,14 +4786,14 @@ namespace TechnitiumLibrary.Net.Dns
                                                     }
 
                                                     if (nextZoneCut is null)
-                                                        nextNameServers.Clear(); //cannot determine zone cut for these name servers; do not use them
+                                                        ((List<NameServerAddress>?)null).Clear(); //cannot determine zone cut for these name servers; do not use them
 
                                                     break;
                                                 }
                                             }
                                         }
 
-                                        if (nextNameServers.Count > 0)
+                                        if (((List<NameServerAddress>?)null).Count > 0)
                                         {
                                             //found NS and/or DS (or proof of no DS)
                                             bool prioritizeOnesWithIPAddress = asyncNsResolution || (_perQueryStacks[queryId].Count > 0);
@@ -4807,7 +4805,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                 zoneCut: nextZoneCut,
                                                 dnssecValidationState: nextDnssecValidationState,
                                                 lastDSRecords: nextDSRecords,
-                                                nameServers: GetOrderedNameServersToPreferPerformance(nextNameServers, prioritizeOnesWithIPAddress, preferIPv6),
+                                                nameServers: GetOrderedNameServersToPreferPerformance(null, prioritizeOnesWithIPAddress, preferIPv6),
                                                 nameServerIndex: 0,
                                                 hopCount: 0,
                                                 lastResponse: null,
