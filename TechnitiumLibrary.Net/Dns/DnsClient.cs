@@ -3512,6 +3512,8 @@ namespace TechnitiumLibrary.Net.Dns
             EDnsOption[] eDnsClientSubnetOption = EDnsClientSubnetOptionData.GetEDnsClientSubnetOption(eDnsClientSubnet);
 
             cache ??= new DnsCache();
+
+            // Correlation ID for the query
             Guid queryId = Guid.NewGuid();
 
             if (qnameMinimization)
@@ -3528,7 +3530,14 @@ namespace TechnitiumLibrary.Net.Dns
             if (asyncNsResolution)
                 asyncNsResolutionTasks = new Dictionary<string, object>();
 
-            return await RunStackLoop(queryId, question, cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, minimalResponse, asyncNsResolution, rawResponses, eDnsClientSubnetOption, extendedDnsErrors, asyncNsResolutionTasks, cancellationToken);
+            var res = await RunStackLoop(queryId, question, cache, proxy, preferIPv6, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, minimalResponse, asyncNsResolution, rawResponses, eDnsClientSubnetOption, extendedDnsErrors, asyncNsResolutionTasks, cancellationToken);
+            
+            // Cleaning up query ID
+            _perQueryStacks.Remove(queryId, out _);
+            _perQueryHeadState.Remove(queryId, out _);
+            
+            return res;
+
         }
         
         private async Task<DnsDatagram> RunStackLoop(Guid queryId, DnsQuestionRecord question, IDnsCache cache, NetProxy? proxy, bool preferIPv6, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, NetworkAddress eDnsClientSubnet, int retries, int timeout, int concurrency, int maxStackCount, bool minimalResponse, bool asyncNsResolution, List<DnsDatagram> rawResponses, EDnsOption[] eDnsClientSubnetOption, List<EDnsExtendedDnsErrorOptionData> extendedDnsErrors, Dictionary<string, object> asyncNsResolutionTasks, CancellationToken cancellationToken)
