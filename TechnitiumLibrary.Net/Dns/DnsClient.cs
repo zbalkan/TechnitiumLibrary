@@ -1209,9 +1209,7 @@ namespace TechnitiumLibrary.Net.Dns
                         return; //one IPv4 name server is already present at top
 
                     //swap this IPv4 name server to 2nd position
-                    NameServerAddress secondNameServer = nameServers[1];
-                    nameServers[1] = nameServers[i];
-                    nameServers[i] = secondNameServer;
+                    (nameServers[i], nameServers[1]) = (nameServers[1], nameServers[i]);
                     return;
                 }
             }
