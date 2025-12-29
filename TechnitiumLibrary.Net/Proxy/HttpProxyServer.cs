@@ -1,6 +1,6 @@
 ﻿/*
 Technitium Library
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -296,7 +296,7 @@ namespace TechnitiumLibrary.Net.Proxy
                                 //wait for timeout only for initial request to avoid causing timeout to close existing data stream
                                 using (CancellationTokenSource timeoutCancellationTokenSource = new CancellationTokenSource())
                                 {
-                                    if (await Task.WhenAny(task, Task.Delay(CLIENT_REQUEST_TIMEOUT, timeoutCancellationTokenSource.Token)) != task)
+                                    if ((await Task.WhenAny(task, Task.Delay(CLIENT_REQUEST_TIMEOUT, timeoutCancellationTokenSource.Token)) != task) && (task.Status != TaskStatus.RanToCompletion))
                                         return; //request timed out; return will cause Dispose() call in finally
 
                                     timeoutCancellationTokenSource.Cancel(); //cancel delay task

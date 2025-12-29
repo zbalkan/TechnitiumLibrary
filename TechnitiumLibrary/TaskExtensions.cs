@@ -1,6 +1,6 @@
 ﻿/*
 Technitium Library
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@ namespace TechnitiumLibrary
 
             Task task = func(timeoutCancellationTokenSource.Token);
 
-            if (await Task.WhenAny(task, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != task)
+            if ((await Task.WhenAny(task, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != task) && (task.Status != TaskStatus.RanToCompletion))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -52,7 +52,7 @@ namespace TechnitiumLibrary
 
             Task<T> task = func(timeoutCancellationTokenSource.Token);
 
-            if (await Task.WhenAny(task, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != task)
+            if ((await Task.WhenAny(task, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != task) && (task.Status != TaskStatus.RanToCompletion))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 

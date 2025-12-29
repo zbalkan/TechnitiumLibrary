@@ -188,7 +188,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         internal static string GetResponsiblePersonDomainFormat(string responsiblePerson)
         {
-            int i = responsiblePerson.IndexOf('@');
+            int i = responsiblePerson.LastIndexOf('@');
             if (i < 0)
                 return responsiblePerson;
 

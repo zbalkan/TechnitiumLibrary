@@ -1,6 +1,6 @@
 ﻿/*
 Technitium Library
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -298,7 +298,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
                 {
                     await using (CancellationTokenRegistration ctr = cancellationToken.Register(timeoutCancellationTokenSource.Cancel))
                     {
-                        if (await Task.WhenAny(quicConnectionTask, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != quicConnectionTask)
+                        if ((await Task.WhenAny(quicConnectionTask, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != quicConnectionTask) && (quicConnectionTask.Status != TaskStatus.RanToCompletion))
                             continue; //request timed out; retry
                     }
 
@@ -318,7 +318,7 @@ namespace TechnitiumLibrary.Net.Dns.ClientConnection
                     {
                         task = QuicQueryAsync(request, quicConnection, timeoutCancellationTokenSource.Token);
 
-                        if (await Task.WhenAny(task, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != task)
+                        if ((await Task.WhenAny(task, Task.Delay(timeout, timeoutCancellationTokenSource.Token)) != task) && (task.Status != TaskStatus.RanToCompletion))
                         {
                             timeoutCancellationTokenSource.Cancel(); //to stop running task
                             continue; //request timed out; retry

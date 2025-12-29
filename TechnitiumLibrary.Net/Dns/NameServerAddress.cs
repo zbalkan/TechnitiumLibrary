@@ -574,12 +574,12 @@ namespace TechnitiumLibrary.Net.Dns
 
         #region public
 
-        public NameServerAddress UpdateAddress(IPAddress address)
+        public NameServerAddress Clone(IPAddress address)
         {
-            return UpdateIPEndPoint(new IPEndPoint(address, Port));
+            return Clone(new IPEndPoint(address, Port));
         }
 
-        public NameServerAddress UpdateIPEndPoint(IPEndPoint ep)
+        public NameServerAddress Clone(IPEndPoint ep)
         {
             NameServerAddress nameServer = new NameServerAddress();
 
@@ -593,7 +593,7 @@ namespace TechnitiumLibrary.Net.Dns
             return nameServer;
         }
 
-        public NameServerAddress ChangeProtocol(DnsTransportProtocol protocol)
+        public NameServerAddress Clone(DnsTransportProtocol protocol)
         {
             if (_protocol == protocol)
                 return this;

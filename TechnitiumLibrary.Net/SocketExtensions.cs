@@ -1,6 +1,6 @@
 ﻿/*
 Technitium Library
-Copyright (C) 2024  Shreyas Zare (shreyas@technitium.com)
+Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -118,7 +118,7 @@ namespace TechnitiumLibrary.Net
 
                             recvTask = socket.ReceiveFromAsync(response, SocketFlags.None, epAny, currentCancellationToken).AsTask();
 
-                            if (await Task.WhenAny(recvTask, Task.Delay(timeoutValue, currentCancellationToken)) != recvTask)
+                            if ((await Task.WhenAny(recvTask, Task.Delay(timeoutValue, currentCancellationToken)) != recvTask) && (recvTask.Status != TaskStatus.RanToCompletion))
                             {
                                 cancellationTokenSource.Cancel(); //to stop recv task
                                 break; //recv timed out
