@@ -19,6 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+
 
 namespace TechnitiumLibrary.Net.Dns
 {
@@ -27,22 +30,61 @@ namespace TechnitiumLibrary.Net.Dns
         private readonly QueryContext _ctx;
         private readonly bool _preferIPv6;
 
-        public int ReferralLimit { get; private set; }
+        // Security limits
+        private const int MAX_FAILURES_PER_SERVER = 3;
+        private const int MAX_RETRIES_PER_AUTHORITY = 12;
+
+        // Failure classification bucket
+        private readonly Dictionary<NameServerAddress, FailureState> _failures =
+            new Dictionary<NameServerAddress, FailureState>();
+
+        private readonly IReadOnlyList<NameServerAddress> _ordered;
+        private int _retryCount;
+
+        public int ReferralLimit { get; }
+
+        private sealed class FailureState
+        {
+            public int TimeoutFailures;
+            public int BogusFailures;
+            public int InsecureFailures;
+
+            public int Total => TimeoutFailures + BogusFailures + InsecureFailures;
+        }
 
         public NameServerIterator(QueryContext ctx, bool preferIPv6)
         {
             _ctx = ctx;
             _preferIPv6 = preferIPv6;
 
-            var servers = _ctx.Head.NameServers ?? throw new InvalidOperationException("No nameservers initialized.");
+            var servers = _ctx.Head.NameServers ??
+                throw new InvalidOperationException("No nameservers initialized.");
 
             ReferralLimit = Math.Min(
                 servers.Count,
                 DnsClient.MAX_NS_TO_QUERY_PER_REFERRAL);
+
+            // Randomize initial ordering — but only once
+            var shuffled = servers
+                .Take(ReferralLimit)
+                .OrderBy(_ => Guid.NewGuid())
+                .ToList();
+
+            // Light IPv6 preference without deterministic stickiness
+            if (_preferIPv6)
+                shuffled.Sort((a, b) =>
+                    a.IPEndPoint?.AddressFamily.CompareTo(
+                    b.IPEndPoint?.AddressFamily) ?? 0);
+
+            _ordered = shuffled;
+            _ctx.Head.NameServerIndex = 0;
         }
 
         public bool HasMore()
         {
+            if (_retryCount >= MAX_RETRIES_PER_AUTHORITY)
+                return false;
+
             return _ctx.Head.NameServerIndex < ReferralLimit;
         }
 
@@ -53,33 +95,75 @@ namespace TechnitiumLibrary.Net.Dns
         /// </summary>
         public NameServerSelection SelectNextBatch()
         {
-            var servers = _ctx.Head.NameServers;
+            if (!HasMore())
+                return NameServerSelection.Unresolved(null!);
 
             int start = _ctx.Head.NameServerIndex;
+            var batch = new List<NameServerAddress>();
 
-            var resolved = new List<NameServerAddress>(
-                ReferralLimit - start);
-
-            // Build contiguous batch of already-resolved name servers
             for (int i = start; i < ReferralLimit; i++)
             {
-                if (servers[i].IPEndPoint is null)
+                var ns = _ordered[i];
+
+                // Skip endpoints that repeatedly fail
+                if (IsSuppressed(ns))
+                    continue;
+
+                if (ns.IPEndPoint is null)
                     break;
 
-                resolved.Add(servers[i]);
+                batch.Add(ns);
             }
 
-            if (resolved.Count > 0)
+            if (batch.Count > 0)
             {
-                // Skip these when returning to caller
-                _ctx.Head.NameServerIndex += resolved.Count - 1;
-
-                return NameServerSelection.ResolvedBatch(resolved);
+                _ctx.Head.NameServerIndex += batch.Count - 1;
+                return NameServerSelection.ResolvedBatch(batch);
             }
 
-            // Otherwise return the current unresolved NS
-            var current = servers[_ctx.Head.NameServerIndex];
-            return NameServerSelection.Unresolved(current);
+            var single = _ordered[_ctx.Head.NameServerIndex];
+            return NameServerSelection.Unresolved(single);
+        }
+
+        public void RecordTimeout(NameServerAddress ns) =>
+            IncrementFailure(ns, f => f.TimeoutFailures++);
+
+        public void RecordBogus(NameServerAddress ns) =>
+            IncrementFailure(ns, f => f.BogusFailures++);
+
+        public void RecordInsecure(NameServerAddress ns) =>
+            IncrementFailure(ns, f => f.InsecureFailures++);
+
+        private void IncrementFailure(
+            NameServerAddress ns,
+            Action<FailureState> apply)
+        {
+            if (!_failures.TryGetValue(ns, out var state))
+                state = _failures[ns] = new FailureState();
+
+            apply(state);
+
+            _retryCount++;
+
+            if (state.Total == MAX_FAILURES_PER_SERVER)
+            {
+                Trace.TraceWarning(
+                    $"NameServerIterator suppressing {ns} after {state.Total} failures");
+            }
+
+            if (_retryCount == (int)(MAX_RETRIES_PER_AUTHORITY * 0.75))
+            {
+                Trace.TraceWarning(
+                    $"Authority retry threshold approaching: {_retryCount}/{MAX_RETRIES_PER_AUTHORITY}");
+            }
+        }
+
+        private bool IsSuppressed(NameServerAddress ns)
+        {
+            if (!_failures.TryGetValue(ns, out var f))
+                return false;
+
+            return f.Total >= MAX_FAILURES_PER_SERVER;
         }
 
         /// <summary>
