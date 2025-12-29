@@ -1,46 +1,42 @@
-﻿/*
-Technitium Library
-Copyright (C) 2025  Shreyas Zare (shreyas@technitium.com)
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-*/
-
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Runtime.Serialization;
+using System.Diagnostics;
 using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
 namespace TechnitiumLibrary.Net.Dns
 {
     public class InternalState
     {
-        public bool DnssecValidationState;
-        public int HopCount;
-        public IReadOnlyList<DnsResourceRecord>? LastDSRecords;
-        public Exception? LastException;
-        public DnsDatagram? LastResponse;
-        public int NameServerIndex;
-        public IList<NameServerAddress>? NameServers;
         public DnsQuestionRecord Question;
         public string? ZoneCut;
+
+        public bool DnssecValidationState;
+        public IReadOnlyList<DnsResourceRecord>? LastDSRecords;
+
+        public int HopCount;
+        public IList<NameServerAddress>? NameServers;
+        public int NameServerIndex;
+
+        public DnsDatagram? LastResponse;
+        public Exception? LastException;
+
+        private const int MAX_HOP_LIMIT = 64;
+
         public InternalState()
         {
+            NormalizeAndValidate();
         }
 
-        public InternalState(DnsQuestionRecord question, string? zoneCut, bool dnssecValidationState, IReadOnlyList<DnsResourceRecord>? lastDSRecords, IList<NameServerAddress> nameServers, int nameServerIndex, int hopCount, DnsDatagram? lastResponse, Exception? lastException)
+        public InternalState(
+            DnsQuestionRecord question,
+            string? zoneCut,
+            bool dnssecValidationState,
+            IReadOnlyList<DnsResourceRecord>? lastDSRecords,
+            IList<NameServerAddress> nameServers,
+            int nameServerIndex,
+            int hopCount,
+            DnsDatagram? lastResponse,
+            Exception? lastException)
         {
             Question = question;
             ZoneCut = zoneCut;
@@ -51,15 +47,72 @@ namespace TechnitiumLibrary.Net.Dns
             HopCount = hopCount;
             LastResponse = lastResponse;
             LastException = lastException;
+
+            NormalizeAndValidate();
+        }
+
+        private void NormalizeAndValidate()
+        {
+            // Normalize zone-cut and name casing deterministically
+            ZoneCut = ZoneCut?.ToLowerInvariant();
+
+            // Question must always exist
+            if (Question == null)
+                throw new InvalidOperationException("InternalState requires a Question value.");
+
+            // Hop count monotonic safety
+            if (HopCount < 0 || HopCount > MAX_HOP_LIMIT)
+                throw new InvalidOperationException($"Hop bound violated: {HopCount}");
+
+            // Clamp invalid indices defensively
+            if (NameServers != null && NameServers.Count > 0)
+            {
+                if (NameServerIndex < 0)
+                    NameServerIndex = 0;
+
+                if (NameServerIndex >= NameServers.Count)
+                    NameServerIndex = NameServers.Count - 1;
+            }
+
+            // DNSSEC downgrade protection
+            if (DnssecValidationState &&
+                ZoneCut != null &&
+                LastDSRecords == null &&
+                Question?.Name != ZoneCut)
+            {
+                // DS chain should not silently reset within same zone cut
+                // if reset is legitimate, caller should replace the frame
+                throw new InvalidOperationException(
+                    "Unexpected DS chain reset during DNSSEC validation.");
+            }
+
+            DebugAssertInvariants();
+        }
+
+        [Conditional("DEBUG")]
+        private void DebugAssertInvariants()
+        {
+            Debug.Assert(Question != null);
+            Debug.Assert(HopCount <= MAX_HOP_LIMIT);
+            Debug.Assert(NameServerIndex >= 0);
         }
 
         public InternalState DeepClone()
         {
-            var serializer = new DataContractSerializer(typeof(InternalState));
-            using var ms = new MemoryStream();
-            serializer.WriteObject(ms, this);
-            ms.Position = 0;
-            return (InternalState)serializer.ReadObject(ms)!;
+            // Preserve signature — but avoid unsafe stale-data resurrection
+            var clone = new InternalState(
+                question: Question,
+                zoneCut: ZoneCut,
+                dnssecValidationState: DnssecValidationState,
+                lastDSRecords: LastDSRecords,
+                nameServers: NameServers is null ? null : new List<NameServerAddress>(NameServers),
+                nameServerIndex: NameServerIndex,
+                hopCount: HopCount,
+                lastResponse: null,      // transient fields are intentionally not cloned
+                lastException: null
+            );
+
+            return clone;
         }
     }
 }
