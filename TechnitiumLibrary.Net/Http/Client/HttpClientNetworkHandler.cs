@@ -182,12 +182,14 @@ namespace TechnitiumLibrary.Net.Http.Client
 
             if (_dnsClient is null)
             {
-                DnsClient dnsClient = new DnsClient((_networkType == HttpClientNetworkType.IPv6Only) || (_networkType == HttpClientNetworkType.PreferIPv6));
+                CompatDnsClient dnsClient = new CompatDnsClient((_networkType == HttpClientNetworkType.IPv6Only) || (_networkType == HttpClientNetworkType.PreferIPv6));
+
                 dnsClient.Cache = new DnsCache();
                 dnsClient.Proxy = _proxy;
                 dnsClient.DnssecValidation = true;
 
                 _dnsClient = dnsClient;
+
             }
 
             DnsDatagram response;

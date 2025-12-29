@@ -18,6 +18,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 
 namespace TechnitiumLibrary.Net.Dns
 {
@@ -25,6 +29,31 @@ namespace TechnitiumLibrary.Net.Dns
     {
         public static class Helpers
         {
+            public static IReadOnlyList<IPAddress> GetSystemDnsServers(bool preferIPv6 = false)
+            {
+                List<IPAddress> dnsAddresses = new List<IPAddress>();
+
+                foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (nic.OperationalStatus != OperationalStatus.Up)
+                        continue;
+
+                    foreach (IPAddress dnsAddress in nic.GetIPProperties().DnsAddresses)
+                    {
+                        if (!preferIPv6 && (dnsAddress.AddressFamily == AddressFamily.InterNetworkV6))
+                            continue;
+
+                        if ((dnsAddress.AddressFamily == AddressFamily.InterNetworkV6) && dnsAddress.IsIPv6SiteLocal)
+                            continue;
+
+                        if (!dnsAddresses.Contains(dnsAddress))
+                            dnsAddresses.Add(dnsAddress);
+                    }
+                }
+
+                return dnsAddresses;
+            }
+
             public static string ConvertDomainNameToAscii(string domain)
             {
                 return _idnMapping.GetAscii(domain);

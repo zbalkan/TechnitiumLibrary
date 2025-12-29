@@ -17,7 +17,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 */
 
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
 namespace TechnitiumLibrary.Net.Dns
 {
@@ -26,5 +28,9 @@ namespace TechnitiumLibrary.Net.Dns
         Task<DnsDatagram> QueryAsync(DnsDatagram request, bool serveStale = false, bool findClosestNameServers = false, bool resetExpiry = false);
 
         void CacheResponse(DnsDatagram response, bool isDnssecBadCache = false, string zoneCut = null);
+
+        Task<IReadOnlyList<DnsResourceRecord>?> LookupHostAsync(string fqdn);
+
+        Task<IReadOnlyList<DnsResourceRecord>?> LookupDSAsync(string zoneCut);
     }
 }

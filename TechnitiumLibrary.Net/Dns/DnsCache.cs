@@ -1065,6 +1065,37 @@ namespace TechnitiumLibrary.Net.Dns
             _cache.Clear();
         }
 
+        public Task<IReadOnlyList<DnsResourceRecord>?> LookupHostAsync(string fqdn)
+        {
+            if (!_cache.TryGetValue(fqdn.ToLowerInvariant(), out var entry))
+                return Task.FromResult<IReadOnlyList<DnsResourceRecord>?>(null);
+
+            var a = entry.QueryRecords(DnsResourceRecordType.A, skipSpecialCacheRecord: true);
+            var aaaa = entry.QueryRecords(DnsResourceRecordType.AAAA, skipSpecialCacheRecord: true);
+
+            if (a.Count == 0 && aaaa.Count == 0)
+                return Task.FromResult<IReadOnlyList<DnsResourceRecord>?>(null);
+
+            var list = new List<DnsResourceRecord>(a.Count + aaaa.Count);
+            list.AddRange(a);
+            list.AddRange(aaaa);
+
+            return Task.FromResult<IReadOnlyList<DnsResourceRecord>?>(list);
+        }
+
+        public Task<IReadOnlyList<DnsResourceRecord>?> LookupDSAsync(string zoneCut)
+        {
+            if (!_cache.TryGetValue(zoneCut.ToLowerInvariant(), out var entry))
+                return Task.FromResult<IReadOnlyList<DnsResourceRecord>?>(null);
+
+            var ds = entry.QueryRecords(DnsResourceRecordType.DS, skipSpecialCacheRecord: true);
+
+            if (ds.Count == 0)
+                return Task.FromResult<IReadOnlyList<DnsResourceRecord>?>(null);
+
+            return Task.FromResult<IReadOnlyList<DnsResourceRecord>?>(ds);
+        }
+
         #endregion
 
         #region properties
@@ -1644,7 +1675,7 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 List<DnsResourceRecord> rrset = new List<DnsResourceRecord>(13);
 
-                foreach (NameServerAddress ipv4Hint in DnsClient.IPv4RootHints)
+                foreach (NameServerAddress ipv4Hint in RootHints.IPv4)
                 {
                     string nsDomain = ipv4Hint.Host;
 
@@ -1654,7 +1685,7 @@ namespace TechnitiumLibrary.Net.Dns
                     DnsResourceRecord ipv4Glue = new DnsResourceRecord(nsDomain, DnsResourceRecordType.A, DnsClass.IN, 518400, new DnsARecordData(ipv4Hint.IPEndPoint.Address));
                     nsRecordInfo.AddGlueRecord(ipv4Glue);
 
-                    foreach (NameServerAddress ipv6Hint in DnsClient.IPv6RootHints)
+                    foreach (NameServerAddress ipv6Hint in RootHints.IPv6)
                     {
                         if (ipv6Hint.Host.Equals(nsDomain, StringComparison.OrdinalIgnoreCase))
                         {
