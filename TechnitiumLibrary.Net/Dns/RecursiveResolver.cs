@@ -130,7 +130,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         private static DnsDatagram BuildStackLimitFailure(
                     DnsQuestionRecord question,
-                    List<EDnsExtendedDnsErrorOptionData> extendedDnsErrors,
+                    List<EDnsExtendedDnsErrorOptionData>? extendedDnsErrors,
                     NetworkAddress? ecs)
         {
             var failure = new DnsDatagram(
@@ -139,7 +139,7 @@ namespace TechnitiumLibrary.Net.Dns
                 DnsResponseCode.ServerFailure,
                 new[] { question });
 
-            if (extendedDnsErrors.Count > 0)
+            if (extendedDnsErrors?.Count > 0)
                 failure.AddDnsClientExtendedError(extendedDnsErrors);
 
             failure.AddDnsClientExtendedError(
@@ -260,8 +260,8 @@ namespace TechnitiumLibrary.Net.Dns
                     int concurrency,
                     int maxStackCount,
                     bool asyncNsResolution,
-                    EDnsOption[] eDnsClientSubnetOption,
-                    List<EDnsExtendedDnsErrorOptionData> extendedErrors,
+                    EDnsOption[]? eDnsClientSubnetOption,
+                    List<EDnsExtendedDnsErrorOptionData>? extendedErrors,
                     Dictionary<string, object>? asyncNsResolutionTasks)
         {
             var ctx = QueryContextStore.Instance.Get(queryId);
@@ -279,7 +279,7 @@ namespace TechnitiumLibrary.Net.Dns
                     authenticData: false,
                     checkingDisabled: false,
                     DnsResponseCode.NoError,
-                    new[] { question }),
+                    [question]),
                 serveStale: false,
                 findClosestNameServers: true,
                 resetExpiry: false);
@@ -448,8 +448,8 @@ namespace TechnitiumLibrary.Net.Dns
             bool minimalResponse,
             bool asyncNsResolution,
             List<DnsDatagram>? rawResponses,
-            EDnsOption[] eDnsClientSubnetOption,
-            List<EDnsExtendedDnsErrorOptionData> extendedDnsErrors,
+            EDnsOption[]? eDnsClientSubnetOption,
+            List<EDnsExtendedDnsErrorOptionData>? extendedDnsErrors,
             Dictionary<string, object>? asyncNsResolutionTasks,
             CancellationToken cancellationToken)
         {

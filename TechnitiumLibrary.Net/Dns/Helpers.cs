@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -29,6 +30,8 @@ namespace TechnitiumLibrary.Net.Dns
     {
         public static class Helpers
         {
+            static readonly IdnMapping _idnMapping = new IdnMapping() { AllowUnassigned = true };
+
             public static IReadOnlyList<IPAddress> GetSystemDnsServers(bool preferIPv6 = false)
             {
                 List<IPAddress> dnsAddresses = new List<IPAddress>();

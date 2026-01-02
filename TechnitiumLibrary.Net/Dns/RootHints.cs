@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Threading.Tasks;
+using System.Xml;
 using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
 namespace TechnitiumLibrary.Net.Dns
@@ -14,10 +16,14 @@ namespace TechnitiumLibrary.Net.Dns
         private static IReadOnlyList<NameServerAddress> _ipv4 = BuiltInIPv4();
         private static IReadOnlyList<NameServerAddress> _ipv6 = BuiltInIPv6();
 
+        public static List<DnsResourceRecord> ROOT_TRUST_ANCHORS { get; private set; }
+
         static RootHints()
         {
             // Fire-and-forget refresh attempt (best-effort)
             _ = Task.Run(ReloadFromNamedRootAsync);
+            _ = Task.Run(ReloadRootTrustAnchors);
+
         }
 
         public static IReadOnlyList<NameServerAddress> IPv4 => _ipv4;
@@ -142,9 +148,77 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        // ----------------
-        // Shuffle helpers
-        // ----------------
+
+        public static void ReloadRootTrustAnchors()
+        {
+            string rootTrustXmlFile = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "root-anchors.xml");
+
+            XmlDocument rootTrustXml = new XmlDocument();
+            rootTrustXml.Load(rootTrustXmlFile);
+
+            XmlNamespaceManager nsMgr = new XmlNamespaceManager(rootTrustXml.NameTable);
+            XmlNodeList nodeList = rootTrustXml.SelectNodes("//TrustAnchor/KeyDigest", nsMgr);
+
+            const string dateFormat = "yyyy-MM-ddTHH:mm:sszzz";
+            List<DnsResourceRecord> rootTrustAnchors = new List<DnsResourceRecord>();
+
+            foreach (XmlNode keyDigestNode in nodeList)
+            {
+                DateTime validFrom = DateTime.MinValue;
+                DateTime validUntil = DateTime.MinValue;
+
+                foreach (XmlAttribute attribute in keyDigestNode.Attributes)
+                {
+                    switch (attribute.Name)
+                    {
+                        case "validFrom":
+                            validFrom = DateTime.ParseExact(attribute.Value, dateFormat, CultureInfo.CurrentCulture);
+                            break;
+
+                        case "validUntil":
+                            validUntil = DateTime.ParseExact(attribute.Value, dateFormat, CultureInfo.CurrentCulture);
+                            break;
+                    }
+                }
+
+                if ((validFrom != DateTime.MinValue) && (validFrom > DateTime.UtcNow))
+                    continue;
+
+                if ((validUntil != DateTime.MinValue) && (validUntil < DateTime.UtcNow))
+                    continue;
+
+                ushort keyTag = 0;
+                DnssecAlgorithm algorithm = DnssecAlgorithm.Unknown;
+                DnssecDigestType digestType = DnssecDigestType.Unknown;
+                string? digest = null;
+
+                foreach (XmlNode childNode in keyDigestNode.ChildNodes)
+                {
+                    switch (childNode.Name.ToLowerInvariant())
+                    {
+                        case "keytag":
+                            keyTag = ushort.Parse(childNode.InnerText);
+                            break;
+
+                        case "algorithm":
+                            algorithm = (DnssecAlgorithm)byte.Parse(childNode.InnerText);
+                            break;
+
+                        case "digesttype":
+                            digestType = (DnssecDigestType)byte.Parse(childNode.InnerText);
+                            break;
+
+                        case "digest":
+                            digest = childNode.InnerText;
+                            break;
+                    }
+                }
+
+                rootTrustAnchors.Add(new DnsResourceRecord("", DnsResourceRecordType.DS, DnsClass.IN, 0, new DnsDSRecordData(keyTag, algorithm, digestType, Convert.FromHexString(digest))));
+            }
+
+            ROOT_TRUST_ANCHORS = rootTrustAnchors;
+        }
 
         private static int ComparePreferIPv6(NameServerAddress a, NameServerAddress b)
         {

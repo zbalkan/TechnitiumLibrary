@@ -76,11 +76,6 @@ namespace TechnitiumLibrary.Net.Dns
         internal const int MAX_NS_TO_QUERY_PER_REFERRAL = 16;
 
         internal const int NS_RESOLUTION_TIMEOUT = 60000;
-        static readonly IdnMapping _idnMapping = new IdnMapping() { AllowUnassigned = true };
-        static IReadOnlyList<NameServerAddress> IPv4_ROOT_HINTS;
-        static IReadOnlyList<NameServerAddress> IPv6_ROOT_HINTS;
-
-        static IReadOnlyList<DnsResourceRecord> ROOT_TRUST_ANCHORS;
 
         //max NS to query per referral response to mitigate NRDelegationAttack and NXNSAttack
         //max iterations allowed for NSEC3 [RFC 9276]
@@ -90,29 +85,24 @@ namespace TechnitiumLibrary.Net.Dns
         //verify signature for all records in response
         readonly DnssecValidateSignatureParameters _parameters = new DnssecValidateSignatureParameters();
 
-        readonly ConcurrentDictionary<Guid, InternalState> _perQueryHeadState = new ConcurrentDictionary<Guid, InternalState>();
-
-        //main stack
-        readonly ConcurrentDictionary<Guid, Stack<InternalState>> _perQueryStacks = new ConcurrentDictionary<Guid, Stack<InternalState>>();
-
         //task will stop NSEC3 proof validation after max suspensions for the response
         readonly IReadOnlyList<NameServerAddress> _servers;
 
-        bool _advancedForwardingClientSubnet;
-        IDnsCache _cache;
-        int _concurrency = 2;
+        readonly bool _advancedForwardingClientSubnet;
+        readonly IDnsCache _cache;
+        readonly int _concurrency = 2;
         //this feature is used by Advanced Forwarding app to cache response per network group
-        string _conditionalForwardingZoneCut;
+        readonly string _conditionalForwardingZoneCut;
 
-        bool _dnssecValidation;
-        NetworkAddress _eDnsClientSubnet;
-        bool _preferIPv6;
-        NetProxy _proxy;
-        bool _randomizeName;
-        int _retries = 2;
-        int _timeout = 2000;
-        Dictionary<string, IReadOnlyList<DnsResourceRecord>> _trustAnchors;
-        ushort _udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE;
+        readonly bool _dnssecValidation;
+        readonly NetworkAddress _eDnsClientSubnet;
+        readonly bool _preferIPv6;
+        readonly NetProxy _proxy;
+        readonly bool _randomizeName;
+        readonly int _retries = 2;
+        readonly int _timeout = 2000;
+        readonly Dictionary<string, IReadOnlyList<DnsResourceRecord>> _trustAnchors;
+        readonly ushort _udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE;
 
         private static readonly ResolverConfig _defaultConfig = new()
         {
@@ -790,121 +780,6 @@ namespace TechnitiumLibrary.Net.Dns
                 default:
                     throw new DnsClientFailureResponseException("DnsClient failed to resolve the request '" + response.Question[0].ToString() + "'. Received a response with RCODE: " + response.RCODE + ((response.Metadata is null) || (response.Metadata.NameServer is null) ? "" : " from Name server: " + response.Metadata.NameServer.ToString()), response);
             }
-        }
-
-        public static async Task ReloadRootHintsAsync()
-        {
-            string rootHintsFile = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "named.root");
-            if (!File.Exists(rootHintsFile))
-                return;
-
-            List<DnsResourceRecord> rootZoneRecords = await ZoneFile.ReadZoneFileFromAsync(rootHintsFile);
-
-            List<NameServerAddress> ipv4RootHints = new List<NameServerAddress>(13);
-            List<NameServerAddress> ipv6RootHints = new List<NameServerAddress>(13);
-
-            foreach (DnsResourceRecord nsRecord in rootZoneRecords)
-            {
-                if (nsRecord.Type != DnsResourceRecordType.NS)
-                    continue;
-
-                if (nsRecord.Name.Length != 0)
-                    continue;
-
-                string name = (nsRecord.RDATA as DnsNSRecordData).NameServer.ToLowerInvariant();
-
-                foreach (DnsResourceRecord record in rootZoneRecords)
-                {
-                    switch (record.Type)
-                    {
-                        case DnsResourceRecordType.A:
-                            if (name.Equals(record.Name, StringComparison.OrdinalIgnoreCase))
-                                ipv4RootHints.Add(new NameServerAddress(name, (record.RDATA as DnsARecordData).Address));
-
-                            break;
-
-                        case DnsResourceRecordType.AAAA:
-                            if (name.Equals(record.Name, StringComparison.OrdinalIgnoreCase))
-                                ipv6RootHints.Add(new NameServerAddress(name, (record.RDATA as DnsAAAARecordData).Address));
-
-                            break;
-                    }
-                }
-            }
-
-            IPv4_ROOT_HINTS = ipv4RootHints;
-            IPv6_ROOT_HINTS = ipv6RootHints;
-        }
-
-        public static void ReloadRootTrustAnchors()
-        {
-            string rootTrustXmlFile = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "root-anchors.xml");
-
-            XmlDocument rootTrustXml = new XmlDocument();
-            rootTrustXml.Load(rootTrustXmlFile);
-
-            XmlNamespaceManager nsMgr = new XmlNamespaceManager(rootTrustXml.NameTable);
-            XmlNodeList nodeList = rootTrustXml.SelectNodes("//TrustAnchor/KeyDigest", nsMgr);
-
-            const string dateFormat = "yyyy-MM-ddTHH:mm:sszzz";
-            List<DnsResourceRecord> rootTrustAnchors = new List<DnsResourceRecord>();
-
-            foreach (XmlNode keyDigestNode in nodeList)
-            {
-                DateTime validFrom = DateTime.MinValue;
-                DateTime validUntil = DateTime.MinValue;
-
-                foreach (XmlAttribute attribute in keyDigestNode.Attributes)
-                {
-                    switch (attribute.Name)
-                    {
-                        case "validFrom":
-                            validFrom = DateTime.ParseExact(attribute.Value, dateFormat, CultureInfo.CurrentCulture);
-                            break;
-
-                        case "validUntil":
-                            validUntil = DateTime.ParseExact(attribute.Value, dateFormat, CultureInfo.CurrentCulture);
-                            break;
-                    }
-                }
-
-                if ((validFrom != DateTime.MinValue) && (validFrom > DateTime.UtcNow))
-                    continue;
-
-                if ((validUntil != DateTime.MinValue) && (validUntil < DateTime.UtcNow))
-                    continue;
-
-                ushort keyTag = 0;
-                DnssecAlgorithm algorithm = DnssecAlgorithm.Unknown;
-                DnssecDigestType digestType = DnssecDigestType.Unknown;
-                string? digest = null;
-
-                foreach (XmlNode childNode in keyDigestNode.ChildNodes)
-                {
-                    switch (childNode.Name.ToLowerInvariant())
-                    {
-                        case "keytag":
-                            keyTag = ushort.Parse(childNode.InnerText);
-                            break;
-
-                        case "algorithm":
-                            algorithm = (DnssecAlgorithm)byte.Parse(childNode.InnerText);
-                            break;
-
-                        case "digesttype":
-                            digestType = (DnssecDigestType)byte.Parse(childNode.InnerText);
-                            break;
-
-                        case "digest":
-                            digest = childNode.InnerText;
-                            break;
-                    }
-                }
-
-                rootTrustAnchors.Add(new DnsResourceRecord("", DnsResourceRecordType.DS, DnsClass.IN, 0, new DnsDSRecordData(keyTag, algorithm, digestType, Convert.FromHexString(digest))));
-            }
-
-            ROOT_TRUST_ANCHORS = rootTrustAnchors;
         }
 
         public static async Task<IReadOnlyList<IPAddress>> ResolveIPAsync(IDnsClient dnsClient, string domain, bool preferIPv6 = false, CancellationToken cancellationToken = default)
