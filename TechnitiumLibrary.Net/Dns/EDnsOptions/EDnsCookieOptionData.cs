@@ -29,7 +29,7 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
     //https://datatracker.ietf.org/doc/html/rfc7873
     //https://datatracker.ietf.org/doc/html/rfc9018
 
-    public class EDnsCookieOptionData : EDnsOptionData
+    public class EDnsCookieOptionData : EDnsOptionData, IEquatable<EDnsCookieOptionData>
     {
         #region variables
 
@@ -104,29 +104,29 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
 
         #region public
 
-        public override bool Equals(object obj)
+        public bool Equals(EDnsCookieOptionData other)
         {
-            if (obj is null)
+            if (other is null)
                 return false;
 
-            if (ReferenceEquals(this, obj))
+            if (ReferenceEquals(this, other))
                 return true;
 
-            if (obj is EDnsCookieOptionData other)
-            {
-                if (!_clientCookie.SequenceEqual(other._clientCookie))
-                    return false;
+            if (!_clientCookie.SequenceEqual(other._clientCookie))
+                return false;
 
-                if (_serverCookie is null && other._serverCookie is null)
-                    return true;
+            if (_serverCookie is null && other._serverCookie is null)
+                return true;
 
-                if (_serverCookie is null || other._serverCookie is null)
-                    return false;
+            if (_serverCookie is null || other._serverCookie is null)
+                return false;
 
-                return _serverCookie.SequenceEqual(other._serverCookie);
-            }
+            return _serverCookie.SequenceEqual(other._serverCookie);
+        }
 
-            return false;
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as EDnsCookieOptionData);
         }
 
         public override int GetHashCode()
