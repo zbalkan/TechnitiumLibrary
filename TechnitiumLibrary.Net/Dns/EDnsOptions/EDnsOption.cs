@@ -74,12 +74,12 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
                     _data = new EDnsClientSubnetOptionData(s);
                     break;
 
-                case EDnsOptionCode.COOKIE:
-                    _data = new EDnsCookieOptionData(s);
-                    break;
-
                 case EDnsOptionCode.EXTENDED_DNS_ERROR:
                     _data = new EDnsExtendedDnsErrorOptionData(s);
+                    break;
+
+                case EDnsOptionCode.COOKIE:
+                    _data = new EDnsCookieOptionData(s);
                     break;
 
                 default:
@@ -96,6 +96,14 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         {
             DnsDatagram.WriteUInt16NetworkOrder((ushort)_code, s);
 
+            // OPTION-LENGTH=0 is valid; represent with null data.
+            if (_data is null)
+            {
+                DnsDatagram.WriteUInt16NetworkOrder(0, s);
+                return;
+            }
+
+            // EDnsOptionData.WriteTo writes OPTION-LENGTH + option bytes.
             _data.WriteTo(s);
         }
 
@@ -132,11 +140,19 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         {
             jsonWriter.WriteStartObject();
 
-            jsonWriter.WriteString("Code", _code.ToString());
-            jsonWriter.WriteString("Length", _data.Length + " bytes");
+            jsonWriter.WriteString(nameof(Code), _code.ToString());
 
-            jsonWriter.WritePropertyName("Data");
-            _data.SerializeTo(jsonWriter);
+            if (_data is null)
+            {
+                jsonWriter.WriteString("Length", "0 bytes");
+                jsonWriter.WriteNull(nameof(Data));
+            }
+            else
+            {
+                jsonWriter.WriteString("Length", _data.Length + " bytes");
+                jsonWriter.WritePropertyName(nameof(Data));
+                _data.SerializeTo(jsonWriter);
+            }
 
             jsonWriter.WriteEndObject();
         }
@@ -151,8 +167,7 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         public EDnsOptionData Data
         { get { return _data; } }
 
-        public int UncompressedLength
-        { get { return 2 + 2 + _data.UncompressedLength; } }
+        public int UncompressedLength => 2 + 2 + (_data?.UncompressedLength ?? 0);
 
         #endregion
     }
