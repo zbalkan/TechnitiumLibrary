@@ -29,7 +29,7 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
     //https://datatracker.ietf.org/doc/html/rfc7873
     //https://datatracker.ietf.org/doc/html/rfc9018
 
-    public class EDnsCookieOptionData : EDnsOptionData, IEquatable<EDnsCookieOptionData>
+    public sealed class EDnsCookieOptionData : EDnsOptionData, IEquatable<EDnsCookieOptionData>
     {
         #region variables
 
