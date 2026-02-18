@@ -136,26 +136,22 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         {
             HashCode hash = new HashCode();
 
-            foreach (byte b in _clientCookie)
-                hash.Add(b);
+            hash.AddBytes(_clientCookie);
 
             if (_serverCookie is not null)
-            {
-                foreach (byte b in _serverCookie)
-                    hash.Add(b);
-            }
+                hash.AddBytes(_serverCookie);
 
             return hash.ToHashCode();
         }
 
         public override string ToString()
         {
-            string clientCookieHex = BitConverter.ToString(_clientCookie).Replace("-", "");
+            string clientCookieHex = Convert.ToHexString(_clientCookie);
             
             if (_serverCookie is null)
                 return "[Client Cookie: " + clientCookieHex + "]";
 
-            string serverCookieHex = BitConverter.ToString(_serverCookie).Replace("-", "");
+            string serverCookieHex = Convert.ToHexString(_serverCookie);
             return "[Client Cookie: " + clientCookieHex + ", Server Cookie: " + serverCookieHex + "]";
         }
 
@@ -163,10 +159,10 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         {
             jsonWriter.WriteStartObject();
 
-            jsonWriter.WriteString("ClientCookie", BitConverter.ToString(_clientCookie).Replace("-", ""));
+            jsonWriter.WriteString("ClientCookie", Convert.ToHexString(_clientCookie));
 
             if (_serverCookie is not null)
-                jsonWriter.WriteString("ServerCookie", BitConverter.ToString(_serverCookie).Replace("-", ""));
+                jsonWriter.WriteString("ServerCookie", Convert.ToHexString(_serverCookie));
 
             jsonWriter.WriteEndObject();
         }
