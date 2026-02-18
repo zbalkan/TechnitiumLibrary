@@ -48,11 +48,8 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
             if (clientCookie.Length != 8)
                 throw new ArgumentException("Client cookie must be exactly 8 bytes.", nameof(clientCookie));
 
-            if (serverCookie is not null)
-            {
-                if (serverCookie.Length < 8 || serverCookie.Length > 32)
-                    throw new ArgumentException("Server cookie must be between 8 and 32 bytes.", nameof(serverCookie));
-            }
+            if (serverCookie is not null && (serverCookie.Length < 8 || serverCookie.Length > 32))
+                throw new ArgumentException("Server cookie must be between 8 and 32 bytes.", nameof(serverCookie));
 
             _clientCookie = clientCookie;
             _serverCookie = serverCookie;
