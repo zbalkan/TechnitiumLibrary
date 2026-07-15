@@ -1,0 +1,76 @@
+name: SonarCloud
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  schedule:
+    - cron: "0 1 * * 0"
+
+jobs:
+  sonar:
+    name: SonarCloud analysis + coverage
+    runs-on: ubuntu-latest
+    env:
+      Solution_Name: TechnitiumLibrary.sln
+      SONAR_PROJECT_KEY: zbalkan_TechnitiumLibrary
+      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install Java (required by SonarScanner)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Add .NET global tools to PATH
+        shell: bash
+        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Install tools
+        shell: bash
+        run: |
+          dotnet tool install --global dotnet-sonarscanner
+          dotnet tool install --global dotnet-coverage
+
+      - name: SonarCloud begin analysis
+        shell: bash
+        run: |
+          dotnet sonarscanner begin \
+            /k:"${SONAR_PROJECT_KEY}" \
+            /o:"${SONAR_ORGANIZATION}" \
+            /d:sonar.token="${SONAR_TOKEN}" \
+            /d:sonar.cs.vscoveragexml.reportsPaths=coverage.xml
+
+      - name: Restore
+        shell: bash
+        run: dotnet restore "${Solution_Name}"
+
+      - name: Build
+        shell: bash
+        run: dotnet build "${Solution_Name}" -c Debug --no-restore
+
+      - name: Test with coverage
+        shell: bash
+        run: |
+          dotnet-coverage collect \
+            "dotnet test --no-build --configuration Debug" \
+            -f xml \
+            -o coverage.xml
+
+      - name: SonarCloud end analysis
+        shell: bash
+        run: dotnet sonarscanner end /d:sonar.token="${SONAR_TOKEN}"
