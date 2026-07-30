@@ -102,12 +102,7 @@ namespace TechnitiumLibrary.Net.Dns
                 if (resourceRecord.Type == DnsResourceRecordType.DNAME)
                     return; //DnsCache does not support DNAME
 
-                DnsCacheEntry entry = _cache.GetOrAdd(resourceRecord.Name.ToLowerInvariant(), delegate (string key)
-                {
-                    return new DnsCacheEntry(1);
-                });
-
-                entry.SetRecords(resourceRecords);
+                SetCacheEntryRecords(resourceRecord.Name.ToLowerInvariant(), 1, resourceRecords);
             }
             else
             {
@@ -130,14 +125,32 @@ namespace TechnitiumLibrary.Net.Dns
                     if (foundDNAME)
                         continue; //DnsCache does not support DNAME
 
-                    DnsCacheEntry entry = _cache.GetOrAdd(cacheEntry.Key.ToLowerInvariant(), delegate (string key)
-                    {
-                        return new DnsCacheEntry(cacheEntry.Value.Count);
-                    });
+                    string entryName = cacheEntry.Key.ToLowerInvariant();
 
                     foreach (KeyValuePair<DnsResourceRecordType, List<DnsResourceRecord>> cacheTypeEntry in cacheEntry.Value)
-                        entry.SetRecords(cacheTypeEntry.Value);
+                        SetCacheEntryRecords(entryName, cacheEntry.Value.Count, cacheTypeEntry.Value);
                 }
+            }
+        }
+
+        //Writes an RRset into the cache entry for a name, retrying if the entry that was obtained
+        //had already been claimed for removal by a concurrent cleanup pass. Without the retry the
+        //records would be written into a detached entry and silently lost.
+        private void SetCacheEntryRecords(string name, int capacity, IReadOnlyList<DnsResourceRecord> records)
+        {
+            while (true)
+            {
+                DnsCacheEntry entry = _cache.GetOrAdd(name, delegate (string key)
+                {
+                    return new DnsCacheEntry(capacity);
+                });
+
+                if (entry.SetRecords(records))
+                    return;
+
+                //Drop the orphan so the next GetOrAdd creates a live entry. Removing by key and
+                //value together ensures a replacement entry added by another writer is not deleted.
+                _cache.TryRemove(new KeyValuePair<string, DnsCacheEntry>(name, entry));
             }
         }
 
@@ -864,20 +877,35 @@ namespace TechnitiumLibrary.Net.Dns
                 return; //ineligible response
 
             //Reject mixed-policy responses before stamping records. This prevents composition or
-            //custom callers from laundering records produced under different trust policies. A
-            //record with no context at all is not proof that no policy applies to it - it may
-            //simply not have been stamped - so an unscoped record next to a policy-scoped one
-            //must never let the whole response be silently adopted into that policy's identity.
+            //custom callers from laundering records produced under different trust policies.
+            //
+            //An unstamped ordinary record means different things depending on whether the response
+            //itself carries a policy identity. When it does, the resolver has already vouched for
+            //the whole response under one captured policy and the stamping loop below fills every
+            //ordinary record in - that is the normal path for every fresh resolver answer, so a
+            //null record context there is expected, not suspicious. When the response has no
+            //identity of its own, there is nothing authoritative to stamp with, and adopting one
+            //record's identity for its unscoped neighbours would assert provenance those records
+            //never proved; that mixture is rejected instead.
+            //
+            //A special cache record is stricter in both cases: its context is baked into the
+            //immutable wrapper at construction time and the stamping loop cannot supply it later,
+            //so a missing context can never be repaired and must be rejected whenever any policy
+            //is in force.
             DnsCacheWriteContext writeContext = response.DnsCacheWriteContext;
             bool conflictingPolicyContext = false;
-            bool sawUnscopedRecord = false;
-            void ObserveContext(DnsCacheWriteContext context)
+            bool sawUnscopedOrdinaryRecord = false;
+            bool sawUnscopedImmutableRecord = false;
+            void ObserveContext(DnsCacheWriteContext context, bool immutable)
             {
                 if (conflictingPolicyContext)
                     return;
                 if (context is null)
                 {
-                    sawUnscopedRecord = true;
+                    if (immutable)
+                        sawUnscopedImmutableRecord = true;
+                    else
+                        sawUnscopedOrdinaryRecord = true;
                     return;
                 }
                 if (writeContext is null)
@@ -892,24 +920,28 @@ namespace TechnitiumLibrary.Net.Dns
                     if (record.Type == DnsResourceRecordType.OPT)
                         continue;
 
-                    ObserveContext(record.GetDnssecCacheMetadata().DnsCacheWriteContext);
+                    bool isSpecialCacheRecord = record.RDATA is DnsSpecialCacheRecordData;
+
+                    ObserveContext(record.GetDnssecCacheMetadata().DnsCacheWriteContext, isSpecialCacheRecord);
                     if (record.RDATA is DnsSpecialCacheRecordData specialRecord)
                     {
-                        ObserveContext(specialRecord.DnsCacheWriteContext);
+                        ObserveContext(specialRecord.DnsCacheWriteContext, true);
                         foreach (IReadOnlyList<DnsResourceRecord> nestedSection in new[] { specialRecord.OriginalAnswer, specialRecord.OriginalAuthority, specialRecord.OriginalAdditional })
                             foreach (DnsResourceRecord nestedRecord in nestedSection)
                             {
                                 if (nestedRecord.Type == DnsResourceRecordType.OPT)
                                     continue;
-                                ObserveContext(nestedRecord.GetDnssecCacheMetadata().DnsCacheWriteContext);
+                                ObserveContext(nestedRecord.GetDnssecCacheMetadata().DnsCacheWriteContext, true);
                             }
                     }
                 }
             }
             if (conflictingPolicyContext)
                 return;
-            if (sawUnscopedRecord && ((response.DnsCacheWriteContext is not null) || (writeContext is not null)))
-                return; //mixed scoped/unscoped provenance under one response; reject rather than launder identity
+            if (sawUnscopedImmutableRecord && (writeContext is not null))
+                return; //an immutable wrapper's missing identity can never be repaired by stamping
+            if ((response.DnsCacheWriteContext is null) && sawUnscopedOrdinaryRecord && (writeContext is not null))
+                return; //mixed scoped/unscoped provenance with no response identity to vouch for it
             if ((response.DnsCacheWriteContext is null) && (writeContext is not null))
                 response.SetDnsCacheWriteContext(writeContext);
 
@@ -1514,8 +1546,12 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 entry.Value.RemoveExpiredRecords();
 
-                if (entry.Value.IsEmpty)
-                    _cache.TryRemove(entry.Key, out _); //remove empty entry
+                //Claim the entry under its own write lock before detaching it, and remove only this
+                //exact instance. Checking IsEmpty and then removing by key alone would let a writer
+                //repopulate the entry in between - losing that write - or, if the writer had already
+                //replaced the orphan with a fresh entry, would delete the replacement instead.
+                if (entry.Value.TryMarkRemovedIfEmpty())
+                    _cache.TryRemove(entry); //remove empty entry
             }
         }
 
@@ -2241,6 +2277,12 @@ namespace TechnitiumLibrary.Net.Dns
             //own and does not need to observe a consistent cross-key snapshot.
             readonly object _writeLock = new object();
 
+            //Set under _writeLock by the cleanup pass once it has decided this entry is empty and
+            //is about to detach it from the owning cache dictionary. A writer that reaches an
+            //entry already marked this way is holding a reference the cache is discarding, so it
+            //must not write into it - the records would be silently dropped along with the entry.
+            bool _removed;
+
             #endregion
 
             #region constructor
@@ -2327,14 +2369,38 @@ namespace TechnitiumLibrary.Net.Dns
 
             #region public
 
-            public void SetRecords(IReadOnlyList<DnsResourceRecord> records)
+            /// <returns><see langword="false"/> when this entry has already been detached from the
+            /// owning cache and the caller must retry against a freshly obtained entry.</returns>
+            public bool SetRecords(IReadOnlyList<DnsResourceRecord> records)
             {
                 if (records.Count == 0)
-                    return;
+                    return true;
 
                 lock (_writeLock)
                 {
+                    if (_removed)
+                        return false;
+
                     SetRecordsLocked(records);
+                    return true;
+                }
+            }
+
+            /// <summary>
+            /// Atomically confirms this entry is empty and claims it for removal from the owning
+            /// cache. Deciding emptiness and publishing that decision must happen under the same
+            /// lock writers use, otherwise a write landing between the two would be discarded
+            /// along with the entry.
+            /// </summary>
+            public bool TryMarkRemovedIfEmpty()
+            {
+                lock (_writeLock)
+                {
+                    if (!_entries.IsEmpty)
+                        return false;
+
+                    _removed = true;
+                    return true;
                 }
             }
 

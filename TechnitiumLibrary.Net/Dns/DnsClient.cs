@@ -420,19 +420,47 @@ namespace TechnitiumLibrary.Net.Dns
         //reference to an object the external provider could still be mutating. See the remarks on
         //FrozenNegativeTrustAnchorSnapshot for why this is necessary despite the provider contract
         //calling the snapshot immutable.
+        //
+        //Anchors are canonicalized and deduplicated here rather than merely copied. A provider may
+        //hand back two entries for the same owner name with different expiry times; keeping both
+        //would make the effective expiry depend on enumeration order, and the frozen lookup's
+        //most-specific-name rule would then let a later-expiring duplicate mask an earlier one.
+        //Merging duplicates with MergeMostRestrictive keeps the earliest expiry, matching the rule
+        //applied everywhere else that two views of the same anchor meet.
         private static INegativeTrustAnchorSnapshot FreezeNegativeTrustAnchorSnapshot(INegativeTrustAnchorSnapshot snapshot)
         {
             if (snapshot is null)
                 return null;
 
-            List<NegativeTrustAnchorInfo> anchors = new List<NegativeTrustAnchorInfo>();
+            Dictionary<string, NegativeTrustAnchorInfo> anchors = new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.Ordinal);
+
             foreach (NegativeTrustAnchorInfo anchor in snapshot.Anchors)
             {
-                if (anchor is not null)
-                    anchors.Add(anchor);
+                if ((anchor is null) || string.IsNullOrEmpty(anchor.Name))
+                    continue;
+
+                string canonicalName;
+                try
+                {
+                    canonicalName = ConvertDomainNameToAscii(anchor.Name.TrimEnd('.')).ToLowerInvariant();
+                }
+                catch
+                {
+                    continue; //an unusable anchor name simply does not suspend validation anywhere
+                }
+
+                if ((canonicalName.Length == 0) || !IsCanonicalAsciiNegativeTrustAnchorName(canonicalName))
+                    continue;
+
+                NegativeTrustAnchorInfo canonicalAnchor = canonicalName.Equals(anchor.Name, StringComparison.Ordinal) ? anchor : new NegativeTrustAnchorInfo(canonicalName, anchor.ExpiresOnUtc);
+
+                anchors[canonicalName] = anchors.TryGetValue(canonicalName, out NegativeTrustAnchorInfo existing) ? existing.MergeMostRestrictive(canonicalAnchor) : canonicalAnchor;
             }
 
-            return new FrozenNegativeTrustAnchorSnapshot(snapshot.PolicyScopeId, snapshot.PolicyRevisionId, snapshot.Generation, snapshot.CapturedOnUtc, anchors);
+            NegativeTrustAnchorInfo[] frozenAnchors = new NegativeTrustAnchorInfo[anchors.Count];
+            anchors.Values.CopyTo(frozenAnchors, 0);
+
+            return new FrozenNegativeTrustAnchorSnapshot(snapshot.PolicyScopeId, snapshot.PolicyRevisionId, snapshot.Generation, snapshot.CapturedOnUtc, Array.AsReadOnly(frozenAnchors));
         }
 
         private static bool TryCapturePositiveTrustAnchorSnapshot(IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, out Dictionary<string, IReadOnlyList<DnsResourceRecord>> snapshot)
@@ -520,17 +548,15 @@ namespace TechnitiumLibrary.Net.Dns
                     throw new DnsClientException("The DNSSEC trust policy snapshot must specify a stable policy scope identifier.");
                 if (captured.PolicyRevisionId == Guid.Empty)
                     throw new DnsClientException("The DNSSEC trust policy snapshot must specify an immutable policy revision identifier.");
-                if ((captured.NegativeTrustAnchors is not null) &&
-                    ((captured.NegativeTrustAnchors.PolicyScopeId != captured.PolicyScopeId) ||
-                     (captured.NegativeTrustAnchors.PolicyRevisionId != captured.PolicyRevisionId) ||
-                     (captured.NegativeTrustAnchors.Generation != captured.Generation) ||
-                     (captured.NegativeTrustAnchors.CapturedOnUtc != captured.CapturedOnUtc)))
-                {
-                    throw new DnsClientException("The negative trust anchor snapshot does not belong to the captured DNSSEC policy generation.");
-                }
                 if (!TryCapturePositiveTrustAnchorSnapshot(captured.PositiveTrustAnchors, out Dictionary<string, IReadOnlyList<DnsResourceRecord>> capturedPositiveTrustAnchors))
                     throw new DnsClientException("The DNSSEC trust policy snapshot contains invalid or concurrently modified positive trust anchors.");
 
+                //Freeze before validating, then validate the frozen copy. Validating the external
+                //object first and materializing it afterwards would leave a window in which a
+                //mutable provider could change the very scope, revision, generation or capture
+                //time that was just checked, so the identity the resolver records would describe a
+                //different policy than the anchors it actually enforces. The frozen copy is the
+                //only thing that can still be true after this point, so it is what gets checked.
                 INegativeTrustAnchorSnapshot frozenNegativeTrustAnchors;
                 try
                 {
@@ -539,6 +565,15 @@ namespace TechnitiumLibrary.Net.Dns
                 catch (Exception ex)
                 {
                     throw new DnsClientException("Unable to capture a coherent negative trust anchor snapshot.", ex);
+                }
+
+                if ((frozenNegativeTrustAnchors is not null) &&
+                    ((frozenNegativeTrustAnchors.PolicyScopeId != captured.PolicyScopeId) ||
+                     (frozenNegativeTrustAnchors.PolicyRevisionId != captured.PolicyRevisionId) ||
+                     (frozenNegativeTrustAnchors.Generation != captured.Generation) ||
+                     (frozenNegativeTrustAnchors.CapturedOnUtc != captured.CapturedOnUtc)))
+                {
+                    throw new DnsClientException("The negative trust anchor snapshot does not belong to the captured DNSSEC policy generation.");
                 }
 
                 return new DnssecResolutionPolicySnapshot(captured.PolicyScopeId, CombinePolicyRevisionIds(captured.PolicyRevisionId, rootTrustAnchorRevisionId), captured.Generation, captured.CapturedOnUtc, frozenNegativeTrustAnchors, capturedPositiveTrustAnchors, rootTrustAnchorSnapshot);
