@@ -28,6 +28,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TechnitiumLibrary.IO;
+using TechnitiumLibrary.Net.Dns.Dnssec;
 using TechnitiumLibrary.Net.Dns.EDnsOptions;
 using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
@@ -72,6 +73,8 @@ namespace TechnitiumLibrary.Net.Dns
         DnsDatagramMetadata _metadata;
         DnsDatagramEdns _edns;
         List<EDnsExtendedDnsErrorOptionData> _dnsClientExtendedErrors;
+        IReadOnlyList<NegativeTrustAnchorInfo> _responseOnlyNegativeTrustAnchors;
+        DnsCacheWriteContext _dnsCacheWriteContext;
         bool _shadowHideECSOption;
         EDnsClientSubnetOptionData _shadowECSOption;
 
@@ -603,6 +606,10 @@ namespace TechnitiumLibrary.Net.Dns
             datagram._metadata = _metadata;
             datagram._edns = _edns;
             datagram._dnsClientExtendedErrors = _dnsClientExtendedErrors;
+            datagram._responseOnlyNegativeTrustAnchors = _responseOnlyNegativeTrustAnchors;
+            datagram._dnsCacheWriteContext = _dnsCacheWriteContext;
+            if (datagram.HasAnswerOrAuthorityNegativeTrustAnchor || (datagram.ResponseOnlyNegativeTrustAnchors.Count > 0))
+                datagram._AD = 0;
             datagram._shadowHideECSOption = _shadowHideECSOption;
             datagram._shadowECSOption = _shadowECSOption;
             datagram.Tag = Tag;
@@ -656,6 +663,134 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
+        internal IReadOnlyList<NegativeTrustAnchorInfo> GetResponseOnlyNegativeTrustAnchorsForRetainedSections(IReadOnlyList<DnsResourceRecord> retainedAnswer, IReadOnlyList<DnsResourceRecord> retainedAuthority, IReadOnlyList<DnsResourceRecord> retainedAdditional)
+        {
+            List<NegativeTrustAnchorInfo> residual = new List<NegativeTrustAnchorInfo>();
+            void Add(NegativeTrustAnchorInfo anchor)
+            {
+                if (anchor is null)
+                    return;
+                int index = residual.FindIndex(a => a.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                    residual.Add(anchor);
+                else
+                    residual[index] = residual[index].MergeMostRestrictive(anchor);
+            }
+            foreach (NegativeTrustAnchorInfo anchor in ResponseOnlyNegativeTrustAnchors)
+                Add(anchor);
+
+            bool IsRetained(NegativeTrustAnchorInfo anchor)
+            {
+                foreach (IReadOnlyList<DnsResourceRecord> records in new[] { retainedAnswer, retainedAuthority })
+                {
+                    if (records is null)
+                        continue;
+                    foreach (DnsResourceRecord record in records)
+                        if (record.AppliedNegativeTrustAnchor.RepresentsDependency(anchor))
+                            return true;
+                }
+                return false;
+            }
+
+            //Only discarded answer/authority provenance affects response authentication.
+            //Additional-only provenance remains record-carried while the record is retained.
+            foreach (IReadOnlyList<DnsResourceRecord> records in new[] { _answer, _authority })
+                foreach (DnsResourceRecord record in records)
+                    if ((record.AppliedNegativeTrustAnchor is not null) && !IsRetained(record.AppliedNegativeTrustAnchor))
+                        Add(record.AppliedNegativeTrustAnchor);
+            return residual;
+        }
+
+        internal DnsDatagram CloneRetainingResolverProvenance(IReadOnlyList<DnsResourceRecord> answer = null, IReadOnlyList<DnsResourceRecord> authority = null, IReadOnlyList<DnsResourceRecord> additional = null)
+        {
+            IReadOnlyList<DnsResourceRecord> retainedAnswer = answer ?? _answer;
+            IReadOnlyList<DnsResourceRecord> retainedAuthority = authority ?? _authority;
+            IReadOnlyList<DnsResourceRecord> retainedAdditional = additional ?? _additional;
+            IReadOnlyList<NegativeTrustAnchorInfo> residual = GetResponseOnlyNegativeTrustAnchorsForRetainedSections(retainedAnswer, retainedAuthority, retainedAdditional);
+
+            DnsDatagram clone = Clone(answer, authority, additional);
+            foreach (NegativeTrustAnchorInfo anchor in residual)
+                clone.AddAppliedNegativeTrustAnchor(anchor);
+            return clone;
+        }
+
+        internal void ClearAuthenticData()
+        {
+            _AD = 0;
+        }
+
+        internal void SetDnsCacheWriteContext(DnsCacheWriteContext context)
+        {
+            _dnsCacheWriteContext = context;
+        }
+
+        /// <summary>Clones this datagram with the resolver cache policy context used to reconstruct it.</summary>
+        public DnsDatagram CloneWithDnsCacheContext(DnsCacheWriteContext context)
+        {
+            if ((context is not null) && ((context.PolicyScopeId == Guid.Empty) || (context.PolicyRevisionId == Guid.Empty)))
+                throw new ArgumentException("A cache policy context must specify policy scope and revision identifiers.", nameof(context));
+
+            DnsDatagram clone = Clone();
+            clone.SetDnsCacheWriteContext(context);
+            return clone;
+        }
+
+        internal bool HasAnswerOrAuthorityNegativeTrustAnchor
+        {
+            get
+            {
+                foreach (DnsResourceRecord record in _answer)
+                    if (record.AppliedNegativeTrustAnchor is not null)
+                        return true;
+                foreach (DnsResourceRecord record in _authority)
+                    if (record.AppliedNegativeTrustAnchor is not null)
+                        return true;
+                return false;
+            }
+        }
+
+
+        internal void AddAppliedNegativeTrustAnchor(NegativeTrustAnchorInfo anchor)
+        {
+            if (_responseOnlyNegativeTrustAnchors is not null)
+            {
+                for (int i = 0; i < _responseOnlyNegativeTrustAnchors.Count; i++)
+                {
+                    NegativeTrustAnchorInfo existing = _responseOnlyNegativeTrustAnchors[i];
+                    if (existing.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        NegativeTrustAnchorInfo merged = existing.MergeMostRestrictive(anchor);
+                        if (!ReferenceEquals(merged, existing))
+                        {
+                            NegativeTrustAnchorInfo[] updated = new NegativeTrustAnchorInfo[_responseOnlyNegativeTrustAnchors.Count];
+                            for (int j = 0; j < updated.Length; j++)
+                                updated[j] = j == i ? merged : _responseOnlyNegativeTrustAnchors[j];
+                            _responseOnlyNegativeTrustAnchors = Array.AsReadOnly(updated);
+                        }
+                        _AD = 0;
+                        return;
+                    }
+                }
+            }
+
+            int count = _responseOnlyNegativeTrustAnchors?.Count ?? 0;
+            NegativeTrustAnchorInfo[] anchors = new NegativeTrustAnchorInfo[count + 1];
+            for (int i = 0; i < count; i++)
+                anchors[i] = _responseOnlyNegativeTrustAnchors[i];
+            anchors[count] = anchor;
+            _responseOnlyNegativeTrustAnchors = Array.AsReadOnly(anchors);
+            _AD = 0;
+        }
+
+        internal void AddAppliedNegativeTrustAnchorsFrom(DnsDatagram datagram)
+        {
+            if (datagram is null)
+                return;
+
+            foreach (NegativeTrustAnchorInfo anchor in datagram.AppliedNegativeTrustAnchors)
+                AddAppliedNegativeTrustAnchor(anchor);
+        }
+
         internal void SetShadowEDnsClientSubnetOption(EDnsClientSubnetOptionData shadowECSOption)
         {
             _shadowECSOption = shadowECSOption;
@@ -664,6 +799,18 @@ namespace TechnitiumLibrary.Net.Dns
         #endregion
 
         #region public
+
+        /// <summary>Clones this datagram with the specified response-only resolver annotations.</summary>
+        public DnsDatagram CloneWithResponseAnnotations(IReadOnlyList<NegativeTrustAnchorInfo> appliedNegativeTrustAnchors)
+        {
+            DnsDatagram datagram = Clone();
+            datagram._responseOnlyNegativeTrustAnchors = null;
+            if (appliedNegativeTrustAnchors is not null)
+                foreach (NegativeTrustAnchorInfo anchor in appliedNegativeTrustAnchors)
+                    if (anchor is not null)
+                        datagram.AddAppliedNegativeTrustAnchor(anchor);
+            return datagram;
+        }
 
         public DnsDatagram Clone(IReadOnlyList<DnsResourceRecord> answer = null, IReadOnlyList<DnsResourceRecord> authority = null, IReadOnlyList<DnsResourceRecord> additional = null)
         {
@@ -688,6 +835,10 @@ namespace TechnitiumLibrary.Net.Dns
                 datagram._edns = DnsDatagramEdns.ReadOPTFrom(additional, _RCODE);
 
             datagram._dnsClientExtendedErrors = _dnsClientExtendedErrors;
+            datagram._responseOnlyNegativeTrustAnchors = _responseOnlyNegativeTrustAnchors;
+            datagram._dnsCacheWriteContext = _dnsCacheWriteContext;
+            if (datagram.HasAnswerOrAuthorityNegativeTrustAnchor || (datagram.ResponseOnlyNegativeTrustAnchors.Count > 0))
+                datagram._AD = 0;
             datagram._shadowHideECSOption = _shadowHideECSOption;
             datagram._shadowECSOption = _shadowECSOption;
 
@@ -2184,6 +2335,46 @@ namespace TechnitiumLibrary.Net.Dns
                 return _dnsClientExtendedErrors;
             }
         }
+
+        /// <summary>Gets provenance that applies to the response even when no retained RRset carries it.</summary>
+        public IReadOnlyList<NegativeTrustAnchorInfo> ResponseOnlyNegativeTrustAnchors
+        { get { return _responseOnlyNegativeTrustAnchors ?? Array.Empty<NegativeTrustAnchorInfo>(); } }
+
+        /// <summary>Gets resolver-local negative trust anchors applied while producing this response.</summary>
+        public IReadOnlyList<NegativeTrustAnchorInfo> AppliedNegativeTrustAnchors
+        {
+            get
+            {
+                List<NegativeTrustAnchorInfo> anchors = null;
+                void AddAnchor(NegativeTrustAnchorInfo anchor)
+                {
+                    if (anchor is null)
+                        return;
+                    anchors ??= new List<NegativeTrustAnchorInfo>(1);
+                    int index = anchors.FindIndex(a => a.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase));
+                    if (index < 0)
+                        anchors.Add(anchor);
+                    else
+                        anchors[index] = anchors[index].MergeMostRestrictive(anchor);
+                }
+
+                if (_responseOnlyNegativeTrustAnchors is not null)
+                    foreach (NegativeTrustAnchorInfo anchor in _responseOnlyNegativeTrustAnchors)
+                        AddAnchor(anchor);
+                foreach (DnsResourceRecord record in _answer)
+                    AddAnchor(record.AppliedNegativeTrustAnchor);
+                foreach (DnsResourceRecord record in _authority)
+                    AddAnchor(record.AppliedNegativeTrustAnchor);
+                foreach (DnsResourceRecord record in _additional)
+                    AddAnchor(record.AppliedNegativeTrustAnchor);
+
+                return anchors ?? (IReadOnlyList<NegativeTrustAnchorInfo>)Array.Empty<NegativeTrustAnchorInfo>();
+            }
+        }
+
+        /// <summary>Gets the DNSSEC policy generation under which this resolver response was produced.</summary>
+        public DnsCacheWriteContext DnsCacheWriteContext
+        { get { return _dnsCacheWriteContext; } }
 
         public ushort Identifier
         { get { return _ID; } }

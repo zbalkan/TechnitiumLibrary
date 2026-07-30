@@ -180,6 +180,9 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         /// </summary>
         Synthesized = 29,
 
+        /// <summary>The resolver applied a configured DNSSEC Negative Trust Anchor.</summary>
+        NegativeTrustAnchor = 33,
+
         /// <summary>
         /// Private Use: indicates too many crypto validations for the response with respect to KeyTrap mitigation.
         /// </summary>
