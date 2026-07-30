@@ -1003,6 +1003,72 @@ namespace TechnitiumLibrary.Net.Dns
             return Clone(null, null, newAdditional);
         }
 
+        /// <summary>
+        /// Returns a clone whose OPT record carries this response's generated extended DNS errors
+        /// as EDNS options, so they reach the wire.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <see cref="DnsClientExtendedErrors"/> is a staging list, not part of the message: only
+        /// <c>EDNS.Options</c> is serialized. An application that generates an error - via
+        /// <see cref="AddNegativeTrustAnchorExtendedDnsErrors"/>, say - must fold it into the OPT
+        /// before sending, and a response that already has an OPT cannot simply be handed the
+        /// options at construction time. Without a primitive for that, each response path has to
+        /// hand-roll the merge, and a path that forgets silently drops the diagnostic while still
+        /// looking correct at every call site.
+        /// </para>
+        ///
+        /// <para>
+        /// Options already present in the OPT are not duplicated, so this is safe to apply to a
+        /// response whose errors were partly merged elsewhere, and safe to apply twice.
+        /// </para>
+        /// </remarks>
+        public DnsDatagram CloneWithDnsClientExtendedErrorsInEDns()
+        {
+            if ((_edns is null) || (_dnsClientExtendedErrors is null) || (_dnsClientExtendedErrors.Count == 0))
+                return this;
+
+            List<EDnsOption> newOptions = new List<EDnsOption>(_edns.Options.Count + _dnsClientExtendedErrors.Count);
+            newOptions.AddRange(_edns.Options);
+
+            bool added = false;
+
+            foreach (EDnsExtendedDnsErrorOptionData dnsError in _dnsClientExtendedErrors)
+            {
+                bool alreadyPresent = false;
+
+                foreach (EDnsOption option in _edns.Options)
+                {
+                    if ((option.Code == EDnsOptionCode.EXTENDED_DNS_ERROR) && dnsError.Equals(option.Data))
+                    {
+                        alreadyPresent = true;
+                        break;
+                    }
+                }
+
+                if (alreadyPresent)
+                    continue;
+
+                newOptions.Add(new EDnsOption(EDnsOptionCode.EXTENDED_DNS_ERROR, dnsError));
+                added = true;
+            }
+
+            if (!added)
+                return this;
+
+            List<DnsResourceRecord> newAdditional = new List<DnsResourceRecord>(_additional.Count);
+
+            foreach (DnsResourceRecord record in _additional)
+            {
+                if (record.Type != DnsResourceRecordType.OPT)
+                    newAdditional.Add(record);
+            }
+
+            newAdditional.Add(DnsDatagramEdns.GetOPTFor(_edns.UdpPayloadSize, _edns.ExtendedRCODE, _edns.Version, _edns.Flags, newOptions));
+
+            return Clone(null, null, newAdditional);
+        }
+
         public DnsDatagram CloneWithoutGlueRecords()
         {
             if (_additional.Count == 0)
