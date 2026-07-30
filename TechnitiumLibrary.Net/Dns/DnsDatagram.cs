@@ -636,6 +636,20 @@ namespace TechnitiumLibrary.Net.Dns
 
         internal void AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData dnsError)
         {
+            //Defense in depth: a response reconstructed from cache (or forwarded upstream) may
+            //already carry this exact INFO-CODE/EXTRA-TEXT in its wire-level EDNS options - e.g. an
+            //upstream resolver's own EDE-33 - so only add it to the generated-error list, which a
+            //consuming application layers on top of response.EDNS.Options, if it is not already
+            //present in either place. This prevents the same diagnostic being surfaced twice.
+            if (_edns is not null)
+            {
+                foreach (EDnsOption option in _edns.Options)
+                {
+                    if ((option.Code == EDnsOptionCode.EXTENDED_DNS_ERROR) && dnsError.Equals(option.Data))
+                        return;
+                }
+            }
+
             if (_dnsClientExtendedErrors is null)
                 _dnsClientExtendedErrors = new List<EDnsExtendedDnsErrorOptionData>();
 
@@ -793,17 +807,19 @@ namespace TechnitiumLibrary.Net.Dns
 
         /// <summary>
         /// Emits EDE INFO-CODE 33 (Negative Trust Anchor) for every anchor this response's
-        /// provenance carries, using the structured "d"/"t" EXTRA-TEXT contract (domain name and
-        /// expiry). This is the single presentation point for the diagnostic: every place that
-        /// finalizes a response - fresh recursive answers, forwarded answers, ordinary cache hits,
-        /// and special-cache-record hits alike - must call this so a client sees identical EDE
-        /// behavior regardless of whether its answer happened to come from cache. The DO bit is
-        /// deliberately not consulted here: DO only requests DNSSEC records in the response, it does
-        /// not mean "validation was requested," and a resolver may validate for clients that never
-        /// set it. Gating this diagnostic on DO would let a query for which validation genuinely
-        /// happened - and which was affected by an NTA - go without the corresponding disclosure.
+        /// <see cref="AppliedNegativeTrustAnchors"/> provenance carries, using the structured
+        /// "d"/"t" EXTRA-TEXT contract (domain name and expiry).
         /// </summary>
-        internal void AddNegativeTrustAnchorExtendedDnsErrors()
+        /// <remarks>
+        /// The library never calls this on its own: whether an EDE-33 diagnostic should reach a
+        /// client is a presentation decision that belongs to the consuming application (e.g. a
+        /// DNS server's own enable/disable setting for this diagnostic), not to the resolver. The
+        /// library's only responsibility is to preserve accurate provenance via
+        /// <see cref="AppliedNegativeTrustAnchors"/> regardless of whether this is ever called.
+        /// Call sites are deduplicated: <see cref="AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData)"/>
+        /// will not add an entry that is already present in the response's own EDNS options.
+        /// </remarks>
+        public void AddNegativeTrustAnchorExtendedDnsErrors()
         {
             foreach (NegativeTrustAnchorInfo anchor in AppliedNegativeTrustAnchors)
             {

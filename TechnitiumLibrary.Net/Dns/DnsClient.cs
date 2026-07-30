@@ -543,7 +543,7 @@ namespace TechnitiumLibrary.Net.Dns
             DnssecResolutionPolicySnapshot snapshot = GetDnssecResolutionPolicySnapshot(options);
             if (!options.DnssecValidation)
                 return null;
-            return new DnssecEffectivePolicy(new DnsCacheWriteContext(snapshot.Generation, snapshot.CapturedOnUtc, snapshot.PolicyScopeId, snapshot.PolicyRevisionId), snapshot.NegativeTrustAnchors, snapshot.PositiveTrustAnchors, snapshot.RootTrustAnchors);
+            return new DnssecEffectivePolicy(snapshot);
         }
 
         private static DnssecResolutionPolicySnapshot GetDnssecResolutionPolicySnapshot(RecursiveResolveOptions options)
@@ -552,19 +552,13 @@ namespace TechnitiumLibrary.Net.Dns
                 return CaptureDnssecResolutionPolicySnapshot(options.DnssecValidation, options.DnssecTrustPolicyProvider, options.NegativeTrustAnchorProvider, options.PositiveTrustAnchors);
             if (!options.DnssecValidation || (options.DnssecTrustPolicyProvider is not null) || (options.NegativeTrustAnchorProvider is not null) || ((options.PositiveTrustAnchors?.Count ?? 0) > 0))
                 throw new DnsClientException("An effective DNSSEC policy cannot be combined with disabled validation or policy provider inputs.");
-            DnssecEffectivePolicy policy = options.EffectiveDnssecPolicy;
-            if ((policy.CacheContext is null) || (policy.CacheContext.PolicyScopeId == Guid.Empty) || (policy.CacheContext.PolicyRevisionId == Guid.Empty) || (policy.RootTrustAnchors is null) || (policy.RootTrustAnchors.Count == 0))
-                throw new DnsClientException("The effective DNSSEC policy is invalid.");
-            if (!TryCapturePositiveTrustAnchorSnapshot(policy.PositiveTrustAnchors, out Dictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors))
-                throw new DnsClientException("Unable to capture a coherent positive trust anchor snapshot from the effective DNSSEC policy.");
-            if ((policy.NegativeTrustAnchors is not null) &&
-                ((policy.NegativeTrustAnchors.PolicyScopeId != policy.CacheContext.PolicyScopeId) ||
-                 (policy.NegativeTrustAnchors.Generation != policy.CacheContext.DnssecPolicyGeneration)))
-            {
-                throw new DnsClientException("The negative trust anchor snapshot does not match the effective DNSSEC policy identity.");
-            }
-            IReadOnlyList<DnsResourceRecord> rootTrustAnchors = CloneTrustAnchors(policy.RootTrustAnchors);
-            return new DnssecResolutionPolicySnapshot(policy.CacheContext.PolicyScopeId, policy.CacheContext.PolicyRevisionId, policy.CacheContext.DnssecPolicyGeneration, policy.CacheContext.PolicyCapturedOnUtc, policy.NegativeTrustAnchors, positiveTrustAnchors, rootTrustAnchors);
+
+            //DnssecEffectivePolicy is opaque and can only exist because CaptureDnssecPolicy built
+            //it from a coherently captured snapshot; there is no public path by which a caller
+            //could have mutated the wrapped trust anchors in the meantime, so the resolver can
+            //consume the original captured snapshot directly instead of re-deriving or re-cloning
+            //anything from it.
+            return options.EffectiveDnssecPolicy.Snapshot;
         }
 
         private static byte[] GetCanonicalTrustAnchorDigest(IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> trustAnchors)
@@ -799,8 +793,10 @@ namespace TechnitiumLibrary.Net.Dns
 
             DnsDatagram FinalizeResponse(DnsDatagram response)
             {
+                //Only provenance (AppliedNegativeTrustAnchors) is stamped here. Whether to emit an
+                //EDE-33 option for that provenance is a presentation decision left to the
+                //consuming application via the public AddNegativeTrustAnchorExtendedDnsErrors().
                 response = ApplyNegativeTrustAnchorAnnotations(response, GetAppliedNegativeTrustAnchors());
-                response.AddNegativeTrustAnchorExtendedDnsErrors();
                 return minimalResponse ? GetMinimalResponseWithoutNSAndGlue(response) : response;
             }
 
@@ -1075,7 +1071,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                         }
                                                         else if (cacheDSRecords.Count > 0)
                                                         {
-                                                            dnssecSecurityContext = GetSecurityContextFromDsRecords(cacheDSRecords, cacheResponse.Question[0].Name);
+                                                            dnssecSecurityContext = GetSecurityContextFromDsRecords(cacheDSRecords, cacheResponse.Question[0].Name, cacheResponse);
                                                         }
                                                         break;
                                                 }
@@ -1152,7 +1148,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                         else if (cacheDsRecords.Count > 0)
                                                         {
                                                             //found DS records in cache
-                                                            nextDnssecSecurityContext = GetSecurityContextFromDsRecords(cacheDsRecords, nextZoneCut);
+                                                            nextDnssecSecurityContext = GetSecurityContextFromDsRecords(cacheDsRecords, nextZoneCut, cacheResponse);
                                                         }
                                                     }
                                                 }
@@ -1865,7 +1861,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                         }
                                                         else if (dsRecords.Count > 0)
                                                         {
-                                                            dnssecSecurityContext = GetSecurityContextFromDsRecords(dsRecords, request.Question[0].Name);
+                                                            dnssecSecurityContext = GetSecurityContextFromDsRecords(dsRecords, request.Question[0].Name, response);
                                                         }
 
                                                         goto resolverLoop;
@@ -2029,7 +2025,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                         }
                                                         else if (dsRecords.Count > 0)
                                                         {
-                                                            nextDnssecSecurityContext = GetSecurityContextFromDsRecords(dsRecords, nextZoneCut);
+                                                            nextDnssecSecurityContext = GetSecurityContextFromDsRecords(dsRecords, nextZoneCut, response);
                                                         }
                                                     }
                                                 }
@@ -4178,33 +4174,68 @@ namespace TechnitiumLibrary.Net.Dns
         /// <summary>
         /// Builds the resolver security context for a DS RRset obtained from a response or the
         /// cache. Never grants a Secure context unless every DS record was itself cryptographically
-        /// validated to Secure by <see cref="DnssecValidateResponseAsync"/> - an RRset left Insecure
-        /// (e.g. by an unsupported algorithm boundary) or Indeterminate must never become the new
-        /// trust basis for its child zone, since it was never actually verified.
+        /// validated to Secure by <see cref="DnssecValidateResponseAsync"/>.
         /// </summary>
-        private static DnssecResolutionSecurityContext GetSecurityContextFromDsRecords(IReadOnlyList<DnsResourceRecord> dsRecords, string boundaryName)
+        /// <remarks>
+        /// A present DS RRset that is not uniformly Secure is not evidence of an unsigned
+        /// delegation - only an authenticated proof that no DS exists (the caller's own
+        /// <c>dsRecords is null</c> case, handled separately) means that. Silently downgrading an
+        /// unverified RRset (Bogus, Indeterminate, Unknown, Disabled, or an internally
+        /// inconsistent mix of Secure and Insecure records) to "unsigned delegation" would disable
+        /// DNSSEC validation below the boundary and accept attacker-controlled descendant data, so
+        /// every case that is not cleanly all-Secure or cleanly all-Insecure under one coherent
+        /// negative trust anchor is rejected outright rather than classified as insecure.
+        /// </remarks>
+        private static DnssecResolutionSecurityContext GetSecurityContextFromDsRecords(IReadOnlyList<DnsResourceRecord> dsRecords, string boundaryName, DnsDatagram sourceResponse)
         {
+            bool anySecure = false;
             bool allSecure = true;
-            bool anyInsecure = false;
+            bool anyUnverified = false; //Bogus, Indeterminate, Unknown, or Disabled
+            NegativeTrustAnchorInfo commonAnchor = null;
+            bool anchorMismatch = false;
+            bool anyInsecureWithoutAnchor = false;
 
             foreach (DnsResourceRecord record in dsRecords)
             {
-                if (record.DnssecStatus != DnssecStatus.Secure)
+                switch (record.DnssecStatus)
                 {
-                    allSecure = false;
+                    case DnssecStatus.Secure:
+                        anySecure = true;
+                        break;
 
-                    if (record.DnssecStatus == DnssecStatus.Insecure)
-                        anyInsecure = true;
+                    case DnssecStatus.Insecure:
+                        allSecure = false;
+
+                        if (record.AppliedNegativeTrustAnchor is not null)
+                        {
+                            if (commonAnchor is null)
+                                commonAnchor = record.AppliedNegativeTrustAnchor;
+                            else if (!commonAnchor.Name.Equals(record.AppliedNegativeTrustAnchor.Name, StringComparison.OrdinalIgnoreCase))
+                                anchorMismatch = true;
+                        }
+                        else
+                        {
+                            anyInsecureWithoutAnchor = true;
+                        }
+                        break;
+
+                    default:
+                        allSecure = false;
+                        anyUnverified = true;
+                        break;
                 }
             }
 
             if (allSecure)
                 return DnssecResolutionSecurityContext.Secure(dsRecords, boundaryName);
 
-            //not cryptographically confirmed secure; never promote to a secure chain basis
-            return anyInsecure ?
-                DnssecResolutionSecurityContext.InsecureByUnsupportedAlgorithm(boundaryName) :
-                DnssecResolutionSecurityContext.InsecureByUnsignedDelegation(boundaryName);
+            if (anyUnverified || anySecure)
+                throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to an unverified or inconsistent DS RRset for owner name: " + boundaryName.ToLowerInvariant(), sourceResponse);
+
+            if ((commonAnchor is not null) && !anchorMismatch && !anyInsecureWithoutAnchor)
+                return DnssecResolutionSecurityContext.InsecureByNegativeTrustAnchor(commonAnchor);
+
+            return DnssecResolutionSecurityContext.InsecureByUnsupportedAlgorithm(boundaryName);
         }
 
         private static async Task<Tuple<bool, IReadOnlyList<DnsResourceRecord>>> TryGetDSFromResponseAsync(DnsDatagram response, string ownerName)
@@ -5126,10 +5157,8 @@ namespace TechnitiumLibrary.Net.Dns
 
                     //newAnswer/authority/additional carry the same record instances as the per-hop
                     //responses, so finalResponse.AppliedNegativeTrustAnchors already reflects the
-                    //combined provenance (record-carried and response-only); emit once here rather
-                    //than duplicating whatever diagnostic each per-hop response already carried.
-                    finalResponse.AddNegativeTrustAnchorExtendedDnsErrors();
-
+                    //combined provenance (record-carried and response-only). Emitting EDE-33 from
+                    //that provenance is left to the consuming application's own presentation call.
                     return finalResponse;
                 }
             }
@@ -5789,7 +5818,6 @@ namespace TechnitiumLibrary.Net.Dns
 
                         //sanitize response after DNSSEC validation
                         response = SanitizeResponseAfterDnssecValidation(response);
-                        response.AddNegativeTrustAnchorExtendedDnsErrors();
 
                         return response;
                     }, false, cancellationToken);
@@ -6249,7 +6277,7 @@ namespace TechnitiumLibrary.Net.Dns
             InsecureUnsupportedAlgorithm
         }
 
-        sealed record DnssecResolutionPolicySnapshot(Guid PolicyScopeId, Guid PolicyRevisionId, long Generation, DateTimeOffset CapturedOnUtc, INegativeTrustAnchorSnapshot NegativeTrustAnchors, Dictionary<string, IReadOnlyList<DnsResourceRecord>> PositiveTrustAnchors, IReadOnlyList<DnsResourceRecord> RootTrustAnchors)
+        internal sealed record DnssecResolutionPolicySnapshot(Guid PolicyScopeId, Guid PolicyRevisionId, long Generation, DateTimeOffset CapturedOnUtc, INegativeTrustAnchorSnapshot NegativeTrustAnchors, Dictionary<string, IReadOnlyList<DnsResourceRecord>> PositiveTrustAnchors, IReadOnlyList<DnsResourceRecord> RootTrustAnchors)
         {
             public static readonly DnssecResolutionPolicySnapshot Disabled = new DnssecResolutionPolicySnapshot(Guid.Empty, Guid.Empty, 0, default, null, null, Array.Empty<DnsResourceRecord>());
             public static DnssecResolutionPolicySnapshot BuiltIn => CreateBuiltInSnapshot();

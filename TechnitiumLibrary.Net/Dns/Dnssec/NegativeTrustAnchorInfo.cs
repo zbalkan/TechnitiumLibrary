@@ -81,28 +81,34 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// <remarks>
     /// This type is deliberately opaque: it can only be produced by
     /// <see cref="DnsClient.CaptureDnssecPolicy"/>, never constructed directly by a consuming
-    /// application. If callers could freely construct one, they could pair an arbitrary set of
-    /// trust anchors with a <see cref="DnsCacheWriteContext"/> captured for a different, unrelated
-    /// policy - letting results produced under one trust policy be stamped with another policy's
-    /// cache identity and read or populate its cache entries. Keeping construction internal to
-    /// this library removes that path entirely, so <see cref="GetDnssecResolutionPolicySnapshot"/>
-    /// never needs to distrust an <see cref="DnssecEffectivePolicy"/> instance it is handed - by
-    /// construction, one only ever exists because this library captured it coherently.
+    /// application, and it exposes no accessor to the trust anchor material it wraps. An earlier
+    /// revision exposed <c>PositiveTrustAnchors</c>/<c>RootTrustAnchors</c> as public properties;
+    /// since those were the exact <see cref="Dictionary{TKey,TValue}"/> and array-backed
+    /// <see cref="IReadOnlyList{T}"/> instances used internally, a caller could downcast and
+    /// mutate them (or mutate a <c>DsRecordData.Digest</c> byte array reachable from
+    /// <c>RootTrustAnchors</c>) after capture, then hand the same object back for reuse - so the
+    /// resolver would use the tampered trust material while still reporting the original,
+    /// unrelated cache revision. Keeping the captured <see cref="DnsClient.DnssecResolutionPolicySnapshot"/>
+    /// entirely private, with no public path back to it, removes that mutation channel: the only
+    /// party that can ever read the wrapped trust anchors is this library's own resolution code,
+    /// via <see cref="Snapshot"/>, which is <see langword="internal"/>.
     /// </remarks>
     public sealed class DnssecEffectivePolicy
     {
-        internal DnssecEffectivePolicy(DnsCacheWriteContext cacheContext, INegativeTrustAnchorSnapshot negativeTrustAnchors, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, IReadOnlyList<DnsResourceRecord> rootTrustAnchors)
+        readonly DnsClient.DnssecResolutionPolicySnapshot _snapshot;
+
+        internal DnssecEffectivePolicy(DnsClient.DnssecResolutionPolicySnapshot snapshot)
         {
-            CacheContext = cacheContext;
-            NegativeTrustAnchors = negativeTrustAnchors;
-            PositiveTrustAnchors = positiveTrustAnchors;
-            RootTrustAnchors = rootTrustAnchors;
+            _snapshot = snapshot;
         }
 
-        public DnsCacheWriteContext CacheContext { get; }
-        public INegativeTrustAnchorSnapshot NegativeTrustAnchors { get; }
-        public IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> PositiveTrustAnchors { get; }
-        public IReadOnlyList<DnsResourceRecord> RootTrustAnchors { get; }
+        /// <summary>Gets the library-private snapshot this policy wraps. Never exposed publicly.</summary>
+        internal DnsClient.DnssecResolutionPolicySnapshot Snapshot
+        { get { return _snapshot; } }
+
+        /// <summary>Gets the cache write context identifying this policy for cache enforcement.</summary>
+        public DnsCacheWriteContext CacheContext
+        { get { return new DnsCacheWriteContext(_snapshot.Generation, _snapshot.CapturedOnUtc, _snapshot.PolicyScopeId, _snapshot.PolicyRevisionId); } }
     }
 
     public interface INegativeTrustAnchorSnapshot

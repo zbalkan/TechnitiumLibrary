@@ -479,12 +479,11 @@ namespace TechnitiumLibrary.Net.Dns
                     if (anchor is not null)
                         response.AddAppliedNegativeTrustAnchor(anchor);
 
-            //Presentation is centralized on DnsDatagram itself so a fresh recursive answer, a
-            //forwarded answer, and every cache-reconstruction path emit the identical EDE for the
-            //identical provenance - whether the answer happened to be cached is not a protocol
-            //semantic and must not change what a client is told.
-            response.AddNegativeTrustAnchorExtendedDnsErrors();
-
+            //Only provenance (AppliedNegativeTrustAnchors) is restored here. Whether to emit an
+            //EDE-33 option is a presentation decision that belongs to the consuming application,
+            //which can call response.AddNegativeTrustAnchorExtendedDnsErrors() itself; the library
+            //must not decide that on the application's behalf, and must not risk re-adding an EDE
+            //option that a forwarded/original response already carried in its EDNS options.
             return response;
         }
 
@@ -814,7 +813,6 @@ namespace TechnitiumLibrary.Net.Dns
 
                     DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(answers, authority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, answers, authority, additional);
                     cachedResponse.SetDnsCacheWriteContext(GetRetainedPolicyContext(request, answers, authority, additional));
-                    cachedResponse.AddNegativeTrustAnchorExtendedDnsErrors();
                     return Task.FromResult(cachedResponse);
                 }
             }
@@ -853,7 +851,6 @@ namespace TechnitiumLibrary.Net.Dns
 
                     DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(null, closestAuthority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, null, closestAuthority, additionalRecords);
                     cachedResponse.SetDnsCacheWriteContext(GetRetainedPolicyContext(request, closestAuthority, additionalRecords));
-                    cachedResponse.AddNegativeTrustAnchorExtendedDnsErrors();
                     return Task.FromResult(cachedResponse);
                 }
             }
