@@ -798,39 +798,71 @@ namespace TechnitiumLibrary.Net.Dns
         }
 
         /// <summary>
-        /// Emits EDE INFO-CODE 33 (Negative Trust Anchor) for every anchor this response's
-        /// <see cref="AppliedNegativeTrustAnchors"/> provenance carries, using the structured
-        /// "d"/"t" EXTRA-TEXT contract (domain name and expiry).
+        /// Emits EDE INFO-CODE 33 (Negative Trust Anchor) for the anchors this response's
+        /// <see cref="AppliedNegativeTrustAnchors"/> provenance carries.
         /// </summary>
+        /// <param name="extraTextMode">
+        /// How much detail to disclose. Defaults to
+        /// <see cref="NegativeTrustAnchorExtraTextMode.None"/> - a bare option, disclosing nothing
+        /// beyond the fact that an anchor applied.
+        /// </param>
         /// <remarks>
-        /// The library never calls this on its own: whether an EDE-33 diagnostic should reach a
-        /// client is a presentation decision that belongs to the consuming application (e.g. a
-        /// DNS server's own enable/disable setting for this diagnostic), not to the resolver. The
-        /// library's only responsibility is to preserve accurate provenance via
-        /// <see cref="AppliedNegativeTrustAnchors"/> regardless of whether this is ever called.
-        /// Call sites are deduplicated: <see cref="AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData)"/>
-        /// will not add an entry that is already present in the response's own EDNS options.
+        /// <para>
+        /// The library never calls this on its own. Whether an EDE 33 diagnostic reaches a client
+        /// is a presentation decision belonging to the consuming application, which owns the
+        /// operator-facing setting for it (deviation D3). The library's responsibility is to
+        /// preserve accurate provenance via <see cref="AppliedNegativeTrustAnchors"/> whether or
+        /// not this is ever called.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>The caller must also decide whether this query was subject to validation.</b>
+        /// Provenance is restored on cache hits unconditionally, so a response served to a
+        /// non-validating client from an entry a validating client populated still carries it.
+        /// Emitting for that client would assert that validation was suspended for a query where
+        /// validation was never going to happen. The reference implementation needed a dedicated
+        /// fix for exactly this; because emission here is application-owned, the library cannot
+        /// make the call. Gate on the server's DNSSEC mode and, in a process-style mode, on the
+        /// client having set AD or DO.
+        /// </para>
+        ///
+        /// <para>
+        /// Emission is idempotent, and
+        /// <see cref="AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData)"/> will not add an
+        /// option already present in the response's own EDNS options, so a diagnostic forwarded
+        /// from upstream is not duplicated. With
+        /// <see cref="NegativeTrustAnchorExtraTextMode.None"/> several applied anchors collapse to
+        /// a single bare option, which the draft permits; with
+        /// <see cref="NegativeTrustAnchorExtraTextMode.Structured"/> each yields a distinct option,
+        /// satisfying the draft's requirement that EXTRA-TEXT be populated whenever multiple
+        /// instances appear.
+        /// </para>
         /// </remarks>
-        public void AddNegativeTrustAnchorExtendedDnsErrors()
+        public void AddNegativeTrustAnchorExtendedDnsErrors(NegativeTrustAnchorExtraTextMode extraTextMode = NegativeTrustAnchorExtraTextMode.None)
         {
             foreach (NegativeTrustAnchorInfo anchor in AppliedNegativeTrustAnchors)
-            {
-                //The timestamp must be RFC 3339, which is Gregorian by definition. A bare
-                //ToString(format) resolves against CurrentCulture, whose calendar may not be:
-                //under th-TH this emits year 2569 (Buddhist), under ar-SA a Hijri date. The
-                //result stays syntactically valid, so nothing downstream detects it - it just
-                //silently means the wrong instant. Format against the invariant culture, and
-                //quote the literal T/Z rather than relying on pass-through of unrecognised
-                //format specifiers.
-                //The draft describes "d" as fully-qualified A-label form with no trailing period,
-                //which has no representation for the root zone - stripping the period leaves the
-                //empty string. Render the root as "." so a consumer sees a usable domain name
-                //rather than an empty field (deviation D6).
-                string domainName = (anchor.Name.Length == 0) ? "." : anchor.Name;
+                AddDnsClientExtendedError(EDnsExtendedDnsErrorCode.NegativeTrustAnchor, GetNegativeTrustAnchorExtraText(anchor, extraTextMode));
+        }
 
-                string extraText = "{\"d\":\"" + domainName + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
-                AddDnsClientExtendedError(EDnsExtendedDnsErrorCode.NegativeTrustAnchor, extraText);
-            }
+        private static string GetNegativeTrustAnchorExtraText(NegativeTrustAnchorInfo anchor, NegativeTrustAnchorExtraTextMode extraTextMode)
+        {
+            if (extraTextMode != NegativeTrustAnchorExtraTextMode.Structured)
+                return null; //zero-length EXTRA-TEXT, which RFC 8914 section 2 permits
+
+            //The draft describes "d" as fully-qualified A-label form with no trailing period,
+            //which has no representation for the root zone - stripping the period leaves the
+            //empty string. Render the root as "." so a consumer sees a usable domain name
+            //rather than an empty field (deviation D6).
+            string domainName = (anchor.Name.Length == 0) ? "." : anchor.Name;
+
+            //The timestamp must be RFC 3339, which is Gregorian by definition. A bare
+            //ToString(format) resolves against CurrentCulture, whose calendar may not be:
+            //under th-TH this emits year 2569 (Buddhist), under ar-SA a Hijri date. The
+            //result stays syntactically valid, so nothing downstream detects it - it just
+            //silently means the wrong instant. Format against the invariant culture, and
+            //quote the literal T/Z rather than relying on pass-through of unrecognised
+            //format specifiers.
+            return "{\"d\":\"" + domainName + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
         }
 
         internal void SetShadowEDnsClientSubnetOption(EDnsClientSubnetOptionData shadowECSOption)

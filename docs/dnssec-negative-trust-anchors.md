@@ -95,21 +95,33 @@ The anchor list is empty unless an NTA **caused** the insecure state. See deviat
 
 ```csharp
 if (_settings.NegativeTrustAnchorExtendedError && queryWasSubjectToValidation)
-    response.AddNegativeTrustAnchorExtendedDnsErrors();
+{
+    response.AddNegativeTrustAnchorExtendedDnsErrors(
+        _settings.NegativeTrustAnchorExtendedErrorVerbose
+            ? NegativeTrustAnchorExtraTextMode.Structured
+            : NegativeTrustAnchorExtraTextMode.None);
+}
 ```
 
-`AddNegativeTrustAnchorExtendedDnsErrors()` adds one EDE 33 per applied anchor into
+`AddNegativeTrustAnchorExtendedDnsErrors(...)` adds EDE 33 options into
 `DnsDatagram.DnsClientExtendedErrors`, which the server merges into the outgoing OPT record
 alongside `response.EDNS.Options`. It is idempotent, and will not add an option that already exists
 in the response's own EDNS options — so a diagnostic forwarded from upstream is not duplicated.
 
-Recommended default: **off**. PowerDNS Recursor ships this feature disabled by default, and the
-draft's "SHOULD return this EDE" is a deployment decision (deviation **D3**).
+**Two decisions, both yours.**
 
-The EXTRA-TEXT format is `{"d":"<anchor name>","t":"<RFC 3339 expiry>"}`. Note it discloses the
-anchor name — which may be broader than the queried name — and when the validation bypass ends. If
-that is more than you want to reveal, emit a bare EDE 33 with empty EXTRA-TEXT, which RFC 8914 §2
-explicitly permits and which is what PowerDNS emits.
+*Whether to emit.* Recommended default **off**. PowerDNS Recursor ships this feature disabled by
+default, and the draft's "SHOULD return this EDE" is a deployment decision (deviation **D3**).
+
+*How much to disclose*, via `NegativeTrustAnchorExtraTextMode`:
+
+| Mode | EXTRA-TEXT | Notes |
+|------|-----------|-------|
+| `None` (default) | empty | Discloses only that an anchor applied. RFC 8914 §2 permits zero-length; this is what PowerDNS emits. Several applied anchors collapse to a single bare option. |
+| `Structured` | `{"d":"<anchor>","t":"<RFC 3339 expiry>"}` | The draft's registered JSON names. Each anchor yields a distinct option, satisfying the draft's requirement that EXTRA-TEXT be populated when multiple instances appear. |
+
+`Structured` discloses the anchor name — which may be broader than the name the client asked about
+— and when the validation bypass ends. Treat it as an opt-in for operators who want the detail.
 
 ## 6. The validation-gating hazard
 

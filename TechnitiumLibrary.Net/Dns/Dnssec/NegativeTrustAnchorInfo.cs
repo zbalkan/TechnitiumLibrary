@@ -83,6 +83,30 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         }
     }
 
+    /// <summary>
+    /// How much detail an emitted EDE 33 option discloses in its EXTRA-TEXT field.
+    /// </summary>
+    /// <remarks>
+    /// The structured form names the anchor and states when it expires. The anchor name can be
+    /// broader than the name the client asked about, and the expiry tells any observer how long
+    /// the validation bypass has left to run, so disclosure is a deliberate operator choice rather
+    /// than a default. See deviation D6 on <see cref="INegativeTrustAnchorProvider"/>.
+    /// </remarks>
+    public enum NegativeTrustAnchorExtraTextMode
+    {
+        /// <summary>
+        /// Emit a bare option with zero-length EXTRA-TEXT, disclosing only that an anchor applied.
+        /// RFC 8914 section 2 permits this, and it is what the reference implementation emits.
+        /// </summary>
+        None = 0,
+
+        /// <summary>
+        /// Emit the draft's structured object - <c>{"d":"&lt;anchor&gt;","t":"&lt;RFC 3339 expiry&gt;"}</c>
+        /// - using the JSON names the draft registers for this field.
+        /// </summary>
+        Structured = 1
+    }
+
     /// <summary>Library-owned DNSSEC validation metadata for cache implementations.</summary>
     public sealed record DnssecCacheMetadata(
         DnssecStatus Status,
