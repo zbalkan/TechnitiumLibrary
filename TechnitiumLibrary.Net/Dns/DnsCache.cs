@@ -88,10 +88,9 @@ namespace TechnitiumLibrary.Net.Dns
         /// persistence, expiration, and invalidation model.
         /// </summary>
         /// <remarks>
-        /// Derived implementations must retain special cache records, including
-        /// <see cref="DnsSpecialCacheRecordType.PositiveCache"/>. Composite positive responses are
-        /// deliberately routed through this extension point so ECS variants, persistence, cache
-        /// maintenance, and flushing remain owned by the cache implementation.
+        /// Derived implementations must retain special cache records. They are routed through this
+        /// extension point so ECS variants, persistence, cache maintenance, and flushing remain
+        /// owned by the cache implementation.
         /// </remarks>
         protected virtual void CacheRecords(IReadOnlyList<DnsResourceRecord> resourceRecords, NetworkAddress eDnsClientSubnet, DnsDatagramMetadata responseMetadata)
         {
@@ -450,9 +449,8 @@ namespace TechnitiumLibrary.Net.Dns
 
         /// <summary>
         /// Reconstructs a cached special response while enforcing DNSSEC provenance,
-        /// negative-trust-anchor expiry, and AD-bit semantics. Derived cache
-        /// implementations should use this helper for <see cref="DnsSpecialCacheRecordType.PositiveCache"/>
-        /// and other special cache records instead of duplicating reconstruction logic.
+        /// negative-trust-anchor expiry, and AD-bit semantics. Derived cache implementations should
+        /// use this helper for special cache records instead of duplicating reconstruction logic.
         /// </summary>
         /// <returns>The reconstructed response, or null when a cached negative trust anchor has expired or a retained record is stale.</returns>
         protected static DnsDatagram GetSpecialCachedResponse(DnsDatagram request, DnsSpecialCacheRecordData specialRecord)
@@ -541,64 +539,6 @@ namespace TechnitiumLibrary.Net.Dns
             return responseOnlyAnchors;
         }
 
-        /// <summary>
-        /// Computes additional-section glue for a composite <see cref="DnsSpecialCacheRecordType.PositiveCache"/>
-        /// answer. Ordinary special-cache records (negative/failure/bad/blocked) never carry
-        /// meaningful glue and are returned unchanged; <see cref="GetSpecialCachedResponse"/> itself
-        /// stays static and reconstruction-only so it does not depend on this cache instance's
-        /// referral/glue lookups. The response's own OPT record (if any) is always preserved.
-        /// </summary>
-        /// <returns>
-        /// The response with glue attached, the response unchanged when no glue applies, or null
-        /// when newly attached glue does not share the retained answer/authority's policy identity
-        /// or depends on an already-expired negative trust anchor - the composed response must never
-        /// mix data accepted under different trust policies, so an incoherent composition is a full
-        /// cache miss rather than a response served without its glue.
-        /// </returns>
-        private DnsDatagram AttachAdditionalForPositiveCache(DnsDatagram request, DnsDatagram response, DnsSpecialCacheRecordData specialRecord, DnsResourceRecordType questionType)
-        {
-            if ((specialRecord.Type != DnsSpecialCacheRecordType.PositiveCache) || (response.Answer.Count == 0))
-                return response;
-
-            switch (questionType)
-            {
-                case DnsResourceRecordType.NS:
-                case DnsResourceRecordType.MX:
-                case DnsResourceRecordType.SRV:
-                    break;
-
-                default:
-                    return response;
-            }
-
-            bool hasNonOptAdditional = false;
-            foreach (DnsResourceRecord record in response.Additional)
-            {
-                if (record.Type != DnsResourceRecordType.OPT)
-                {
-                    hasNonOptAdditional = true;
-                    break;
-                }
-            }
-
-            if (hasNonOptAdditional)
-                return response; //already carries glue; nothing to add
-
-            List<DnsResourceRecord> glueRecords = GetAdditionalRecords(response.Answer);
-            if (glueRecords.Count == 0)
-                return response;
-
-            if (HasExpiredNegativeTrustAnchor(glueRecords))
-                return null; //the anchor under which this glue was accepted has since expired
-
-            List<DnsResourceRecord> newAdditional = new List<DnsResourceRecord>(glueRecords.Count + response.Additional.Count);
-            newAdditional.AddRange(glueRecords);
-            newAdditional.AddRange(response.Additional); //preserve the existing OPT record, if any
-
-            DnsDatagram attached = response.CloneRetainingResolverProvenance(additional: newAdditional);
-            return attached;
-        }
-
         #endregion
 
         #region public
@@ -609,22 +549,6 @@ namespace TechnitiumLibrary.Net.Dns
 
             if (_cache.TryGetValue(question.Name.ToLowerInvariant(), out DnsCacheEntry entry))
             {
-                IReadOnlyList<DnsResourceRecord> positiveCacheRecords = entry.QueryPositiveCache(question.Type);
-                if (positiveCacheRecords.Count > 0)
-                {
-
-                    DnsSpecialCacheRecordData positiveSpecialRecord = positiveCacheRecords[0].RDATA as DnsSpecialCacheRecordData;
-                    DnsDatagram positiveCachedResponse = GetSpecialCachedResponse(request, positiveSpecialRecord);
-                    if (positiveCachedResponse is not null)
-                    {
-                        DnsDatagram attachedResponse = AttachAdditionalForPositiveCache(request, positiveCachedResponse, positiveSpecialRecord, question.Type);
-                        if (attachedResponse is not null)
-                            return Task.FromResult(attachedResponse);
-                    }
-
-                    goto beforeFindClosestNameServers; //cached policy dependency is no longer valid; dont retry via the ordinary lookup below
-                }
-
                 DnsResourceRecordType qtype;
 
                 switch (question.Type)
@@ -652,11 +576,7 @@ namespace TechnitiumLibrary.Net.Dns
                     {
                         DnsDatagram specialCachedResponse = GetSpecialCachedResponse(request, dnsSpecialCacheRecord);
                         if (specialCachedResponse is not null)
-                        {
-                            DnsDatagram attachedResponse = AttachAdditionalForPositiveCache(request, specialCachedResponse, dnsSpecialCacheRecord, question.Type);
-                            if (attachedResponse is not null)
-                                return Task.FromResult(attachedResponse);
-                        }
+                            return Task.FromResult(specialCachedResponse);
 
                         goto beforeFindClosestNameServers;
                     }
@@ -870,28 +790,21 @@ namespace TechnitiumLibrary.Net.Dns
                     return;
             }
 
-            //Ordinary RRset caching cannot represent response-only resolver provenance without
-            //incorrectly attaching it to an individual secure RRset. Preserve such positive
-            //responses as exact composite cache entries instead.
+            //Response-only provenance means a negative trust anchor demoted this resolution but no
+            //retained record sits under it - a CNAME chain that started inside an anchored zone and
+            //ended in a properly signed one, say. Ordinary RRset caching has nowhere to put that: the
+            //final records are genuinely Secure, so stamping them with the anchor would misreport
+            //them, while caching them bare would drop the anchor's expiry and let them outlive the
+            //policy that permitted the resolution.
+            //
+            //An earlier revision added a composite DnsSpecialCacheRecordType.PositiveCache entry to
+            //hold response and provenance together. It was removed: nothing consumed it - Technitium
+            //DNS Server overrides CacheRecords and QueryAsync wholesale and never constructs or reads
+            //the type - so it was a bespoke cache representation carrying real complexity for no
+            //reader. Declining to cache costs a repeat upstream query for a narrow case and cannot
+            //serve under-provenanced data, which is the safer trade at this size.
             if ((response.Answer.Count > 0) && (response.ResponseOnlyNegativeTrustAnchors.Count > 0))
-            {
-                uint ttl = uint.MaxValue;
-                foreach (IReadOnlyList<DnsResourceRecord> records in new[] { response.Answer, response.Authority, response.Additional })
-                    foreach (DnsResourceRecord record in records)
-                        if ((record.Type != DnsResourceRecordType.OPT) && (record.TTL < ttl))
-                            ttl = record.TTL;
-                if (ttl == uint.MaxValue)
-                    ttl = _negativeRecordTtl;
-
-                foreach (DnsQuestionRecord question in response.Question)
-                {
-                    DnsResourceRecord record = new DnsResourceRecord(question.Name, question.Type, question.Class, ttl, new DnsSpecialCacheRecordData(DnsSpecialCacheRecordType.PositiveCache, response));
-                    record.SetExpiry(_minimumRecordTtl, _maximumRecordTtl, _serveStaleTtl, _serveStaleAnswerTtl);
-                    InternalCacheRecords([record], eDnsClientSubnet, response.Metadata);
-                }
-
                 return;
-            }
 
             //attach RRSIG to records
             {
@@ -1452,8 +1365,7 @@ namespace TechnitiumLibrary.Net.Dns
             NegativeCache = 1,
             FailureCache = 2,
             BadCache = 3,
-            BlockedCache = 4,
-            PositiveCache = 5
+            BlockedCache = 4
         }
 
         public class DnsSpecialCacheRecordData : DnsResourceRecordData
@@ -2014,7 +1926,7 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 get
                 {
-                    if ((_type == DnsSpecialCacheRecordType.BlockedCache) || (_type == DnsSpecialCacheRecordType.PositiveCache))
+                    if (_type == DnsSpecialCacheRecordType.BlockedCache)
                         return _answer;
 
                     return [];
@@ -2025,7 +1937,7 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 get
                 {
-                    if ((_type == DnsSpecialCacheRecordType.BlockedCache) || (_type == DnsSpecialCacheRecordType.PositiveCache))
+                    if (_type == DnsSpecialCacheRecordType.BlockedCache)
                         return _noDnssecAnswer;
 
                     return [];
@@ -2081,16 +1993,14 @@ namespace TechnitiumLibrary.Net.Dns
 
             readonly ConcurrentDictionary<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> _entries;
 
-            //SetRecords and RemoveExpiredRecords each enforce the composite-response invariant
-            //(a PositiveCache record for one type must not coexist with a CNAME, or with the
-            //complementary NS/PARENT_NS/CHILD_NS representation) across several independent
-            //ConcurrentDictionary operations. Individual dictionary operations are atomic, but the
-            //multi-key sequence is not, so two writers - e.g. one caching a CNAME and another
-            //caching a composite PositiveCache record for the same entry - can interleave their
-            //cleanup and final assignment steps and leave both representations installed. This
-            //lock serializes writers against each other so that invariant always holds once a write
-            //completes; reads remain lock-free since a single-key lookup is already atomic on its
-            //own and does not need to observe a consistent cross-key snapshot.
+            //SetRecords maintains cross-key invariants - a special cache record for NS evicts a
+            //stale CHILD_NS entry, and the final assignment lands on a third key - across several
+            //independent ConcurrentDictionary operations. Each operation is atomic on its own; the
+            //sequence is not, so two writers on the same entry can interleave their eviction and
+            //assignment steps and leave the entry in a state neither intended. RemoveExpiredRecords
+            //walks the same keys. This lock serializes writers against each other so the invariants
+            //hold once a write completes; reads stay lock-free, since a single-key lookup is already
+            //atomic and does not need a consistent cross-key snapshot.
             readonly object _writeLock = new object();
 
             //Set under _writeLock by the cleanup pass once it has decided this entry is empty and
@@ -2227,19 +2137,6 @@ namespace TechnitiumLibrary.Net.Dns
 
                 if (firstRecord.RDATA is DnsSpecialCacheRecordData splRecord)
                 {
-                    if (splRecord.Type == DnsSpecialCacheRecordType.PositiveCache)
-                    {
-                        //A composite positive response replaces every RRset representation
-                        //which the normal lookup rules could use for the same question.
-                        _entries.TryRemove(DnsResourceRecordType.CNAME, out _);
-                        if (type == DnsResourceRecordType.ANY)
-                            _entries.Clear();
-                        else if (type == DnsResourceRecordType.NS)
-                            _entries.TryRemove(DnsResourceRecordType.CHILD_NS, out _);
-                        else if (type == DnsResourceRecordType.PARENT_NS)
-                            _entries.TryRemove(DnsResourceRecordType.NS, out _);
-                    }
-
                     if (splRecord.IsFailureOrBadCache)
                     {
                         //call trying to cache failure record
@@ -2282,42 +2179,6 @@ namespace TechnitiumLibrary.Net.Dns
                     }
 
                     records = newRecords;
-                }
-
-                //Remove composite responses superseded by a newly accepted ordinary RRset.
-                //Failure and bad-cache records return above when useful data must be retained.
-                if (firstRecord.RDATA is not DnsSpecialCacheRecordData)
-                {
-                    RemovePositiveCache(DnsResourceRecordType.ANY);
-                    switch (type)
-                    {
-                        case DnsResourceRecordType.CNAME:
-                            foreach (DnsResourceRecordType existingType in _entries.Keys)
-                                RemovePositiveCache(existingType);
-                            break;
-                        case DnsResourceRecordType.CHILD_NS:
-                            RemovePositiveCache(DnsResourceRecordType.NS);
-                            break;
-                        case DnsResourceRecordType.NS:
-                            RemovePositiveCache(DnsResourceRecordType.PARENT_NS);
-                            break;
-                        default:
-                            RemovePositiveCache(type);
-                            break;
-                    }
-                }
-
-                if (type == DnsResourceRecordType.CNAME)
-                {
-                    foreach (KeyValuePair<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> entry in _entries)
-                    {
-                        if ((entry.Value.Count > 0) &&
-                            (entry.Value[0].RDATA is DnsSpecialCacheRecordData existingSpecialRecord) &&
-                            (existingSpecialRecord.Type == DnsSpecialCacheRecordType.PositiveCache))
-                        {
-                            _entries.TryRemove(entry.Key, out _);
-                        }
-                    }
                 }
 
                 _entries[type] = records;
@@ -2411,30 +2272,6 @@ namespace TechnitiumLibrary.Net.Dns
                 }
 
                 return [];
-            }
-
-            public IReadOnlyList<DnsResourceRecord> QueryPositiveCache(DnsResourceRecordType type)
-            {
-                if (_entries.TryGetValue(type, out IReadOnlyList<DnsResourceRecord> records) &&
-                    (records.Count > 0) &&
-                    (records[0].RDATA is DnsSpecialCacheRecordData specialRecord) &&
-                    (specialRecord.Type == DnsSpecialCacheRecordType.PositiveCache))
-                {
-                    return ValidateRRSet(records, false);
-                }
-
-                return [];
-            }
-
-            private void RemovePositiveCache(DnsResourceRecordType type)
-            {
-                if (_entries.TryGetValue(type, out IReadOnlyList<DnsResourceRecord> records) &&
-                    (records.Count > 0) &&
-                    (records[0].RDATA is DnsSpecialCacheRecordData specialRecord) &&
-                    (specialRecord.Type == DnsSpecialCacheRecordType.PositiveCache))
-                {
-                    _entries.TryRemove(type, out _);
-                }
             }
 
             public void RemoveExpiredRecords()

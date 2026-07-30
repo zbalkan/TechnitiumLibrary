@@ -21,7 +21,8 @@ authority to evict the server's cache.
   responses, per RFC 7646 §6.
 - Records **which** anchor caused a chain to be demoted, as provenance on the affected records and
   on the response, and preserves it across the cache.
-- Rejects cached data once the anchor that justified accepting it has expired.
+- Rejects cached data once the anchor that justified accepting it has expired — *in `DnsCache`*.
+  A cache that overrides the read path must enforce this itself; see §7.
 - Formats the EDE 33 option on request. It never emits one on its own.
 
 ## 2. What the server must implement
@@ -40,8 +41,11 @@ These are enumerated in the XML documentation on `INegativeTrustAnchorProvider` 
 
 Obligation 4 deserves emphasis. The RFC requires the flush on *removal*; it is equally necessary on
 *addition*, because already-cached secure records are otherwise unaffected until their TTL expires
-and the new anchor appears not to work. Anchor **expiry** is different — the library handles that
-itself, and no flush is needed.
+and the new anchor appears not to work.
+
+Anchor **expiry** needs no flush — but only because the cache refuses to serve a record carrying an
+expired anchor. `DnsCache` does that on its read paths; `CacheZoneManager` overrides those paths and
+so owns the check itself. See §7, where this is currently listed as unimplemented.
 
 ## 3. Wiring it up
 
@@ -138,15 +142,39 @@ server's DNSSEC mode and, in a process-style mode, on the client having set AD o
 
 ## 7. Cache implementation requirements
 
-If the server's cache implements `IDnsCache` rather than deriving from `DnsCache`:
+**These apply to `CacheZoneManager` in full.** Deriving from `DnsCache` does not deliver them.
+
+`CacheZoneManager : DnsCache` overrides `QueryAsync`, `CacheRecords`, `RemoveExpiredRecords` and
+`Flush`, and calls `base` on none of them. It stores records in its own `CacheZone` tree, so
+`DnsCache`'s entry storage, lookup and maintenance never execute. In practice it derives from
+`DnsCache` to reach the nested `DnsSpecialCacheRecordData` type and satisfy `IDnsCache` — it
+inherits the *contract*, not the behaviour. Read the list below as applying to a from-scratch
+implementation, because that is effectively what it is.
 
 - **Preserve** per-record provenance across store and retrieve, using
   `DnsResourceRecord.GetDnssecCacheMetadata()` and `CloneWithDnssecCacheMetadata(...)`, together
   with the response's applied-anchor list. Losing it loses both the expiry check and the EDE.
+  *In-memory this is free* — `CacheZone` holds `DnsResourceRecord` instances directly, so the
+  anchor travels with the record. *On disk it is already handled* — `CacheZone` and
+  `CacheRecordInfo` call `DnsResourceRecord.WriteCacheRecordTo` / `ReadCacheRecordFrom`, which
+  carry the anchor in the version 3 record format.
 - **Do not set AD** when any returned answer or authority record was accepted under an anchor.
-- **Do not return** an RRset or special cache record once any anchor used to accept it has expired.
+  `CacheZoneManager.QueryAsync` currently derives AD from `DnssecStatus == Secure`, which is
+  correct as a side effect: a record demoted by an anchor is marked `Insecure`, so it cannot set
+  AD. No change needed, but the coupling is incidental rather than intentional — if that
+  expression is ever relaxed, this requirement has to be enforced explicitly.
+- **Do not return** an RRset or special cache record once any anchor used to accept it has
+  expired. **This one is not currently implemented.** `DnsCache` enforces it via
+  `HasExpiredNegativeTrustAnchor` on its read paths; because `QueryAsync` is overridden, that
+  check does not run. Without it, a record admitted only because validation was suspended keeps
+  being served after the anchor lapses — which is precisely the window an NTA is supposed to
+  close. An equivalent check belongs in `CacheZoneManager.QueryAsync` before returning any record
+  whose `GetDnssecCacheMetadata().AppliedNegativeTrustAnchor` is non-null.
 
-`DnsCache` (the reference implementation) already does all three.
+### A note on `DnsCache`
+
+`DnsCache` remains a correct reference implementation and enforces all three, but no production
+consumer exercises it. Do not read "the base class handles it" as coverage for anything above.
 
 ## 8. Documented deviations
 

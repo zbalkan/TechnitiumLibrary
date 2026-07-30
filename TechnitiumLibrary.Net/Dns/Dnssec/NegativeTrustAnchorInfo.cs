@@ -133,8 +133,11 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// <item>Flushing cached entries at and below the anchor node whenever an anchor is added or
     /// removed. RFC 7646 section 5 requires this on removal; it is equally necessary on addition,
     /// since already-cached secure records are otherwise unaffected until their TTL expires.
-    /// Anchor <i>expiry</i> is handled by the library and needs no flush - records carrying an
-    /// expired anchor are rejected on read.</item>
+    /// Anchor <i>expiry</i> needs no flush, but only because the cache refuses to serve a record
+    /// carrying an expired anchor. <see cref="DnsCache"/> does that on its read paths; an
+    /// <see cref="IDnsCache"/> implementation that supplies its own read path owns the check, or a
+    /// record admitted solely because validation was suspended outlives the anchor that
+    /// permitted it.</item>
     /// <item>Deciding whether an EDE 33 diagnostic reaches clients, and how verbose it is. The
     /// library records provenance and exposes a generator; it never emits on its own.</item>
     /// </list>
