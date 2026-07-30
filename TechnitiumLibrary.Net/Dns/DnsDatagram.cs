@@ -840,7 +840,13 @@ namespace TechnitiumLibrary.Net.Dns
                 //silently means the wrong instant. Format against the invariant culture, and
                 //quote the literal T/Z rather than relying on pass-through of unrecognised
                 //format specifiers.
-                string extraText = "{\"d\":\"" + anchor.Name + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
+                //The draft describes "d" as fully-qualified A-label form with no trailing period,
+                //which has no representation for the root zone - stripping the period leaves the
+                //empty string. Render the root as "." so a consumer sees a usable domain name
+                //rather than an empty field (deviation D6).
+                string domainName = (anchor.Name.Length == 0) ? "." : anchor.Name;
+
+                string extraText = "{\"d\":\"" + domainName + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
                 AddDnsClientExtendedError(EDnsExtendedDnsErrorCode.NegativeTrustAnchor, extraText);
             }
         }

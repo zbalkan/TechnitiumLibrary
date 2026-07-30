@@ -436,20 +436,14 @@ namespace TechnitiumLibrary.Net.Dns
 
             foreach (NegativeTrustAnchorInfo anchor in snapshot.Anchors)
             {
-                if ((anchor is null) || string.IsNullOrEmpty(anchor.Name))
+                if ((anchor is null) || (anchor.Name is null))
                     continue;
 
-                string canonicalName;
-                try
-                {
-                    canonicalName = ConvertDomainNameToAscii(anchor.Name.TrimEnd('.')).ToLowerInvariant();
-                }
-                catch
-                {
+                //An empty or "." name canonicalizes to the root zone and is kept (deviation D1).
+                if (!TryCanonicalizeNegativeTrustAnchorName(anchor.Name, out string canonicalName))
                     continue; //an unusable anchor name simply does not suspend validation anywhere
-                }
 
-                if ((canonicalName.Length == 0) || !IsCanonicalAsciiNegativeTrustAnchorName(canonicalName))
+                if (!IsCanonicalAsciiNegativeTrustAnchorName(canonicalName))
                     continue;
 
                 NegativeTrustAnchorInfo canonicalAnchor = canonicalName.Equals(anchor.Name, StringComparison.Ordinal) ? anchor : new NegativeTrustAnchorInfo(canonicalName, anchor.ExpiresOnUtc);
@@ -698,20 +692,13 @@ namespace TechnitiumLibrary.Net.Dns
         private static bool TryGetValidNegativeTrustAnchor(INegativeTrustAnchorSnapshot provider, string domainName, out NegativeTrustAnchorInfo anchor)
         {
             anchor = null;
-            if ((provider is null) || string.IsNullOrEmpty(domainName))
+            if ((provider is null) || (domainName is null))
                 return false;
 
-            string canonicalName;
-            try
-            {
-                canonicalName = ConvertDomainNameToAscii(domainName.TrimEnd('.')).ToLowerInvariant();
-            }
-            catch
-            {
+            if (!TryCanonicalizeNegativeTrustAnchorName(domainName, out string canonicalName))
                 return false;
-            }
 
-            if ((canonicalName.Length == 0) || !IsLiteralNegativeTrustAnchorName(canonicalName))
+            if (!IsLiteralNegativeTrustAnchorName(canonicalName))
                 return false;
 
             NegativeTrustAnchorInfo candidate;
@@ -727,10 +714,12 @@ namespace TechnitiumLibrary.Net.Dns
                 return false; //provider failure must not fail open
             }
 
-            if ((candidate is null) || string.IsNullOrEmpty(candidate.Name) || candidate.Name.EndsWith('.') ||
+            //An empty candidate name is the root zone rather than a missing name (deviation D1);
+            //coverage uses the shared predicate so a root anchor matches every query name.
+            if ((candidate is null) || (candidate.Name is null) || candidate.Name.EndsWith('.') ||
                 !candidate.Name.Equals(candidate.Name.ToLowerInvariant(), StringComparison.Ordinal) ||
                 !IsCanonicalAsciiNegativeTrustAnchorName(candidate.Name) || (candidate.ExpiresOnUtc <= capturedOnUtc) ||
-                (!canonicalName.Equals(candidate.Name, StringComparison.Ordinal) && !canonicalName.EndsWith("." + candidate.Name, StringComparison.Ordinal)))
+                !NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(canonicalName, candidate.Name))
             {
                 return false;
             }
@@ -739,8 +728,44 @@ namespace TechnitiumLibrary.Net.Dns
             return true;
         }
 
+        /// <summary>
+        /// Canonicalizes an NTA owner or query name to lower-case ASCII with no trailing dot.
+        /// The root zone - written either as the empty string or as "." - canonicalizes to the
+        /// empty string, which is this codebase's representation of the root (deviation D1).
+        /// </summary>
+        private static bool TryCanonicalizeNegativeTrustAnchorName(string name, out string canonicalName)
+        {
+            canonicalName = null;
+
+            if (name is null)
+                return false;
+
+            string trimmed = name.TrimEnd('.');
+            if (trimmed.Length == 0)
+            {
+                canonicalName = ""; //root zone
+                return true;
+            }
+
+            try
+            {
+                canonicalName = ConvertDomainNameToAscii(trimmed).ToLowerInvariant();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static bool IsCanonicalAsciiNegativeTrustAnchorName(string name)
         {
+            if (name is null)
+                return false;
+
+            if (name.Length == 0)
+                return true; //root zone is already canonical (deviation D1)
+
             try
             {
                 return name.Equals(ConvertDomainNameToAscii(name), StringComparison.Ordinal) && IsLiteralNegativeTrustAnchorName(name);
@@ -753,7 +778,15 @@ namespace TechnitiumLibrary.Net.Dns
 
         private static bool IsLiteralNegativeTrustAnchorName(string name)
         {
-            if (string.IsNullOrEmpty(name) || name[0] == '.' || name[name.Length - 1] == '.' || !IsDomainNameValid(name))
+            if (name is null)
+                return false;
+
+            //The empty name is the root zone and is a valid anchor owner (deviation D1). It was
+            //previously rejected here, which silently discarded an explicitly configured root NTA.
+            if (name.Length == 0)
+                return true;
+
+            if ((name[0] == '.') || (name[name.Length - 1] == '.') || !IsDomainNameValid(name))
                 return false;
 
             foreach (string label in name.Split('.'))
@@ -903,10 +936,15 @@ namespace TechnitiumLibrary.Net.Dns
                     //A positive trust anchor restarts validation for its entire subtree. A
                     //covering NTA above that secure restart boundary must not reactivate at each
                     //subsequent delegation; only an NTA at or below the restart can stop it again.
+                    //This is the RFC 7646 section 5 rule that "validation starts again if there is
+                    //a positive trust anchor further down in the chain", so coverage must go
+                    //through the shared predicate: a root NTA has an empty name, against which an
+                    //open-coded EndsWith("." + name) never matches, which would have re-asserted
+                    //the anchor at every delegation below the restart and broken that MUST.
                     if (securityContext.IsSecure &&
                         !string.IsNullOrEmpty(securityContext.BoundaryName) &&
                         (securityContext.BoundaryName.Length > negativeTrustAnchor.Name.Length) &&
-                        securityContext.BoundaryName.EndsWith("." + negativeTrustAnchor.Name, StringComparison.OrdinalIgnoreCase))
+                        NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(securityContext.BoundaryName, negativeTrustAnchor.Name))
                     {
                         return false;
                     }

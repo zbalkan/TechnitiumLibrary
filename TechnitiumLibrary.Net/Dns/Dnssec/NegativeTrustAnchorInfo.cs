@@ -16,6 +16,30 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
 
     internal static class NegativeTrustAnchorInfoExtensions
     {
+        /// <summary>
+        /// Determines whether an NTA owner name covers a domain name, i.e. the name is the anchor
+        /// itself or sits beneath it in the tree.
+        /// </summary>
+        /// <remarks>
+        /// This is the single definition of NTA coverage. Every site that needs it - anchor
+        /// lookup, snapshot lookup, and the positive-trust-anchor restart rule - must use this
+        /// rather than open-coding a suffix test, because the root zone is the empty name and a
+        /// literal <c>EndsWith("." + anchorName)</c> silently fails to match anything against it.
+        /// See deviation D1 on <see cref="INegativeTrustAnchorProvider"/>.
+        /// </remarks>
+        internal static bool IsNameCoveredByAnchorName(string domainName, string anchorName)
+        {
+            if ((domainName is null) || (anchorName is null))
+                return false;
+
+            if (anchorName.Length == 0)
+                return true; //root zone anchor covers the entire namespace
+
+            return domainName.Equals(anchorName, StringComparison.OrdinalIgnoreCase) ||
+                domainName.EndsWith("." + anchorName, StringComparison.OrdinalIgnoreCase);
+        }
+
+
         internal static NegativeTrustAnchorInfo MergeMostRestrictive(this NegativeTrustAnchorInfo existing, NegativeTrustAnchorInfo candidate)
         {
             if (existing is null)
@@ -53,6 +77,61 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// affected positive, negative, DNSSEC failure, DS, DNSKEY, and delegation cache entries.
     /// Invalidation must also prevent resolutions captured under an older policy generation from
     /// repopulating the cache after the policy change.
+    ///
+    /// <para>
+    /// <b>Documented deviations.</b> Where this implementation departs from RFC 7646, RFC 8914 or
+    /// draft-farrokhi-dnsop-ede-nta, the departure is deliberate and recorded here. Each site that
+    /// implements one carries a comment referring back to its identifier. Pragmatic choices are
+    /// allowed; undocumented ones are not.
+    /// </para>
+    ///
+    /// <list type="bullet">
+    /// <item><b>D1 - root zone anchors are accepted.</b> RFC 7646 section 5 says an NTA "SHOULD be
+    /// used only in a specific domain or sub-domain". An anchor at the root is therefore
+    /// discouraged, and it suspends validation for the entire namespace. It is nonetheless
+    /// accepted, matching the reference implementation of the EDE draft (PowerDNS Recursor, which
+    /// supports and tests a root NTA): the alternative was to discard an explicitly configured
+    /// anchor, which previously happened silently and left the operator with neither an active NTA
+    /// nor any indication of why. Honouring explicit configuration is less surprising than
+    /// ignoring it. The RFC's accompanying MUST - that an NTA "MUST NOT affect validation of other
+    /// names up the authentication chain" - is not violated, because the root has no names above
+    /// it.</item>
+    ///
+    /// <item><b>D2 - the EDE is emitted on causation, not coverage.</b> The draft permits a
+    /// resolver to emit EDE 33 "on any responses while an NTA is in effect, regardless of whether
+    /// the presence of the NTA had a material effect". This implementation emits only where an NTA
+    /// actually demoted a chain that would otherwise have validated, which is a strict subset of
+    /// what the draft allows and therefore conformant, but narrower than the reference
+    /// implementation. A name that was already insecure for an unrelated reason and merely happens
+    /// to sit under an NTA produces no EDE here, where PowerDNS produces one.</item>
+    ///
+    /// <item><b>D3 - emission is off unless the application asks for it.</b> The draft says an
+    /// operator applying an NTA "SHOULD return this EDE in affected responses". This library never
+    /// emits on its own; it preserves provenance and leaves the decision to the consuming
+    /// application, which owns the operator-facing setting. The reference implementation reached
+    /// the same position, shipping the feature disabled by default. Satisfying the draft's SHOULD
+    /// is consequently a deployment responsibility, not a library guarantee.</item>
+    ///
+    /// <item><b>D4 - anchor lifetime is not capped.</b> RFC 7646 section 5 says an NTA lifetime
+    /// "SHOULD NOT exceed a week". Anchor names are validated at capture but expiry is not, since
+    /// the acceptable ceiling is operator policy and the provider is the component that owns it.
+    /// Implementations of this interface are responsible for the cap, for periodically retrying
+    /// validation while an anchor is active, and for removing anchors once validation
+    /// succeeds.</item>
+    ///
+    /// <item><b>D5 - cache invalidation is delegated.</b> RFC 7646 section 5 says that when
+    /// removing an NTA "the implementation SHOULD remove all cached entries at and below the NTA
+    /// node". A library cache cannot know when operator policy changed, so callers must perform
+    /// that flush - on addition as well as removal, since a newly added anchor otherwise has no
+    /// effect on already-cached secure records until their TTL expires.</item>
+    ///
+    /// <item><b>D6 - EXTRA-TEXT carries structured data.</b> RFC 8914 section 2 describes
+    /// EXTRA-TEXT as "intended for human consumption (not automated parsing)". The draft
+    /// nonetheless registers the JSON names "d" and "t" for exactly this field, so the structured
+    /// form is used when the application requests it. The root zone is rendered as "." rather than
+    /// the empty string the draft's "no trailing period" rule would imply, because an empty "d"
+    /// is not a usable domain name representation for a consumer.</item>
+    /// </list>
     /// </remarks>
     public interface INegativeTrustAnchorProvider
     {
@@ -177,22 +256,22 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         {
             anchor = null;
 
-            if (string.IsNullOrEmpty(domainName))
+            if (domainName is null)
                 return false;
 
             NegativeTrustAnchorInfo best = null;
 
             foreach (NegativeTrustAnchorInfo candidate in _anchors)
             {
-                if ((candidate is null) || string.IsNullOrEmpty(candidate.Name))
+                //An empty candidate name is the root zone, not a missing name (deviation D1), so
+                //coverage is decided by the shared predicate rather than an open-coded suffix test.
+                if ((candidate is null) || (candidate.Name is null))
                     continue;
 
-                bool matches = domainName.Equals(candidate.Name, StringComparison.OrdinalIgnoreCase) ||
-                    domainName.EndsWith("." + candidate.Name, StringComparison.OrdinalIgnoreCase);
-
-                if (!matches)
+                if (!NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(domainName, candidate.Name))
                     continue;
 
+                //Longest owner name wins; the root, at length zero, is the least specific anchor.
                 if ((best is null) || (candidate.Name.Length > best.Name.Length))
                     best = candidate;
             }
