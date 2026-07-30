@@ -75,7 +75,6 @@ namespace TechnitiumLibrary.Net.Dns
         DnsDatagramEdns _edns;
         List<EDnsExtendedDnsErrorOptionData> _dnsClientExtendedErrors;
         IReadOnlyList<NegativeTrustAnchorInfo> _responseOnlyNegativeTrustAnchors;
-        DnsCacheWriteContext _dnsCacheWriteContext;
         bool _shadowHideECSOption;
         EDnsClientSubnetOptionData _shadowECSOption;
 
@@ -608,7 +607,6 @@ namespace TechnitiumLibrary.Net.Dns
             datagram._edns = _edns;
             datagram._dnsClientExtendedErrors = CloneExtendedErrorsList();
             datagram._responseOnlyNegativeTrustAnchors = _responseOnlyNegativeTrustAnchors;
-            datagram._dnsCacheWriteContext = _dnsCacheWriteContext;
             if (datagram.HasAnswerOrAuthorityNegativeTrustAnchor || (datagram.ResponseOnlyNegativeTrustAnchors.Count > 0))
                 datagram._AD = 0;
             datagram._shadowHideECSOption = _shadowHideECSOption;
@@ -741,22 +739,6 @@ namespace TechnitiumLibrary.Net.Dns
         internal void ClearAuthenticData()
         {
             _AD = 0;
-        }
-
-        internal void SetDnsCacheWriteContext(DnsCacheWriteContext context)
-        {
-            _dnsCacheWriteContext = context;
-        }
-
-        /// <summary>Clones this datagram with the resolver cache policy context used to reconstruct it.</summary>
-        public DnsDatagram CloneWithDnsCacheContext(DnsCacheWriteContext context)
-        {
-            if ((context is not null) && ((context.PolicyScopeId == Guid.Empty) || (context.PolicyRevisionId == Guid.Empty)))
-                throw new ArgumentException("A cache policy context must specify policy scope and revision identifiers.", nameof(context));
-
-            DnsDatagram clone = Clone();
-            clone.SetDnsCacheWriteContext(context);
-            return clone;
         }
 
         internal bool HasAnswerOrAuthorityNegativeTrustAnchor
@@ -896,7 +878,6 @@ namespace TechnitiumLibrary.Net.Dns
 
             datagram._dnsClientExtendedErrors = CloneExtendedErrorsList();
             datagram._responseOnlyNegativeTrustAnchors = _responseOnlyNegativeTrustAnchors;
-            datagram._dnsCacheWriteContext = _dnsCacheWriteContext;
             if (datagram.HasAnswerOrAuthorityNegativeTrustAnchor || (datagram.ResponseOnlyNegativeTrustAnchors.Count > 0))
                 datagram._AD = 0;
             datagram._shadowHideECSOption = _shadowHideECSOption;
@@ -2431,10 +2412,6 @@ namespace TechnitiumLibrary.Net.Dns
                 return anchors ?? (IReadOnlyList<NegativeTrustAnchorInfo>)Array.Empty<NegativeTrustAnchorInfo>();
             }
         }
-
-        /// <summary>Gets the DNSSEC policy generation under which this resolver response was produced.</summary>
-        public DnsCacheWriteContext DnsCacheWriteContext
-        { get { return _dnsCacheWriteContext; } }
 
         public ushort Identifier
         { get { return _ID; } }

@@ -189,8 +189,6 @@ namespace TechnitiumLibrary.Net.Dns
             foreach (DnsResourceRecord resourceRecord in resourceRecords)
             {
                 resourceRecord.NormalizeName();
-                if (resourceRecord.RDATA is DnsSpecialCacheRecordData specialRecord)
-                    resourceRecord.SetDnsCacheWriteContext(specialRecord.DnsCacheWriteContext);
 
                 IReadOnlyList<DnsResourceRecord> glueRecords = GetRecordInfo(resourceRecord).GlueRecords;
                 if (glueRecords is not null)
@@ -402,69 +400,6 @@ namespace TechnitiumLibrary.Net.Dns
             return foundData;
         }
 
-        private static bool HasSamePolicyIdentity(DnsCacheWriteContext left, DnsCacheWriteContext right)
-        {
-            if ((left is null) || (right is null))
-                return left is null && right is null;
-            return (left.PolicyScopeId == right.PolicyScopeId) &&
-                (left.PolicyRevisionId == right.PolicyRevisionId) &&
-                (left.DnssecPolicyGeneration == right.DnssecPolicyGeneration);
-        }
-
-        private static bool IsPolicyGenerationCompatible(DnsDatagram request, IReadOnlyList<DnsResourceRecord> records)
-        {
-            return IsPolicyGenerationCompatible(request, [records]);
-        }
-
-        private static DnsCacheWriteContext GetRetainedPolicyContext(DnsDatagram request, params IReadOnlyList<DnsResourceRecord>[] sections)
-        {
-            if (request.DnsCacheWriteContext is not null)
-                return request.DnsCacheWriteContext;
-
-            //Scan for the first record that actually carries an identity. Returning on the first
-            //record regardless of whether it had one reported null whenever section[0] happened to
-            //be unstamped, silently dropping the policy identity of every record behind it.
-            foreach (IReadOnlyList<DnsResourceRecord> section in sections)
-            {
-                if (section is null)
-                    continue;
-
-                foreach (DnsResourceRecord record in section)
-                {
-                    DnsCacheWriteContext recordContext = record.GetDnssecCacheMetadata().DnsCacheWriteContext;
-                    if (recordContext is not null)
-                        return recordContext;
-                }
-            }
-
-            return null;
-        }
-
-        private static bool IsPolicyGenerationCompatible(DnsDatagram request, params IReadOnlyList<DnsResourceRecord>[] sections)
-        {
-            DnsCacheWriteContext expectedContext = request.DnsCacheWriteContext;
-            bool foundContext = expectedContext is not null;
-            foreach (IReadOnlyList<DnsResourceRecord> section in sections)
-            {
-                if (section is null)
-                    continue;
-                foreach (DnsResourceRecord record in section)
-                {
-                    DnsCacheWriteContext recordContext = record.GetDnssecCacheMetadata().DnsCacheWriteContext;
-                    if (!foundContext)
-                    {
-                        expectedContext = recordContext;
-                        foundContext = true;
-                    }
-                    else if (!HasSamePolicyIdentity(expectedContext, recordContext))
-                    {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-
         private static bool HasExpiredNegativeTrustAnchor(IReadOnlyList<NegativeTrustAnchorInfo> anchors)
         {
             DateTimeOffset now = DateTimeOffset.UtcNow;
@@ -519,18 +454,9 @@ namespace TechnitiumLibrary.Net.Dns
         /// implementations should use this helper for <see cref="DnsSpecialCacheRecordType.PositiveCache"/>
         /// and other special cache records instead of duplicating reconstruction logic.
         /// </summary>
-        /// <returns>The reconstructed response, or null when the cached policy dependency is no longer valid.</returns>
+        /// <returns>The reconstructed response, or null when a cached negative trust anchor has expired or a retained record is stale.</returns>
         protected static DnsDatagram GetSpecialCachedResponse(DnsDatagram request, DnsSpecialCacheRecordData specialRecord)
         {
-            if ((request.DnsCacheWriteContext is not null) &&
-                ((specialRecord.DnsCacheWriteContext is null) ||
-                 (specialRecord.DnsCacheWriteContext.PolicyScopeId != request.DnsCacheWriteContext.PolicyScopeId) ||
-                 (specialRecord.DnsCacheWriteContext.PolicyRevisionId != request.DnsCacheWriteContext.PolicyRevisionId) ||
-                 (specialRecord.DnsCacheWriteContext.DnssecPolicyGeneration != request.DnsCacheWriteContext.DnssecPolicyGeneration)))
-            {
-                return null;
-            }
-
             if (HasExpiredNegativeTrustAnchor(specialRecord))
                 return null;
 
@@ -543,34 +469,22 @@ namespace TechnitiumLibrary.Net.Dns
                 IReadOnlyList<DnsResourceRecord> answer = request.CheckingDisabled ? specialRecord.OriginalAnswer : specialRecord.Answer;
                 IReadOnlyList<DnsResourceRecord> authority = request.CheckingDisabled ? specialRecord.OriginalAuthority : specialRecord.Authority;
                 IReadOnlyList<DnsResourceRecord> additional = request.CheckingDisabled ? specialRecord.OriginalAdditional : null;
-                if (!IsPolicyGenerationCompatible(request, answer, authority, additional))
-                    return null;
                 foreach (IReadOnlyList<DnsResourceRecord> section in new[] { answer, authority, additional })
                     foreach (DnsResourceRecord record in section ?? Array.Empty<DnsResourceRecord>())
                         if (record.IsStale)
                             return null;
-                DnsCacheWriteContext retainedContext = GetRetainedPolicyContext(request, answer, authority, additional);
-                if ((request.DnsCacheWriteContext is null) && ((answer?.Count ?? 0) + (authority?.Count ?? 0) + (additional?.Count ?? 0) > 0) && !HasSamePolicyIdentity(retainedContext, specialRecord.DnsCacheWriteContext))
-                    return null;
                 IReadOnlyList<NegativeTrustAnchorInfo> anchors = GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, answer, authority, additional);
                 DnsDatagram response = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(answer, authority), request.CheckingDisabled, request.CheckingDisabled ? specialRecord.OriginalRCODE : specialRecord.RCODE, request.Question, answer, authority, additional, request.EDNS.UdpPayloadSize, EDnsHeaderFlags.DNSSEC_OK, specialRecord.EDnsOptions);
-                response.SetDnsCacheWriteContext(retainedContext ?? specialRecord.DnsCacheWriteContext);
                 return RestoreNegativeTrustAnchorAnnotations(response, anchors);
             }
 
             DnsDatagram noDnssecResponse = request.CheckingDisabled ?
                 new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, false, true, specialRecord.OriginalRCODE, request.Question, specialRecord.OriginalNoDnssecAnswer, specialRecord.OriginalNoDnssecAuthority, specialRecord.OriginalAdditional, request.EDNS is null ? ushort.MinValue : request.EDNS.UdpPayloadSize, EDnsHeaderFlags.None, specialRecord.EDnsOptions) :
                 new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, false, false, specialRecord.RCODE, request.Question, specialRecord.NoDnssecAnswer, specialRecord.NoDnssecAuthority, null, request.EDNS is null ? ushort.MinValue : request.EDNS.UdpPayloadSize, EDnsHeaderFlags.None, specialRecord.EDnsOptions);
-            if (!IsPolicyGenerationCompatible(request, noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional))
-                return null;
             foreach (IReadOnlyList<DnsResourceRecord> section in new[] { noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional })
                 foreach (DnsResourceRecord record in section ?? Array.Empty<DnsResourceRecord>())
                     if (record.IsStale)
                         return null;
-            DnsCacheWriteContext noDnssecRetainedContext = GetRetainedPolicyContext(request, noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional);
-            if ((request.DnsCacheWriteContext is null) && ((noDnssecResponse.Answer?.Count ?? 0) + (noDnssecResponse.Authority?.Count ?? 0) + (noDnssecResponse.Additional?.Count ?? 0) > 0) && !HasSamePolicyIdentity(noDnssecRetainedContext, specialRecord.DnsCacheWriteContext))
-                return null;
-            noDnssecResponse.SetDnsCacheWriteContext(noDnssecRetainedContext ?? specialRecord.DnsCacheWriteContext);
             return RestoreNegativeTrustAnchorAnnotations(noDnssecResponse, GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional));
         }
 
@@ -675,17 +589,13 @@ namespace TechnitiumLibrary.Net.Dns
                 return response;
 
             if (HasExpiredNegativeTrustAnchor(glueRecords))
-                return null; //policy used to accept the glue has since expired
-
-            if (!IsPolicyGenerationCompatible(request, response.Answer, response.Authority, glueRecords))
-                return null; //glue was accepted under a different trust policy than the retained answer/authority
+                return null; //the anchor under which this glue was accepted has since expired
 
             List<DnsResourceRecord> newAdditional = new List<DnsResourceRecord>(glueRecords.Count + response.Additional.Count);
             newAdditional.AddRange(glueRecords);
             newAdditional.AddRange(response.Additional); //preserve the existing OPT record, if any
 
             DnsDatagram attached = response.CloneRetainingResolverProvenance(additional: newAdditional);
-            attached.SetDnsCacheWriteContext(GetRetainedPolicyContext(request, response.Answer, response.Authority, newAdditional) ?? response.DnsCacheWriteContext);
             return attached;
         }
 
@@ -702,8 +612,6 @@ namespace TechnitiumLibrary.Net.Dns
                 IReadOnlyList<DnsResourceRecord> positiveCacheRecords = entry.QueryPositiveCache(question.Type);
                 if (positiveCacheRecords.Count > 0)
                 {
-                    if (!IsPolicyGenerationCompatible(request, positiveCacheRecords))
-                        goto beforeFindClosestNameServers;
 
                     DnsSpecialCacheRecordData positiveSpecialRecord = positiveCacheRecords[0].RDATA as DnsSpecialCacheRecordData;
                     DnsDatagram positiveCachedResponse = GetSpecialCachedResponse(request, positiveSpecialRecord);
@@ -737,8 +645,6 @@ namespace TechnitiumLibrary.Net.Dns
                 IReadOnlyList<DnsResourceRecord> answers = entry.QueryRecords(qtype, false);
                 if (answers.Count > 0)
                 {
-                    if (!IsPolicyGenerationCompatible(request, answers))
-                        goto beforeFindClosestNameServers;
 
                     DnsResourceRecord firstRR = answers[0];
 
@@ -834,11 +740,8 @@ namespace TechnitiumLibrary.Net.Dns
 
                     if (HasExpiredNegativeTrustAnchor(answers, authority))
                         goto beforeFindClosestNameServers;
-                    if (!IsPolicyGenerationCompatible(request, answers, authority, additional))
-                        goto beforeFindClosestNameServers;
 
                     DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(answers, authority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, answers, authority, additional);
-                    cachedResponse.SetDnsCacheWriteContext(GetRetainedPolicyContext(request, answers, authority, additional));
                     return Task.FromResult(cachedResponse);
                 }
             }
@@ -864,19 +767,14 @@ namespace TechnitiumLibrary.Net.Dns
                 IReadOnlyList<DnsResourceRecord> closestAuthority = GetClosestReferralNameServers(domain, request.DnssecOk);
                 if (closestAuthority is not null)
                 {
-                    if (!IsPolicyGenerationCompatible(request, closestAuthority))
-                        return Task.FromResult<DnsDatagram>(null);
 
                     IReadOnlyList<DnsResourceRecord> additionalRecords = GetAdditionalRecords(closestAuthority);
 
-                    if (!IsPolicyGenerationCompatible(request, closestAuthority, additionalRecords))
-                        return Task.FromResult<DnsDatagram>(null);
 
                     if (HasExpiredNegativeTrustAnchor(closestAuthority))
                         return Task.FromResult<DnsDatagram>(null);
 
                     DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(null, closestAuthority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, null, closestAuthority, additionalRecords);
-                    cachedResponse.SetDnsCacheWriteContext(GetRetainedPolicyContext(request, closestAuthority, additionalRecords));
                     return Task.FromResult(cachedResponse);
                 }
             }
@@ -889,98 +787,19 @@ namespace TechnitiumLibrary.Net.Dns
             if (!response.IsResponse || response.Truncation || (response.Question.Count == 0))
                 return; //ineligible response
 
-            //Reject mixed-policy responses before stamping records. This prevents composition or
-            //custom callers from laundering records produced under different trust policies.
-            //
-            //An unstamped ordinary record means different things depending on whether the response
-            //itself carries a policy identity. When it does, the resolver has already vouched for
-            //the whole response under one captured policy and the stamping loop below fills every
-            //ordinary record in - that is the normal path for every fresh resolver answer, so a
-            //null record context there is expected, not suspicious. When the response has no
-            //identity of its own, there is nothing authoritative to stamp with, and adopting one
-            //record's identity for its unscoped neighbours would assert provenance those records
-            //never proved; that mixture is rejected instead.
-            //
-            //A special cache record is stricter in both cases: its context is baked into the
-            //immutable wrapper at construction time and the stamping loop cannot supply it later,
-            //so a missing context can never be repaired and must be rejected whenever any policy
-            //is in force.
-            DnsCacheWriteContext writeContext = response.DnsCacheWriteContext;
-            bool conflictingPolicyContext = false;
-            bool sawUnscopedOrdinaryRecord = false;
-            bool sawUnscopedImmutableRecord = false;
-            void ObserveContext(DnsCacheWriteContext context, bool immutable)
-            {
-                if (conflictingPolicyContext)
-                    return;
-                if (context is null)
-                {
-                    if (immutable)
-                        sawUnscopedImmutableRecord = true;
-                    else
-                        sawUnscopedOrdinaryRecord = true;
-                    return;
-                }
-                if (writeContext is null)
-                    writeContext = context;
-                else if (!HasSamePolicyIdentity(writeContext, context))
-                    conflictingPolicyContext = true;
-            }
-            foreach (IReadOnlyList<DnsResourceRecord> section in new[] { response.Answer, response.Authority, response.Additional })
-            {
-                foreach (DnsResourceRecord record in section)
-                {
-                    if (record.Type == DnsResourceRecordType.OPT)
-                        continue;
-
-                    bool isSpecialCacheRecord = record.RDATA is DnsSpecialCacheRecordData;
-
-                    ObserveContext(record.GetDnssecCacheMetadata().DnsCacheWriteContext, isSpecialCacheRecord);
-                    if (record.RDATA is DnsSpecialCacheRecordData specialRecord)
-                    {
-                        ObserveContext(specialRecord.DnsCacheWriteContext, true);
-                        foreach (IReadOnlyList<DnsResourceRecord> nestedSection in new[] { specialRecord.OriginalAnswer, specialRecord.OriginalAuthority, specialRecord.OriginalAdditional })
-                            foreach (DnsResourceRecord nestedRecord in nestedSection)
-                            {
-                                if (nestedRecord.Type == DnsResourceRecordType.OPT)
-                                    continue;
-                                ObserveContext(nestedRecord.GetDnssecCacheMetadata().DnsCacheWriteContext, true);
-                            }
-                    }
-                }
-            }
-            if (conflictingPolicyContext)
-                return;
-            if (sawUnscopedImmutableRecord && (writeContext is not null))
-                return; //an immutable wrapper's missing identity can never be repaired by stamping
-            if ((response.DnsCacheWriteContext is null) && sawUnscopedOrdinaryRecord && (writeContext is not null))
-                return; //mixed scoped/unscoped provenance with no response identity to vouch for it
-            if ((response.DnsCacheWriteContext is null) && (writeContext is not null))
-                response.SetDnsCacheWriteContext(writeContext);
-
             //set expiry for all records
             {
                 foreach (DnsResourceRecord record in response.Answer)
-                {
-                    if (response.DnsCacheWriteContext is not null)
-                        record.SetDnsCacheWriteContext(response.DnsCacheWriteContext);
                     record.SetExpiry(_minimumRecordTtl, _maximumRecordTtl, _serveStaleTtl, _serveStaleAnswerTtl);
-                }
 
                 foreach (DnsResourceRecord record in response.Authority)
-                {
-                    if (response.DnsCacheWriteContext is not null)
-                        record.SetDnsCacheWriteContext(response.DnsCacheWriteContext);
                     record.SetExpiry(_minimumRecordTtl, _maximumRecordTtl, _serveStaleTtl, _serveStaleAnswerTtl);
-                }
 
                 foreach (DnsResourceRecord record in response.Additional)
                 {
                     if (record.Type == DnsResourceRecordType.OPT)
                         continue;
 
-                    if (response.DnsCacheWriteContext is not null)
-                        record.SetDnsCacheWriteContext(response.DnsCacheWriteContext);
                     record.SetExpiry(_minimumRecordTtl, _maximumRecordTtl, _serveStaleTtl, _serveStaleAnswerTtl);
                 }
             }
@@ -1415,7 +1234,7 @@ namespace TechnitiumLibrary.Net.Dns
                                         if (authority.Name.Equals(zoneCut, StringComparison.OrdinalIgnoreCase))
                                         {
                                             //empty response with authority name servers that match the zone cut; dont cache authority section with NS records
-                                            DnsResourceRecord record = new DnsResourceRecord(question.Name, question.Type, question.Class, _negativeRecordTtl, new DnsSpecialCacheRecordData(DnsSpecialCacheRecordType.NegativeCache, response.RCODE, [question], Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), response.EDNS, response.DnsClientExtendedErrors, response.GetResponseOnlyNegativeTrustAnchorsForRetainedSections(Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>()), response.DnsCacheWriteContext));
+                                            DnsResourceRecord record = new DnsResourceRecord(question.Name, question.Type, question.Class, _negativeRecordTtl, new DnsSpecialCacheRecordData(DnsSpecialCacheRecordType.NegativeCache, response.RCODE, [question], Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), response.EDNS, response.DnsClientExtendedErrors, response.GetResponseOnlyNegativeTrustAnchorsForRetainedSections(Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>())));
                                             record.SetExpiry(_minimumRecordTtl, _maximumRecordTtl, _serveStaleTtl, _serveStaleAnswerTtl);
 
                                             InternalCacheRecords(new DnsResourceRecord[] { record }, eDnsClientSubnet, response.Metadata);
@@ -1649,7 +1468,6 @@ namespace TechnitiumLibrary.Net.Dns
 
             readonly List<EDnsOption> _ednsOptions;
             IReadOnlyList<NegativeTrustAnchorInfo> _appliedNegativeTrustAnchors;
-            readonly DnsCacheWriteContext _dnsCacheWriteContext;
 
             readonly IReadOnlyList<DnsResourceRecord> _noDnssecAnswer;
             readonly IReadOnlyList<DnsResourceRecord> _noDnssecAuthority;
@@ -1659,21 +1477,20 @@ namespace TechnitiumLibrary.Net.Dns
             #region constructor
 
             public DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsDatagram response)
-                : this(type, response.RCODE, response.Question, response.Answer, response.Authority, response.Additional, response.EDNS, response.DnsClientExtendedErrors, response.ResponseOnlyNegativeTrustAnchors, response.DnsCacheWriteContext)
+                : this(type, response.RCODE, response.Question, response.Answer, response.Authority, response.Additional, response.EDNS, response.DnsClientExtendedErrors, response.ResponseOnlyNegativeTrustAnchors)
             { }
 
             public DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsQuestionRecord> question, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, DnsDatagramEdns edns, IReadOnlyList<EDnsExtendedDnsErrorOptionData> dnsClientExtendedErrors)
                 : this(type, rcode, question, answer, authority, additional, edns, dnsClientExtendedErrors, null)
             { }
 
-            public DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsQuestionRecord> question, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, DnsDatagramEdns edns, IReadOnlyList<EDnsExtendedDnsErrorOptionData> dnsClientExtendedErrors, IReadOnlyList<NegativeTrustAnchorInfo> appliedNegativeTrustAnchors, DnsCacheWriteContext dnsCacheWriteContext = null)
+            public DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsQuestionRecord> question, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, DnsDatagramEdns edns, IReadOnlyList<EDnsExtendedDnsErrorOptionData> dnsClientExtendedErrors, IReadOnlyList<NegativeTrustAnchorInfo> appliedNegativeTrustAnchors)
             {
                 _type = type;
                 _rcode = rcode;
                 _answer = answer;
                 _authority = authority;
                 _additional = additional;
-                _dnsCacheWriteContext = dnsCacheWriteContext;
                 if ((appliedNegativeTrustAnchors is not null) && (appliedNegativeTrustAnchors.Count > 0))
                 {
                     Dictionary<string, NegativeTrustAnchorInfo> anchors = new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.OrdinalIgnoreCase);
@@ -1767,7 +1584,7 @@ namespace TechnitiumLibrary.Net.Dns
                 }
             }
 
-            private DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, List<EDnsOption> ednsOptions, IReadOnlyList<NegativeTrustAnchorInfo> appliedNegativeTrustAnchors, DnsCacheWriteContext dnsCacheWriteContext)
+            private DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, List<EDnsOption> ednsOptions, IReadOnlyList<NegativeTrustAnchorInfo> appliedNegativeTrustAnchors)
             {
                 _type = type;
                 _rcode = rcode;
@@ -1776,7 +1593,6 @@ namespace TechnitiumLibrary.Net.Dns
                 _additional = additional;
                 _ednsOptions = ednsOptions;
                 _appliedNegativeTrustAnchors = appliedNegativeTrustAnchors;
-                _dnsCacheWriteContext = dnsCacheWriteContext;
 
                 //get answer and authority section with no dnssec records
                 _noDnssecAnswer = FilterDnssecAnswerRecords(_answer);
@@ -1828,17 +1644,22 @@ namespace TechnitiumLibrary.Net.Dns
                             }
                         }
 
-                        DnsCacheWriteContext dnsCacheWriteContext = null;
+                        //Versions 4 to 6 additionally carried a DNSSEC policy-generation stamp used
+                        //to reject entries produced under a superseded trust policy. That mechanism
+                        //was removed - see deviation D5 on INegativeTrustAnchorProvider - so the
+                        //fields are read and discarded to stay loadable for anyone who ran those
+                        //revisions.
                         if ((version >= 4) && bR.ReadBoolean())
                         {
-                            long generation = bR.ReadInt64();
-                            DateTimeOffset capturedOnUtc = new DateTimeOffset(bR.ReadInt64(), TimeSpan.Zero);
-                            Guid policyScopeId = version >= 5 ? new Guid(bR.ReadBytes(16)) : Guid.Empty;
-                            Guid policyRevisionId = version >= 6 ? new Guid(bR.ReadBytes(16)) : Guid.Empty;
-                            dnsCacheWriteContext = new DnsCacheWriteContext(generation, capturedOnUtc, policyScopeId, policyRevisionId);
+                            bR.ReadInt64(); //policy generation
+                            bR.ReadInt64(); //policy capture time
+                            if (version >= 5)
+                                bR.ReadBytes(16); //policy scope id
+                            if (version >= 6)
+                                bR.ReadBytes(16); //policy revision id
                         }
 
-                        return new DnsSpecialCacheRecordData(type, rcode, answer, authority, additional, ednsOptions, appliedNegativeTrustAnchors is null ? null : Array.AsReadOnly(appliedNegativeTrustAnchors), dnsCacheWriteContext);
+                        return new DnsSpecialCacheRecordData(type, rcode, answer, authority, additional, ednsOptions, appliedNegativeTrustAnchors is null ? null : Array.AsReadOnly(appliedNegativeTrustAnchors));
 
                     default:
                         throw new InvalidDataException("DnsCache.DnsSpecialCacheRecordData format version not supported.");
@@ -1971,7 +1792,7 @@ namespace TechnitiumLibrary.Net.Dns
 
             public void WriteCacheRecordTo(BinaryWriter bW, Action writeTagInfo)
             {
-                bW.Write((byte)6); //version
+                bW.Write((byte)3); //version: 3 adds applied negative trust anchors to version 2
 
                 bW.Write((byte)_type);
                 bW.Write((ushort)_rcode);
@@ -2005,14 +1826,6 @@ namespace TechnitiumLibrary.Net.Dns
                     bW.Write(_appliedNegativeTrustAnchors[i].ExpiresOnUtc.UtcDateTime.Ticks);
                 }
 
-                bW.Write(_dnsCacheWriteContext is not null);
-                if (_dnsCacheWriteContext is not null)
-                {
-                    bW.Write(_dnsCacheWriteContext.DnssecPolicyGeneration);
-                    bW.Write(_dnsCacheWriteContext.PolicyCapturedOnUtc.UtcDateTime.Ticks);
-                    bW.Write(_dnsCacheWriteContext.PolicyScopeId.ToByteArray());
-                    bW.Write(_dnsCacheWriteContext.PolicyRevisionId.ToByteArray());
-                }
             }
 
             public void CopyExtendedDnsErrorsFrom(DnsSpecialCacheRecordData other)
@@ -2052,9 +1865,6 @@ namespace TechnitiumLibrary.Net.Dns
                     if (!_additional.Equals(other._additional))
                         return false;
 
-                    if (_dnsCacheWriteContext != other._dnsCacheWriteContext)
-                        return false;
-
                     int anchorCount = _appliedNegativeTrustAnchors?.Count ?? 0;
                     if (anchorCount != (other._appliedNegativeTrustAnchors?.Count ?? 0))
                         return false;
@@ -2087,7 +1897,6 @@ namespace TechnitiumLibrary.Net.Dns
                 hash.Add(_answer.GetArrayHashCode());
                 hash.Add(_authority.GetArrayHashCode());
                 hash.Add(_additional.GetArrayHashCode());
-                hash.Add(_dnsCacheWriteContext);
                 int anchorsHash = 0;
                 if (_appliedNegativeTrustAnchors is not null)
                     foreach (NegativeTrustAnchorInfo anchor in _appliedNegativeTrustAnchors)
@@ -2262,9 +2071,6 @@ namespace TechnitiumLibrary.Net.Dns
 
             public IReadOnlyList<NegativeTrustAnchorInfo> AppliedNegativeTrustAnchors
             { get { return _appliedNegativeTrustAnchors ?? Array.Empty<NegativeTrustAnchorInfo>(); } }
-
-            public DnsCacheWriteContext DnsCacheWriteContext
-            { get { return _dnsCacheWriteContext; } }
 
             public override int UncompressedLength
             { get { throw new InvalidOperationException(); } }

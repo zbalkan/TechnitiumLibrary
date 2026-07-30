@@ -1,4 +1,4 @@
-﻿/*
+/*
 Technitium Library
 Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 */
@@ -10,7 +10,10 @@ using TechnitiumLibrary.Net.Dns.ResourceRecords;
 namespace TechnitiumLibrary.Net.Dns.Dnssec
 {
     /// <summary>Describes an active, temporary DNSSEC negative trust anchor.</summary>
-    /// <param name="Name">Canonical ASCII, lower-case owner name without a trailing dot.</param>
+    /// <param name="Name">
+    /// Canonical ASCII, lower-case owner name without a trailing dot. The empty name is the root
+    /// zone; see deviation D1 on <see cref="INegativeTrustAnchorProvider"/>.
+    /// </param>
     /// <param name="ExpiresOnUtc">The absolute time at which the anchor expires.</param>
     public sealed record NegativeTrustAnchorInfo(string Name, DateTimeOffset ExpiresOnUtc);
 
@@ -21,11 +24,11 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         /// itself or sits beneath it in the tree.
         /// </summary>
         /// <remarks>
-        /// This is the single definition of NTA coverage. Every site that needs it - anchor
-        /// lookup, snapshot lookup, and the positive-trust-anchor restart rule - must use this
+        /// This is the single definition of NTA coverage. Every site that needs it must use this
         /// rather than open-coding a suffix test, because the root zone is the empty name and a
         /// literal <c>EndsWith("." + anchorName)</c> silently fails to match anything against it.
-        /// See deviation D1 on <see cref="INegativeTrustAnchorProvider"/>.
+        /// Two such tests previously shipped, one of which suppressed the RFC 7646 section 5
+        /// positive-trust-anchor restart below a root anchor.
         /// </remarks>
         internal static bool IsNameCoveredByAnchorName(string domainName, string anchorName)
         {
@@ -38,7 +41,6 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
             return domainName.Equals(anchorName, StringComparison.OrdinalIgnoreCase) ||
                 domainName.EndsWith("." + anchorName, StringComparison.OrdinalIgnoreCase);
         }
-
 
         internal static NegativeTrustAnchorInfo MergeMostRestrictive(this NegativeTrustAnchorInfo existing, NegativeTrustAnchorInfo candidate)
         {
@@ -62,21 +64,34 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// <summary>Library-owned DNSSEC validation metadata for cache implementations.</summary>
     public sealed record DnssecCacheMetadata(
         DnssecStatus Status,
-        NegativeTrustAnchorInfo AppliedNegativeTrustAnchor,
-        DnsCacheWriteContext DnsCacheWriteContext = null);
+        NegativeTrustAnchorInfo AppliedNegativeTrustAnchor);
 
     /// <summary>
-    /// Supplies active negative trust anchors to DNSSEC validation. Implementations must be
-    /// thread-safe, synchronous, non-blocking, and return the most-specific covering anchor.
+    /// Supplies the negative trust anchors currently configured by the operator. Implementations
+    /// must be thread-safe, synchronous and non-blocking; the resolver calls this once at the
+    /// start of a logical resolution and uses its own immutable copy thereafter.
     /// </summary>
     /// <remarks>
-    /// Use <see cref="IDnssecTrustPolicyProvider"/> instead when positive trust anchors and NTAs
-    /// may coexist so both policy components are captured atomically.
+    /// <para>
+    /// <b>Caller obligations.</b> A negative trust anchor suspends DNSSEC validation for a
+    /// subtree, so the surrounding lifecycle is security-relevant and is deliberately not
+    /// implemented here - the library has no operator interface, no persistence, no scheduler and
+    /// no authority to evict another component's cache. Implementations of this interface own:
+    /// </para>
     ///
-    /// Changing active anchors does not invalidate resolver state. Callers must invalidate
-    /// affected positive, negative, DNSSEC failure, DS, DNSKEY, and delegation cache entries.
-    /// Invalidation must also prevent resolutions captured under an older policy generation from
-    /// repopulating the cache after the policy change.
+    /// <list type="number">
+    /// <item>Capping anchor lifetime. RFC 7646 section 5: the lifetime "SHOULD NOT exceed a
+    /// week".</item>
+    /// <item>Periodically retrying validation while an anchor is active, and removing the anchor
+    /// once validation succeeds (RFC 7646 section 5).</item>
+    /// <item>Flushing cached entries at and below the anchor node whenever an anchor is added or
+    /// removed. RFC 7646 section 5 requires this on removal; it is equally necessary on addition,
+    /// since already-cached secure records are otherwise unaffected until their TTL expires.
+    /// Anchor <i>expiry</i> is handled by the library and needs no flush - records carrying an
+    /// expired anchor are rejected on read.</item>
+    /// <item>Deciding whether an EDE 33 diagnostic reaches clients, and how verbose it is. The
+    /// library records provenance and exposes a generator; it never emits on its own.</item>
+    /// </list>
     ///
     /// <para>
     /// <b>Documented deviations.</b> Where this implementation departs from RFC 7646, RFC 8914 or
@@ -107,151 +122,117 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     ///
     /// <item><b>D3 - emission is off unless the application asks for it.</b> The draft says an
     /// operator applying an NTA "SHOULD return this EDE in affected responses". This library never
-    /// emits on its own; it preserves provenance and leaves the decision to the consuming
-    /// application, which owns the operator-facing setting. The reference implementation reached
-    /// the same position, shipping the feature disabled by default. Satisfying the draft's SHOULD
-    /// is consequently a deployment responsibility, not a library guarantee.</item>
+    /// emits on its own. The reference implementation reached the same position, shipping the
+    /// feature disabled by default. Satisfying the draft's SHOULD is consequently a deployment
+    /// responsibility, not a library guarantee.</item>
     ///
     /// <item><b>D4 - anchor lifetime is not capped.</b> RFC 7646 section 5 says an NTA lifetime
-    /// "SHOULD NOT exceed a week". Anchor names are validated at capture but expiry is not, since
-    /// the acceptable ceiling is operator policy and the provider is the component that owns it.
-    /// Implementations of this interface are responsible for the cap, for periodically retrying
-    /// validation while an anchor is active, and for removing anchors once validation
-    /// succeeds.</item>
+    /// "SHOULD NOT exceed a week". Anchor names are validated and canonicalized at capture but
+    /// expiry is not, since the acceptable ceiling is operator policy. See caller obligation 1
+    /// above.</item>
     ///
     /// <item><b>D5 - cache invalidation is delegated.</b> RFC 7646 section 5 says that when
     /// removing an NTA "the implementation SHOULD remove all cached entries at and below the NTA
-    /// node". A library cache cannot know when operator policy changed, so callers must perform
-    /// that flush - on addition as well as removal, since a newly added anchor otherwise has no
-    /// effect on already-cached secure records until their TTL expires.</item>
+    /// node". A library cache cannot know when operator policy changed. See caller obligation 3
+    /// above. An earlier revision carried a policy-generation stamp on every cached record to
+    /// enforce this in-library; it was removed because it cost roughly 800 lines, invalidated the
+    /// whole cache rather than the affected subtree, and duplicated a remedy the RFC already
+    /// assigns to the operator.</item>
     ///
     /// <item><b>D6 - EXTRA-TEXT carries structured data.</b> RFC 8914 section 2 describes
     /// EXTRA-TEXT as "intended for human consumption (not automated parsing)". The draft
     /// nonetheless registers the JSON names "d" and "t" for exactly this field, so the structured
-    /// form is used when the application requests it. The root zone is rendered as "." rather than
-    /// the empty string the draft's "no trailing period" rule would imply, because an empty "d"
-    /// is not a usable domain name representation for a consumer.</item>
+    /// form is available when the application requests it. The root zone is rendered as "." rather
+    /// than the empty string the draft's "no trailing period" rule would imply, because an empty
+    /// "d" is not a usable domain name representation for a consumer.</item>
     /// </list>
     /// </remarks>
     public interface INegativeTrustAnchorProvider
     {
-        /// <summary>Captures one immutable policy view for a logical resolution.</summary>
-        INegativeTrustAnchorSnapshot CaptureSnapshot();
-    }
-
-    /// <summary>Atomically supplies positive and negative DNSSEC trust policy.</summary>
-    public interface IDnssecTrustPolicyProvider
-    {
-        /// <summary>Captures one immutable policy generation for a complete logical resolution.</summary>
-        DnssecTrustPolicySnapshot CaptureSnapshot();
-    }
-
-    public sealed record DnssecTrustPolicySnapshot(
-        long Generation,
-        DateTimeOffset CapturedOnUtc,
-        INegativeTrustAnchorSnapshot NegativeTrustAnchors,
-        IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> PositiveTrustAnchors,
-        Guid PolicyScopeId,
-        Guid PolicyRevisionId);
-
-    /// <summary>
-    /// An immutable, resolver-ready DNSSEC policy view shared with cache enforcement.
-    /// </summary>
-    /// <remarks>
-    /// This type is deliberately opaque: it can only be produced by
-    /// <see cref="DnsClient.CaptureDnssecPolicy"/>, never constructed directly by a consuming
-    /// application, and it exposes no accessor to the trust anchor material it wraps. An earlier
-    /// revision exposed <c>PositiveTrustAnchors</c>/<c>RootTrustAnchors</c> as public properties;
-    /// since those were the exact <see cref="Dictionary{TKey,TValue}"/> and array-backed
-    /// <see cref="IReadOnlyList{T}"/> instances used internally, a caller could downcast and
-    /// mutate them (or mutate a <c>DsRecordData.Digest</c> byte array reachable from
-    /// <c>RootTrustAnchors</c>) after capture, then hand the same object back for reuse - so the
-    /// resolver would use the tampered trust material while still reporting the original,
-    /// unrelated cache revision. Keeping the captured <see cref="DnsClient.DnssecResolutionPolicySnapshot"/>
-    /// entirely private, with no public path back to it, removes that mutation channel: the only
-    /// party that can ever read the wrapped trust anchors is this library's own resolution code,
-    /// via <see cref="Snapshot"/>, which is <see langword="internal"/>.
-    /// </remarks>
-    public sealed class DnssecEffectivePolicy
-    {
-        readonly DnsClient.DnssecResolutionPolicySnapshot _snapshot;
-
-        internal DnssecEffectivePolicy(DnsClient.DnssecResolutionPolicySnapshot snapshot)
-        {
-            _snapshot = snapshot;
-        }
-
-        /// <summary>Gets the library-private snapshot this policy wraps. Never exposed publicly.</summary>
-        internal DnsClient.DnssecResolutionPolicySnapshot Snapshot
-        { get { return _snapshot; } }
-
-        /// <summary>Gets the cache write context identifying this policy for cache enforcement.</summary>
-        public DnsCacheWriteContext CacheContext
-        { get { return new DnsCacheWriteContext(_snapshot.Generation, _snapshot.CapturedOnUtc, _snapshot.PolicyScopeId, _snapshot.PolicyRevisionId); } }
-    }
-
-    public interface INegativeTrustAnchorSnapshot
-    {
-        /// <summary>Gets the stable identity of the policy domain that produced this snapshot.</summary>
-        Guid PolicyScopeId { get; }
-
-        /// <summary>Gets the immutable identity of the policy semantics represented by this snapshot.</summary>
-        Guid PolicyRevisionId { get; }
-
-        /// <summary>Gets the application-defined policy generation represented by this snapshot.</summary>
-        long Generation { get; }
-
-        /// <summary>Gets the instant at which this immutable policy view was captured.</summary>
-        DateTimeOffset CapturedOnUtc { get; }
-
         /// <summary>
-        /// Gets every negative trust anchor active in this snapshot. The resolver reads this once,
-        /// at capture time, to build its own frozen copy of the policy - implementations must
-        /// return a view that reflects only the anchors active at <see cref="CapturedOnUtc"/> and
-        /// must not change what it yields afterward.
+        /// Returns the negative trust anchors currently in force. Called once per logical
+        /// resolution; the returned collection is copied immediately and never retained.
         /// </summary>
-        IReadOnlyCollection<NegativeTrustAnchorInfo> Anchors { get; }
-
-        bool TryGetCoveringAnchor(string domainName, out NegativeTrustAnchorInfo anchor);
+        IReadOnlyCollection<NegativeTrustAnchorInfo> GetActiveAnchors();
     }
 
     /// <summary>
-    /// A library-owned, immutable negative trust anchor snapshot built by copying every anchor out
-    /// of an externally supplied <see cref="INegativeTrustAnchorSnapshot"/> at capture time.
+    /// An immutable, canonicalized set of negative trust anchors with most-specific-match lookup.
     /// </summary>
     /// <remarks>
-    /// An external provider's own snapshot object could be backed by a live, mutable collection
-    /// that continues to change after capture even though the provider contract calls the
-    /// snapshot immutable - the resolver has no way to enforce that promise on an object it does
-    /// not own. Materializing <see cref="INegativeTrustAnchorSnapshot.Anchors"/> into this frozen
-    /// wrapper once, at capture, and never touching the original object again closes that gap: the
-    /// resolver's entire view of active anchors for one logical resolution is fixed at capture
-    /// time, matching the guarantee the cache scope/revision/generation identity already implies.
+    /// The resolver never consults an <see cref="INegativeTrustAnchorProvider"/> directly beyond
+    /// the single call that builds this set. A provider's collection may be backed by live,
+    /// mutable state, and a validation decision that changed midway through one resolution could
+    /// leave a partially-validated chain, so the anchors are copied, canonicalized and frozen up
+    /// front. Canonicalization also merges duplicate owner names to the earliest expiry, so the
+    /// effective lifetime cannot depend on enumeration order.
     /// </remarks>
-    internal sealed class FrozenNegativeTrustAnchorSnapshot : INegativeTrustAnchorSnapshot
+    internal sealed class NegativeTrustAnchorSet
     {
+        public static readonly NegativeTrustAnchorSet Empty = new NegativeTrustAnchorSet(Array.Empty<NegativeTrustAnchorInfo>());
+
         readonly IReadOnlyList<NegativeTrustAnchorInfo> _anchors;
 
-        public FrozenNegativeTrustAnchorSnapshot(Guid policyScopeId, Guid policyRevisionId, long generation, DateTimeOffset capturedOnUtc, IReadOnlyList<NegativeTrustAnchorInfo> anchors)
+        private NegativeTrustAnchorSet(IReadOnlyList<NegativeTrustAnchorInfo> anchors)
         {
-            PolicyScopeId = policyScopeId;
-            PolicyRevisionId = policyRevisionId;
-            Generation = generation;
-            CapturedOnUtc = capturedOnUtc;
             _anchors = anchors;
         }
 
-        public Guid PolicyScopeId { get; }
+        /// <summary>
+        /// Copies, canonicalizes and freezes the anchors a provider reports. A provider that
+        /// throws, or an anchor whose name cannot be canonicalized, yields no anchor rather than
+        /// an error: an unusable NTA leaves validation enabled, which is the fail-closed outcome.
+        /// </summary>
+        public static NegativeTrustAnchorSet Capture(INegativeTrustAnchorProvider provider, Func<string, string> canonicalize)
+        {
+            if (provider is null)
+                return Empty;
 
-        public Guid PolicyRevisionId { get; }
+            IReadOnlyCollection<NegativeTrustAnchorInfo> reported;
+            try
+            {
+                reported = provider.GetActiveAnchors();
+            }
+            catch
+            {
+                return Empty; //NTA policy must not become a DNS availability dependency
+            }
 
-        public long Generation { get; }
+            if ((reported is null) || (reported.Count == 0))
+                return Empty;
 
-        public DateTimeOffset CapturedOnUtc { get; }
+            Dictionary<string, NegativeTrustAnchorInfo> anchors = new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.Ordinal);
 
-        public IReadOnlyCollection<NegativeTrustAnchorInfo> Anchors
-        { get { return (IReadOnlyCollection<NegativeTrustAnchorInfo>)_anchors; } }
+            foreach (NegativeTrustAnchorInfo anchor in reported)
+            {
+                if ((anchor is null) || (anchor.Name is null))
+                    continue;
 
+                string canonicalName = canonicalize(anchor.Name);
+                if (canonicalName is null)
+                    continue;
+
+                NegativeTrustAnchorInfo canonicalAnchor = canonicalName.Equals(anchor.Name, StringComparison.Ordinal) ? anchor : new NegativeTrustAnchorInfo(canonicalName, anchor.ExpiresOnUtc);
+
+                anchors[canonicalName] = anchors.TryGetValue(canonicalName, out NegativeTrustAnchorInfo existing) ? existing.MergeMostRestrictive(canonicalAnchor) : canonicalAnchor;
+            }
+
+            if (anchors.Count == 0)
+                return Empty;
+
+            NegativeTrustAnchorInfo[] frozen = new NegativeTrustAnchorInfo[anchors.Count];
+            anchors.Values.CopyTo(frozen, 0);
+
+            return new NegativeTrustAnchorSet(Array.AsReadOnly(frozen));
+        }
+
+        public int Count
+        { get { return _anchors.Count; } }
+
+        public IReadOnlyList<NegativeTrustAnchorInfo> Anchors
+        { get { return _anchors; } }
+
+        /// <summary>Finds the most specific anchor covering a name, if any.</summary>
         public bool TryGetCoveringAnchor(string domainName, out NegativeTrustAnchorInfo anchor)
         {
             anchor = null;
@@ -259,28 +240,17 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
             if (domainName is null)
                 return false;
 
-            NegativeTrustAnchorInfo best = null;
-
             foreach (NegativeTrustAnchorInfo candidate in _anchors)
             {
-                //An empty candidate name is the root zone, not a missing name (deviation D1), so
-                //coverage is decided by the shared predicate rather than an open-coded suffix test.
-                if ((candidate is null) || (candidate.Name is null))
-                    continue;
-
                 if (!NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(domainName, candidate.Name))
                     continue;
 
                 //Longest owner name wins; the root, at length zero, is the least specific anchor.
-                if ((best is null) || (candidate.Name.Length > best.Name.Length))
-                    best = candidate;
+                if ((anchor is null) || (candidate.Name.Length > anchor.Name.Length))
+                    anchor = candidate;
             }
 
-            if (best is null)
-                return false;
-
-            anchor = best;
-            return true;
+            return anchor is not null;
         }
     }
 }

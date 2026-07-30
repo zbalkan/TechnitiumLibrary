@@ -171,7 +171,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         uint _serveStaleAnswerTtl;
         DnssecStatus _dnssecStatus;
         NegativeTrustAnchorInfo _appliedNegativeTrustAnchor;
-        DnsCacheWriteContext _dnsCacheWriteContext;
 
         #endregion
 
@@ -247,13 +246,18 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                     if ((version >= 3) && bR.ReadBoolean())
                         record._appliedNegativeTrustAnchor = new NegativeTrustAnchorInfo(bR.ReadString(), new DateTimeOffset(bR.ReadInt64(), TimeSpan.Zero));
 
+                    //Versions 4 to 6 additionally carried a DNSSEC policy-generation stamp used to
+                    //reject cache entries produced under a superseded trust policy. That mechanism
+                    //was removed - see deviation D5 on INegativeTrustAnchorProvider - so the fields
+                    //are read and discarded to stay loadable for anyone who ran those revisions.
                     if ((version >= 4) && bR.ReadBoolean())
                     {
-                        long generation = bR.ReadInt64();
-                        DateTimeOffset capturedOnUtc = new DateTimeOffset(bR.ReadInt64(), TimeSpan.Zero);
-                        Guid policyScopeId = version >= 5 ? new Guid(bR.ReadBytes(16)) : Guid.Empty;
-                        Guid policyRevisionId = version >= 6 ? new Guid(bR.ReadBytes(16)) : Guid.Empty;
-                        record._dnsCacheWriteContext = new DnsCacheWriteContext(generation, capturedOnUtc, policyScopeId, policyRevisionId);
+                        bR.ReadInt64(); //policy generation
+                        bR.ReadInt64(); //policy capture time
+                        if (version >= 5)
+                            bR.ReadBytes(16); //policy scope id
+                        if (version >= 6)
+                            bR.ReadBytes(16); //policy revision id
                     }
 
                     readTagInfo(record);
@@ -456,11 +460,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         internal NegativeTrustAnchorInfo AppliedNegativeTrustAnchor
         { get { return _appliedNegativeTrustAnchor; } }
 
-        internal void SetDnsCacheWriteContext(DnsCacheWriteContext context)
-        {
-            _dnsCacheWriteContext = context;
-        }
-
         internal void SetDnssecValidationResult(DnssecStatus dnssecStatus, NegativeTrustAnchorInfo negativeTrustAnchor = null, bool force = false)
         {
             if ((negativeTrustAnchor is not null) && (dnssecStatus != DnssecStatus.Insecure))
@@ -514,7 +513,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
         /// <summary>Gets library-owned DNSSEC metadata required by reconstructing cache implementations.</summary>
         public DnssecCacheMetadata GetDnssecCacheMetadata()
         {
-            return new DnssecCacheMetadata(_dnssecStatus, _appliedNegativeTrustAnchor, _dnsCacheWriteContext);
+            return new DnssecCacheMetadata(_dnssecStatus, _appliedNegativeTrustAnchor);
         }
 
         /// <summary>Clones this record with controlled library-owned DNSSEC cache metadata.</summary>
@@ -523,7 +522,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             ArgumentNullException.ThrowIfNull(metadata);
             DnsResourceRecord record = CloneAs(_type);
             record.SetDnssecValidationResult(metadata.Status, metadata.AppliedNegativeTrustAnchor, true);
-            record.SetDnsCacheWriteContext(metadata.DnsCacheWriteContext);
             return record;
         }
 
@@ -544,7 +542,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             newRecord._serveStaleAnswerTtl = _serveStaleAnswerTtl;
             newRecord._dnssecStatus = _dnssecStatus;
             newRecord._appliedNegativeTrustAnchor = _appliedNegativeTrustAnchor;
-            newRecord._dnsCacheWriteContext = _dnsCacheWriteContext;
 
             newRecord.Tag = Tag;
 
@@ -604,7 +601,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
         public void WriteCacheRecordTo(BinaryWriter bW, Action writeTagInfo)
         {
-            bW.Write((byte)6); //version
+            bW.Write((byte)3); //version: 3 adds the applied negative trust anchor to version 2
 
             bW.Write(_name);
             bW.Write((ushort)_type);
@@ -634,15 +631,6 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             {
                 bW.Write(_appliedNegativeTrustAnchor.Name);
                 bW.Write(_appliedNegativeTrustAnchor.ExpiresOnUtc.UtcDateTime.Ticks);
-            }
-
-            bW.Write(_dnsCacheWriteContext is not null);
-            if (_dnsCacheWriteContext is not null)
-            {
-                bW.Write(_dnsCacheWriteContext.DnssecPolicyGeneration);
-                bW.Write(_dnsCacheWriteContext.PolicyCapturedOnUtc.UtcDateTime.Ticks);
-                bW.Write(_dnsCacheWriteContext.PolicyScopeId.ToByteArray());
-                bW.Write(_dnsCacheWriteContext.PolicyRevisionId.ToByteArray());
             }
 
             writeTagInfo();
