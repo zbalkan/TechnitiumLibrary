@@ -377,76 +377,6 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        private static bool CanSetAuthenticData(IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority)
-        {
-            bool foundData = false;
-            foreach (IReadOnlyList<DnsResourceRecord> records in new[] { answer, authority })
-            {
-                if (records is null)
-                    continue;
-
-                foreach (DnsResourceRecord record in records)
-                {
-                    if ((record.Type == DnsResourceRecordType.RRSIG) || (record.Type == DnsResourceRecordType.OPT))
-                        continue;
-
-                    foundData = true;
-                    if (record.DnssecStatus != DnssecStatus.Secure)
-                        return false;
-                }
-            }
-
-            return foundData;
-        }
-
-        private static bool HasExpiredNegativeTrustAnchor(IReadOnlyList<NegativeTrustAnchorInfo> anchors)
-        {
-            DateTimeOffset now = DateTimeOffset.UtcNow;
-            if (anchors is not null)
-            {
-                foreach (NegativeTrustAnchorInfo anchor in anchors)
-                    if ((anchor is not null) && (anchor.ExpiresOnUtc <= now))
-                        return true;
-            }
-            return false;
-        }
-
-        private static bool HasExpiredNegativeTrustAnchor(params IReadOnlyList<DnsResourceRecord>[] sections)
-        {
-            DateTimeOffset now = DateTimeOffset.UtcNow;
-            foreach (IReadOnlyList<DnsResourceRecord> records in sections)
-            {
-                if (records is null)
-                    continue;
-                foreach (DnsResourceRecord record in records)
-                    if (((record.AppliedNegativeTrustAnchor is not null) && (record.AppliedNegativeTrustAnchor.ExpiresOnUtc <= now)) ||
-                        ((record.RDATA is DnsSpecialCacheRecordData specialRecord) && HasExpiredNegativeTrustAnchor(specialRecord)))
-                        return true;
-            }
-            return false;
-        }
-
-        private static bool HasExpiredNegativeTrustAnchor(DnsSpecialCacheRecordData specialRecord)
-        {
-            return HasExpiredNegativeTrustAnchor(specialRecord.AppliedNegativeTrustAnchors) ||
-                HasExpiredNegativeTrustAnchor(specialRecord.OriginalAnswer, specialRecord.OriginalAuthority, specialRecord.OriginalAdditional);
-        }
-
-        private static DnsDatagram RestoreNegativeTrustAnchorAnnotations(DnsDatagram response, IReadOnlyList<NegativeTrustAnchorInfo> anchors)
-        {
-            if (anchors is not null)
-                foreach (NegativeTrustAnchorInfo anchor in anchors)
-                    if (anchor is not null)
-                        response.AddAppliedNegativeTrustAnchor(anchor);
-
-            //Only provenance (AppliedNegativeTrustAnchors) is restored here. Whether to emit an
-            //EDE-33 option is a presentation decision that belongs to the consuming application,
-            //which can call response.AddNegativeTrustAnchorExtendedDnsErrors() itself; the library
-            //must not decide that on the application's behalf, and must not risk re-adding an EDE
-            //option that a forwarded/original response already carried in its EDNS options.
-            return response;
-        }
-
         /// <summary>
         /// Reconstructs a cached special response while enforcing DNSSEC provenance,
         /// negative-trust-anchor expiry, and AD-bit semantics. Derived cache implementations should
@@ -455,7 +385,7 @@ namespace TechnitiumLibrary.Net.Dns
         /// <returns>The reconstructed response, or null when a cached negative trust anchor has expired or a retained record is stale.</returns>
         protected static DnsDatagram GetSpecialCachedResponse(DnsDatagram request, DnsSpecialCacheRecordData specialRecord)
         {
-            if (HasExpiredNegativeTrustAnchor(specialRecord))
+            if (DnssecCachePolicy.HasExpiredNegativeTrustAnchor(specialRecord))
                 return null;
 
             if (request.DnssecOk)
@@ -472,8 +402,8 @@ namespace TechnitiumLibrary.Net.Dns
                         if (record.IsStale)
                             return null;
                 IReadOnlyList<NegativeTrustAnchorInfo> anchors = GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, answer, authority, additional);
-                DnsDatagram response = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(answer, authority), request.CheckingDisabled, request.CheckingDisabled ? specialRecord.OriginalRCODE : specialRecord.RCODE, request.Question, answer, authority, additional, request.EDNS.UdpPayloadSize, EDnsHeaderFlags.DNSSEC_OK, specialRecord.EDnsOptions);
-                return RestoreNegativeTrustAnchorAnnotations(response, anchors);
+                DnsDatagram response = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, DnssecCachePolicy.CanSetAuthenticData(answer, authority), request.CheckingDisabled, request.CheckingDisabled ? specialRecord.OriginalRCODE : specialRecord.RCODE, request.Question, answer, authority, additional, request.EDNS.UdpPayloadSize, EDnsHeaderFlags.DNSSEC_OK, specialRecord.EDnsOptions);
+                return DnssecCachePolicy.RestoreNegativeTrustAnchorAnnotations(response, anchors);
             }
 
             DnsDatagram noDnssecResponse = request.CheckingDisabled ?
@@ -483,7 +413,7 @@ namespace TechnitiumLibrary.Net.Dns
                 foreach (DnsResourceRecord record in section ?? Array.Empty<DnsResourceRecord>())
                     if (record.IsStale)
                         return null;
-            return RestoreNegativeTrustAnchorAnnotations(noDnssecResponse, GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional));
+            return DnssecCachePolicy.RestoreNegativeTrustAnchorAnnotations(noDnssecResponse, GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional));
         }
 
         private static IReadOnlyList<NegativeTrustAnchorInfo> GetResponseOnlyNegativeTrustAnchorsForRetainedSections(DnsSpecialCacheRecordData specialRecord, params IReadOnlyList<DnsResourceRecord>[] retainedSections)
@@ -658,10 +588,10 @@ namespace TechnitiumLibrary.Net.Dns
                             break;
                     }
 
-                    if (HasExpiredNegativeTrustAnchor(answers, authority))
+                    if (DnssecCachePolicy.HasExpiredNegativeTrustAnchor(answers, authority))
                         goto beforeFindClosestNameServers;
 
-                    DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(answers, authority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, answers, authority, additional);
+                    DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, DnssecCachePolicy.CanSetAuthenticData(answers, authority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, answers, authority, additional);
                     return Task.FromResult(cachedResponse);
                 }
             }
@@ -691,10 +621,10 @@ namespace TechnitiumLibrary.Net.Dns
                     IReadOnlyList<DnsResourceRecord> additionalRecords = GetAdditionalRecords(closestAuthority);
 
 
-                    if (HasExpiredNegativeTrustAnchor(closestAuthority))
+                    if (DnssecCachePolicy.HasExpiredNegativeTrustAnchor(closestAuthority))
                         return Task.FromResult<DnsDatagram>(null);
 
-                    DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(null, closestAuthority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, null, closestAuthority, additionalRecords);
+                    DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, DnssecCachePolicy.CanSetAuthenticData(null, closestAuthority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, null, closestAuthority, additionalRecords);
                     return Task.FromResult(cachedResponse);
                 }
             }
@@ -2069,7 +1999,7 @@ namespace TechnitiumLibrary.Net.Dns
                     if ((record.AppliedNegativeTrustAnchor is not null) && (record.AppliedNegativeTrustAnchor.ExpiresOnUtc <= DateTimeOffset.UtcNow))
                         return []; //policy used to accept this RRSet has expired
 
-                    if ((record.RDATA is DnsSpecialCacheRecordData specialRecord) && HasExpiredNegativeTrustAnchor(specialRecord))
+                    if ((record.RDATA is DnsSpecialCacheRecordData specialRecord) && DnssecCachePolicy.HasExpiredNegativeTrustAnchor(specialRecord))
                         return []; //policy used to accept this special response has expired
 
                     if (skipSpecialCacheRecord && (record.RDATA is DnsSpecialCacheRecordData))
@@ -2280,7 +2210,7 @@ namespace TechnitiumLibrary.Net.Dns
                 {
                     foreach (KeyValuePair<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> entry in _entries)
                     {
-                        if (DnsResourceRecord.IsRRSetStale(entry.Value) || HasExpiredNegativeTrustAnchor(entry.Value))
+                        if (DnsResourceRecord.IsRRSetStale(entry.Value) || DnssecCachePolicy.HasExpiredNegativeTrustAnchor(entry.Value))
                             _entries.TryRemove(entry.Key, out _); //RR Set or accepting NTA is expired
                     }
                 }

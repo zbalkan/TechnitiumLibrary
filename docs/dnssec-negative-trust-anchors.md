@@ -31,7 +31,8 @@ These are enumerated in the XML documentation on `INegativeTrustAnchorProvider` 
 
 | # | Obligation | Source |
 |---|---|---|
-| 1 | **Store and manage anchors** — admin API/UI, persistence, listing | — |
+| 0 | **Migrate the resolve call sites** to `RecursiveResolveWithOptionsAsync`. The legacy overload cannot carry an anchor provider and fails silently | see §3 |
+| 1 | **Store and manage anchors** — admin API/UI, persistence, listing. Normalize operator input with `NegativeTrustAnchorInfo.TryCanonicalizeName` and store the canonical form | — |
 | 2 | **Cap anchor lifetime.** "The lifetime SHOULD NOT exceed a week" | RFC 7646 §5 |
 | 3 | **Retry validation periodically** while an anchor is active, and remove it once validation succeeds | RFC 7646 §5 |
 | 4 | **Flush cached entries at and below the anchor node** when an anchor is **added or removed** | RFC 7646 §5 |
@@ -64,7 +65,20 @@ sealed class ServerNegativeTrustAnchorProvider : INegativeTrustAnchorProvider
 }
 ```
 
-Pass it in through `RecursiveResolveOptions`:
+### Migrate the resolve call sites first
+
+`DnsServer.cs:5027` and `:5354` currently call the legacy overload:
+
+```csharp
+await DnsClient.RecursiveResolveAsync(question, dnsCache, _proxy, ..., dnssecValidation, ...)
+```
+
+**That overload cannot carry trust policy.** It has no parameter for an anchor provider, so it
+always resolves against the built-in root anchors — silently, with no error and no warning,
+however the server's policy is configured. Until both call sites move to the options overload,
+nothing else in this document has any effect.
+
+Pass the provider in through `RecursiveResolveOptions`:
 
 ```csharp
 RecursiveResolveOptions options = new RecursiveResolveOptions
@@ -140,41 +154,44 @@ condition. Because emission here is server-owned, the library cannot make this c
 **Guard your emission on whether *this* query was subject to validation** — which depends on the
 server's DNSSEC mode and, in a process-style mode, on the client having set AD or DO.
 
-## 7. Cache implementation requirements
+## 7. Where the obligations land in the server
 
-**These apply to `CacheZoneManager` in full.** Deriving from `DnsCache` does not deliver them.
+The resolver's counterparty is **not** `CacheZoneManager`. It is `ResolverDnsCache`, a facade:
 
-`CacheZoneManager : DnsCache` overrides `QueryAsync`, `CacheRecords`, `RemoveExpiredRecords` and
-`Flush`, and calls `base` on none of them. It stores records in its own `CacheZone` tree, so
-`DnsCache`'s entry storage, lookup and maintenance never execute. In practice it derives from
-`DnsCache` to reach the nested `DnsSpecialCacheRecordData` type and satisfy `IDnsCache` — it
-inherits the *contract*, not the behaviour. Read the list below as applying to a from-scratch
+```
+DnsClient  →  ResolverDnsCache : IDnsCache        ← what RecursiveResolve* is handed
+                 ├── AuthZoneManager              (authoritative data)
+                 ├── DNS app handlers
+                 ├── conditional forwarders
+                 └── CacheZoneManager : DnsCache  ← resolver record storage
+```
+
+`ResolverDnsCache.QueryAsync` merges four sources; only the fourth holds records the resolver
+cached, so only the fourth can carry anchor provenance. The obligations below therefore belong to
+**`CacheZoneManager`**, and `ResolverDnsCache` satisfies them by delegation.
+
+**Deriving from `DnsCache` does not deliver them.** `CacheZoneManager : DnsCache` overrides
+`QueryAsync`, `CacheRecords`, `RemoveExpiredRecords` and `Flush`, calling `base` on none of them,
+and stores records in its own `CacheZone` tree. `DnsCache`'s storage, lookup and maintenance never
+execute. It derives in order to reach the nested `DnsSpecialCacheRecordData` type and satisfy
+`IDnsCache` — it inherits the contract, not the behaviour. Read this as applying to a from-scratch
 implementation, because that is effectively what it is.
 
-- **Preserve** per-record provenance across store and retrieve, using
-  `DnsResourceRecord.GetDnssecCacheMetadata()` and `CloneWithDnssecCacheMetadata(...)`, together
-  with the response's applied-anchor list. Losing it loses both the expiry check and the EDE.
-  *In-memory this is free* — `CacheZone` holds `DnsResourceRecord` instances directly, so the
-  anchor travels with the record. *On disk it is already handled* — `CacheZone` and
-  `CacheRecordInfo` call `DnsResourceRecord.WriteCacheRecordTo` / `ReadCacheRecordFrom`, which
-  carry the anchor in the version 3 record format.
-- **Do not set AD** when any returned answer or authority record was accepted under an anchor.
-  `CacheZoneManager.QueryAsync` currently derives AD from `DnssecStatus == Secure`, which is
-  correct as a side effect: a record demoted by an anchor is marked `Insecure`, so it cannot set
-  AD. No change needed, but the coupling is incidental rather than intentional — if that
-  expression is ever relaxed, this requirement has to be enforced explicitly.
-- **Do not return** an RRset or special cache record once any anchor used to accept it has
-  expired. **This one is not currently implemented.** `DnsCache` enforces it via
-  `HasExpiredNegativeTrustAnchor` on its read paths; because `QueryAsync` is overridden, that
-  check does not run. Without it, a record admitted only because validation was suspended keeps
-  being served after the anchor lapses — which is precisely the window an NTA is supposed to
-  close. An equivalent check belongs in `CacheZoneManager.QueryAsync` before returning any record
-  whose `GetDnssecCacheMetadata().AppliedNegativeTrustAnchor` is non-null.
+Use `DnssecCachePolicy` rather than reimplementing these. `DnsCache` calls exactly those methods,
+so a cache that calls them matches the reference implementation by construction.
+
+| Obligation | Status in `CacheZoneManager` | Helper |
+|---|---|---|
+| Preserve per-record provenance | **Already satisfied.** In memory `CacheZone` holds `DnsResourceRecord` instances directly, so the anchor travels with the record. On disk `CacheZone` and `CacheRecordInfo` call `WriteCacheRecordTo` / `ReadCacheRecordFrom`, which carry it in the version 3 record format. | `GetDnssecCacheMetadata()` / `CloneWithDnssecCacheMetadata(...)` |
+| Do not set AD under an anchor | **Satisfied incidentally.** AD is derived from `DnssecStatus == Secure`, and an anchored record is `Insecure`. Correct today, but by consequence rather than intent — if that expression is ever relaxed this must be enforced explicitly. | `DnssecCachePolicy.CanSetAuthenticData` |
+| Do not serve past anchor expiry | **Not implemented.** `DnsCache` enforces this on its read paths; because `QueryAsync` is overridden, the check never runs. A record admitted *only because validation was suspended* keeps being served after the anchor lapses — precisely the window an NTA exists to close. | `DnssecCachePolicy.HasExpiredNegativeTrustAnchor` |
+| Restore provenance on cache hits | Needed for special cache records reconstructed by the server. | `DnssecCachePolicy.RestoreNegativeTrustAnchorAnnotations` |
 
 ### A note on `DnsCache`
 
-`DnsCache` remains a correct reference implementation and enforces all three, but no production
-consumer exercises it. Do not read "the base class handles it" as coverage for anything above.
+`DnsCache` remains a correct reference implementation and applies all of the above, but **no
+production consumer exercises it**. Do not read "the base class handles it" as coverage for
+anything in this table.
 
 ## 8. Documented deviations
 

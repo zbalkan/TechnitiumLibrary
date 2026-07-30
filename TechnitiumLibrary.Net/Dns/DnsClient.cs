@@ -650,6 +650,19 @@ namespace TechnitiumLibrary.Net.Dns
             return true;
         }
 
+        /// <summary>
+        /// Resolves a question recursively using the built-in root trust anchors only.
+        /// </summary>
+        /// <remarks>
+        /// <b>This overload cannot carry operator trust policy.</b> It has no parameter for a
+        /// negative trust anchor provider or for configured positive trust anchors, so a caller
+        /// using it always resolves against the built-in root anchors - silently, with no error
+        /// and no warning, however the application's policy is configured elsewhere. An
+        /// application that supports negative trust anchors must call
+        /// <see cref="RecursiveResolveWithOptionsAsync"/> and supply them on
+        /// <see cref="RecursiveResolveOptions"/>; leaving a call site on this overload is
+        /// indistinguishable, at run time, from having no anchors configured.
+        /// </remarks>
         public static Task<DnsDatagram> RecursiveResolveAsync(DnsQuestionRecord question, IDnsCache cache = null, NetProxy proxy = null, IPv6Mode ipv6Mode = IPv6Mode.Disabled, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, bool minimalResponse = false, bool asyncNsResolution = false, List<DnsDatagram> rawResponses = null, CancellationToken cancellationToken = default)
         {
             return RecursiveResolveWithOptionsAsync(question, ToRecursiveResolveOptions(cache, proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, minimalResponse, asyncNsResolution, rawResponses), cancellationToken);
@@ -2310,6 +2323,12 @@ namespace TechnitiumLibrary.Net.Dns
             return response;
         }
 
+        /// <summary>Resolves using the built-in root trust anchors only.</summary>
+        /// <remarks>
+        /// Carries no operator trust policy - see the remarks on
+        /// <see cref="RecursiveResolveAsync"/>. Applications supporting negative trust
+        /// anchors must use <see cref="RecursiveResolveQueryWithOptionsAsync"/>.
+        /// </remarks>
         public static Task<DnsDatagram> RecursiveResolveQueryAsync(DnsQuestionRecord question, IDnsCache cache = null, NetProxy proxy = null, IPv6Mode ipv6Mode = IPv6Mode.Disabled, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, CancellationToken cancellationToken = default)
         {
             return RecursiveResolveQueryWithOptionsAsync(question, ToRecursiveResolveOptions(cache ?? new DnsCache(), proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount), cancellationToken);
@@ -2328,6 +2347,12 @@ namespace TechnitiumLibrary.Net.Dns
             return ResolveQueryAsync(question, q => RecursiveResolveInternalAsync(q, cache, options.Proxy, options.IPv6Mode, options.UdpPayloadSize, options.RandomizeName, options.QnameMinimization, options.DnssecValidation, options.EDnsClientSubnet, options.Retries, options.Timeout, options.Concurrency, options.MaxStackCount, true, options.AsyncNameServerResolution, options.RawResponses, policy, cancellationToken));
         }
 
+        /// <summary>Resolves using the built-in root trust anchors only.</summary>
+        /// <remarks>
+        /// Carries no operator trust policy - see the remarks on
+        /// <see cref="RecursiveResolveAsync"/>. Applications supporting negative trust
+        /// anchors must use <see cref="RecursiveResolveIPWithOptionsAsync"/>.
+        /// </remarks>
         public static async Task<IReadOnlyList<IPAddress>> RecursiveResolveIPAsync(string domain, IDnsCache cache = null, NetProxy proxy = null, IPv6Mode ipv6Mode = IPv6Mode.Disabled, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, CancellationToken cancellationToken = default)
         {
             return await RecursiveResolveIPWithOptionsAsync(domain, ToRecursiveResolveOptions(cache ?? new DnsCache(), proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount), cancellationToken);

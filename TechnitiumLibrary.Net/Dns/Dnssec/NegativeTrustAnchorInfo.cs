@@ -16,7 +16,30 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// zone; see deviation D1 on <see cref="INegativeTrustAnchorProvider"/>.
     /// </param>
     /// <param name="ExpiresOnUtc">The absolute time at which the anchor expires.</param>
-    public sealed record NegativeTrustAnchorInfo(string Name, DateTimeOffset ExpiresOnUtc);
+    public sealed record NegativeTrustAnchorInfo(string Name, DateTimeOffset ExpiresOnUtc)
+    {
+        /// <summary>
+        /// Applies the resolver's own name rules to an operator-supplied anchor name, yielding the
+        /// canonical form the resolver will actually enforce.
+        /// </summary>
+        /// <param name="name">A name as typed by an operator, e.g. <c>EXAMPLE.COM.</c> or <c>.</c>.</param>
+        /// <param name="canonicalName">
+        /// Lower-case A-label form with no trailing dot; the empty string for the root zone.
+        /// </param>
+        /// <returns><see langword="false"/> when the name cannot be used as an anchor at all.</returns>
+        /// <remarks>
+        /// Exposed so an application can normalize and reject at the point the operator enters a
+        /// name, rather than storing it verbatim and discovering later that the resolver
+        /// canonicalized it to something else or discarded it. Without this the configuration UI
+        /// and the enforcement point can disagree about which names are anchored, and an unusable
+        /// name simply never takes effect with nothing to show for it. Store the canonical form.
+        /// </remarks>
+        public static bool TryCanonicalizeName(string name, out string canonicalName)
+        {
+            canonicalName = DnsClient.CanonicalizeNegativeTrustAnchorNameOrNull(name);
+            return canonicalName is not null;
+        }
+    }
 
     internal static class NegativeTrustAnchorInfoExtensions
     {
