@@ -75,12 +75,35 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         Guid PolicyScopeId,
         Guid PolicyRevisionId);
 
-    /// <summary>An immutable, resolver-ready DNSSEC policy view shared with cache enforcement.</summary>
-    public sealed record DnssecEffectivePolicy(
-        DnsCacheWriteContext CacheContext,
-        INegativeTrustAnchorSnapshot NegativeTrustAnchors,
-        IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> PositiveTrustAnchors,
-        IReadOnlyList<DnsResourceRecord> RootTrustAnchors);
+    /// <summary>
+    /// An immutable, resolver-ready DNSSEC policy view shared with cache enforcement.
+    /// </summary>
+    /// <remarks>
+    /// This type is deliberately opaque: it can only be produced by
+    /// <see cref="DnsClient.CaptureDnssecPolicy"/>, never constructed directly by a consuming
+    /// application. If callers could freely construct one, they could pair an arbitrary set of
+    /// trust anchors with a <see cref="DnsCacheWriteContext"/> captured for a different, unrelated
+    /// policy - letting results produced under one trust policy be stamped with another policy's
+    /// cache identity and read or populate its cache entries. Keeping construction internal to
+    /// this library removes that path entirely, so <see cref="GetDnssecResolutionPolicySnapshot"/>
+    /// never needs to distrust an <see cref="DnssecEffectivePolicy"/> instance it is handed - by
+    /// construction, one only ever exists because this library captured it coherently.
+    /// </remarks>
+    public sealed class DnssecEffectivePolicy
+    {
+        internal DnssecEffectivePolicy(DnsCacheWriteContext cacheContext, INegativeTrustAnchorSnapshot negativeTrustAnchors, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, IReadOnlyList<DnsResourceRecord> rootTrustAnchors)
+        {
+            CacheContext = cacheContext;
+            NegativeTrustAnchors = negativeTrustAnchors;
+            PositiveTrustAnchors = positiveTrustAnchors;
+            RootTrustAnchors = rootTrustAnchors;
+        }
+
+        public DnsCacheWriteContext CacheContext { get; }
+        public INegativeTrustAnchorSnapshot NegativeTrustAnchors { get; }
+        public IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> PositiveTrustAnchors { get; }
+        public IReadOnlyList<DnsResourceRecord> RootTrustAnchors { get; }
+    }
 
     public interface INegativeTrustAnchorSnapshot
     {

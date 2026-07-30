@@ -800,6 +800,7 @@ namespace TechnitiumLibrary.Net.Dns
             DnsDatagram FinalizeResponse(DnsDatagram response)
             {
                 response = ApplyNegativeTrustAnchorAnnotations(response, GetAppliedNegativeTrustAnchors());
+                response.AddNegativeTrustAnchorExtendedDnsErrors();
                 return minimalResponse ? GetMinimalResponseWithoutNSAndGlue(response) : response;
             }
 
@@ -1074,7 +1075,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                         }
                                                         else if (cacheDSRecords.Count > 0)
                                                         {
-                                                            dnssecSecurityContext = DnssecResolutionSecurityContext.Secure(cacheDSRecords, cacheResponse.Question[0].Name);
+                                                            dnssecSecurityContext = GetSecurityContextFromDsRecords(cacheDSRecords, cacheResponse.Question[0].Name);
                                                         }
                                                         break;
                                                 }
@@ -1151,7 +1152,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                         else if (cacheDsRecords.Count > 0)
                                                         {
                                                             //found DS records in cache
-                                                            nextDnssecSecurityContext = DnssecResolutionSecurityContext.Secure(cacheDsRecords, nextZoneCut);
+                                                            nextDnssecSecurityContext = GetSecurityContextFromDsRecords(cacheDsRecords, nextZoneCut);
                                                         }
                                                     }
                                                 }
@@ -1864,7 +1865,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                         }
                                                         else if (dsRecords.Count > 0)
                                                         {
-                                                            dnssecSecurityContext = DnssecResolutionSecurityContext.Secure(dsRecords, request.Question[0].Name);
+                                                            dnssecSecurityContext = GetSecurityContextFromDsRecords(dsRecords, request.Question[0].Name);
                                                         }
 
                                                         goto resolverLoop;
@@ -2028,7 +2029,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                         }
                                                         else if (dsRecords.Count > 0)
                                                         {
-                                                            nextDnssecSecurityContext = DnssecResolutionSecurityContext.Secure(dsRecords, nextZoneCut);
+                                                            nextDnssecSecurityContext = GetSecurityContextFromDsRecords(dsRecords, nextZoneCut);
                                                         }
                                                     }
                                                 }
@@ -4174,6 +4175,38 @@ namespace TechnitiumLibrary.Net.Dns
             return dsRecords;
         }
 
+        /// <summary>
+        /// Builds the resolver security context for a DS RRset obtained from a response or the
+        /// cache. Never grants a Secure context unless every DS record was itself cryptographically
+        /// validated to Secure by <see cref="DnssecValidateResponseAsync"/> - an RRset left Insecure
+        /// (e.g. by an unsupported algorithm boundary) or Indeterminate must never become the new
+        /// trust basis for its child zone, since it was never actually verified.
+        /// </summary>
+        private static DnssecResolutionSecurityContext GetSecurityContextFromDsRecords(IReadOnlyList<DnsResourceRecord> dsRecords, string boundaryName)
+        {
+            bool allSecure = true;
+            bool anyInsecure = false;
+
+            foreach (DnsResourceRecord record in dsRecords)
+            {
+                if (record.DnssecStatus != DnssecStatus.Secure)
+                {
+                    allSecure = false;
+
+                    if (record.DnssecStatus == DnssecStatus.Insecure)
+                        anyInsecure = true;
+                }
+            }
+
+            if (allSecure)
+                return DnssecResolutionSecurityContext.Secure(dsRecords, boundaryName);
+
+            //not cryptographically confirmed secure; never promote to a secure chain basis
+            return anyInsecure ?
+                DnssecResolutionSecurityContext.InsecureByUnsupportedAlgorithm(boundaryName) :
+                DnssecResolutionSecurityContext.InsecureByUnsignedDelegation(boundaryName);
+        }
+
         private static async Task<Tuple<bool, IReadOnlyList<DnsResourceRecord>>> TryGetDSFromResponseAsync(DnsDatagram response, string ownerName)
         {
             IReadOnlyList<DnsResourceRecord> dsRecords;
@@ -5091,6 +5124,12 @@ namespace TechnitiumLibrary.Net.Dns
                         foreach (NegativeTrustAnchorInfo anchor in cnameResponse.GetResponseOnlyNegativeTrustAnchorsForRetainedSections(newAnswer, authority, additional))
                             finalResponse.AddAppliedNegativeTrustAnchor(anchor);
 
+                    //newAnswer/authority/additional carry the same record instances as the per-hop
+                    //responses, so finalResponse.AppliedNegativeTrustAnchors already reflects the
+                    //combined provenance (record-carried and response-only); emit once here rather
+                    //than duplicating whatever diagnostic each per-hop response already carried.
+                    finalResponse.AddNegativeTrustAnchorExtendedDnsErrors();
+
                     return finalResponse;
                 }
             }
@@ -5750,6 +5789,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                         //sanitize response after DNSSEC validation
                         response = SanitizeResponseAfterDnssecValidation(response);
+                        response.AddNegativeTrustAnchorExtendedDnsErrors();
 
                         return response;
                     }, false, cancellationToken);

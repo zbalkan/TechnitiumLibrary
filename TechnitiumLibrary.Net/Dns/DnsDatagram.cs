@@ -791,6 +791,27 @@ namespace TechnitiumLibrary.Net.Dns
                 AddAppliedNegativeTrustAnchor(anchor);
         }
 
+        /// <summary>
+        /// Emits EDE INFO-CODE 33 (Negative Trust Anchor) for every anchor this response's
+        /// provenance carries, using the structured "d"/"t" EXTRA-TEXT contract (domain name and
+        /// expiry). This is the single presentation point for the diagnostic: every place that
+        /// finalizes a response - fresh recursive answers, forwarded answers, ordinary cache hits,
+        /// and special-cache-record hits alike - must call this so a client sees identical EDE
+        /// behavior regardless of whether its answer happened to come from cache. The DO bit is
+        /// deliberately not consulted here: DO only requests DNSSEC records in the response, it does
+        /// not mean "validation was requested," and a resolver may validate for clients that never
+        /// set it. Gating this diagnostic on DO would let a query for which validation genuinely
+        /// happened - and which was affected by an NTA - go without the corresponding disclosure.
+        /// </summary>
+        internal void AddNegativeTrustAnchorExtendedDnsErrors()
+        {
+            foreach (NegativeTrustAnchorInfo anchor in AppliedNegativeTrustAnchors)
+            {
+                string extraText = "{\"d\":\"" + anchor.Name + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss") + "Z\"}";
+                AddDnsClientExtendedError(EDnsExtendedDnsErrorCode.NegativeTrustAnchor, extraText);
+            }
+        }
+
         internal void SetShadowEDnsClientSubnetOption(EDnsClientSubnetOptionData shadowECSOption)
         {
             _shadowECSOption = shadowECSOption;

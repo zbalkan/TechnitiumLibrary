@@ -472,32 +472,18 @@ namespace TechnitiumLibrary.Net.Dns
                 HasExpiredNegativeTrustAnchor(specialRecord.OriginalAnswer, specialRecord.OriginalAuthority, specialRecord.OriginalAdditional);
         }
 
-        /// <summary>
-        /// Emits EDE INFO-CODE 33 (Negative Trust Anchor, RFC 9567) for a query that requested
-        /// DNSSEC validation whenever the response's provenance shows a negative trust anchor was
-        /// applied. Gated on <see cref="DnsDatagram.DnssecOk"/> so a client that never asked for
-        /// DNSSEC validation is never told about a validation posture it did not request -
-        /// attaching this diagnostic unconditionally would leak validation-outcome signalling to a
-        /// non-validating query the same way suppressing it unconditionally would hide it from a
-        /// validating one.
-        /// </summary>
-        private static void AddNegativeTrustAnchorExtendedErrors(DnsDatagram request, DnsDatagram response)
-        {
-            if (!request.DnssecOk)
-                return;
-
-            foreach (NegativeTrustAnchorInfo anchor in response.AppliedNegativeTrustAnchors)
-                response.AddDnsClientExtendedError(EDnsExtendedDnsErrorCode.NegativeTrustAnchor, "Negative trust anchor: " + anchor.Name + "; expires " + anchor.ExpiresOnUtc.UtcDateTime.ToString("o"));
-        }
-
-        private static DnsDatagram RestoreNegativeTrustAnchorAnnotations(DnsDatagram request, DnsDatagram response, IReadOnlyList<NegativeTrustAnchorInfo> anchors)
+        private static DnsDatagram RestoreNegativeTrustAnchorAnnotations(DnsDatagram response, IReadOnlyList<NegativeTrustAnchorInfo> anchors)
         {
             if (anchors is not null)
                 foreach (NegativeTrustAnchorInfo anchor in anchors)
                     if (anchor is not null)
                         response.AddAppliedNegativeTrustAnchor(anchor);
 
-            AddNegativeTrustAnchorExtendedErrors(request, response);
+            //Presentation is centralized on DnsDatagram itself so a fresh recursive answer, a
+            //forwarded answer, and every cache-reconstruction path emit the identical EDE for the
+            //identical provenance - whether the answer happened to be cached is not a protocol
+            //semantic and must not change what a client is told.
+            response.AddNegativeTrustAnchorExtendedDnsErrors();
 
             return response;
         }
@@ -544,7 +530,7 @@ namespace TechnitiumLibrary.Net.Dns
                 IReadOnlyList<NegativeTrustAnchorInfo> anchors = GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, answer, authority, additional);
                 DnsDatagram response = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(answer, authority), request.CheckingDisabled, request.CheckingDisabled ? specialRecord.OriginalRCODE : specialRecord.RCODE, request.Question, answer, authority, additional, request.EDNS.UdpPayloadSize, EDnsHeaderFlags.DNSSEC_OK, specialRecord.EDnsOptions);
                 response.SetDnsCacheWriteContext(retainedContext ?? specialRecord.DnsCacheWriteContext);
-                return RestoreNegativeTrustAnchorAnnotations(request, response, anchors);
+                return RestoreNegativeTrustAnchorAnnotations(response, anchors);
             }
 
             DnsDatagram noDnssecResponse = request.CheckingDisabled ?
@@ -560,7 +546,7 @@ namespace TechnitiumLibrary.Net.Dns
             if ((request.DnsCacheWriteContext is null) && ((noDnssecResponse.Answer?.Count ?? 0) + (noDnssecResponse.Authority?.Count ?? 0) + (noDnssecResponse.Additional?.Count ?? 0) > 0) && !HasSamePolicyIdentity(noDnssecRetainedContext, specialRecord.DnsCacheWriteContext))
                 return null;
             noDnssecResponse.SetDnsCacheWriteContext(noDnssecRetainedContext ?? specialRecord.DnsCacheWriteContext);
-            return RestoreNegativeTrustAnchorAnnotations(request, noDnssecResponse, GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional));
+            return RestoreNegativeTrustAnchorAnnotations(noDnssecResponse, GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional));
         }
 
         private static IReadOnlyList<NegativeTrustAnchorInfo> GetResponseOnlyNegativeTrustAnchorsForRetainedSections(DnsSpecialCacheRecordData specialRecord, params IReadOnlyList<DnsResourceRecord>[] retainedSections)
@@ -623,7 +609,14 @@ namespace TechnitiumLibrary.Net.Dns
         /// stays static and reconstruction-only so it does not depend on this cache instance's
         /// referral/glue lookups. The response's own OPT record (if any) is always preserved.
         /// </summary>
-        private DnsDatagram AttachAdditionalForPositiveCache(DnsDatagram response, DnsSpecialCacheRecordData specialRecord, DnsResourceRecordType questionType)
+        /// <returns>
+        /// The response with glue attached, the response unchanged when no glue applies, or null
+        /// when newly attached glue does not share the retained answer/authority's policy identity
+        /// or depends on an already-expired negative trust anchor - the composed response must never
+        /// mix data accepted under different trust policies, so an incoherent composition is a full
+        /// cache miss rather than a response served without its glue.
+        /// </returns>
+        private DnsDatagram AttachAdditionalForPositiveCache(DnsDatagram request, DnsDatagram response, DnsSpecialCacheRecordData specialRecord, DnsResourceRecordType questionType)
         {
             if ((specialRecord.Type != DnsSpecialCacheRecordType.PositiveCache) || (response.Answer.Count == 0))
                 return response;
@@ -656,11 +649,19 @@ namespace TechnitiumLibrary.Net.Dns
             if (glueRecords.Count == 0)
                 return response;
 
+            if (HasExpiredNegativeTrustAnchor(glueRecords))
+                return null; //policy used to accept the glue has since expired
+
+            if (!IsPolicyGenerationCompatible(request, response.Answer, response.Authority, glueRecords))
+                return null; //glue was accepted under a different trust policy than the retained answer/authority
+
             List<DnsResourceRecord> newAdditional = new List<DnsResourceRecord>(glueRecords.Count + response.Additional.Count);
             newAdditional.AddRange(glueRecords);
             newAdditional.AddRange(response.Additional); //preserve the existing OPT record, if any
 
-            return response.CloneRetainingResolverProvenance(additional: newAdditional);
+            DnsDatagram attached = response.CloneRetainingResolverProvenance(additional: newAdditional);
+            attached.SetDnsCacheWriteContext(GetRetainedPolicyContext(request, response.Answer, response.Authority, newAdditional) ?? response.DnsCacheWriteContext);
+            return attached;
         }
 
         #endregion
@@ -682,7 +683,11 @@ namespace TechnitiumLibrary.Net.Dns
                     DnsSpecialCacheRecordData positiveSpecialRecord = positiveCacheRecords[0].RDATA as DnsSpecialCacheRecordData;
                     DnsDatagram positiveCachedResponse = GetSpecialCachedResponse(request, positiveSpecialRecord);
                     if (positiveCachedResponse is not null)
-                        return Task.FromResult(AttachAdditionalForPositiveCache(positiveCachedResponse, positiveSpecialRecord, question.Type));
+                    {
+                        DnsDatagram attachedResponse = AttachAdditionalForPositiveCache(request, positiveCachedResponse, positiveSpecialRecord, question.Type);
+                        if (attachedResponse is not null)
+                            return Task.FromResult(attachedResponse);
+                    }
 
                     goto beforeFindClosestNameServers; //cached policy dependency is no longer valid; dont retry via the ordinary lookup below
                 }
@@ -716,7 +721,11 @@ namespace TechnitiumLibrary.Net.Dns
                     {
                         DnsDatagram specialCachedResponse = GetSpecialCachedResponse(request, dnsSpecialCacheRecord);
                         if (specialCachedResponse is not null)
-                            return Task.FromResult(AttachAdditionalForPositiveCache(specialCachedResponse, dnsSpecialCacheRecord, question.Type));
+                        {
+                            DnsDatagram attachedResponse = AttachAdditionalForPositiveCache(request, specialCachedResponse, dnsSpecialCacheRecord, question.Type);
+                            if (attachedResponse is not null)
+                                return Task.FromResult(attachedResponse);
+                        }
 
                         goto beforeFindClosestNameServers;
                     }
@@ -805,7 +814,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                     DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(answers, authority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, answers, authority, additional);
                     cachedResponse.SetDnsCacheWriteContext(GetRetainedPolicyContext(request, answers, authority, additional));
-                    AddNegativeTrustAnchorExtendedErrors(request, cachedResponse);
+                    cachedResponse.AddNegativeTrustAnchorExtendedDnsErrors();
                     return Task.FromResult(cachedResponse);
                 }
             }
@@ -844,7 +853,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                     DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, CanSetAuthenticData(null, closestAuthority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, null, closestAuthority, additionalRecords);
                     cachedResponse.SetDnsCacheWriteContext(GetRetainedPolicyContext(request, closestAuthority, additionalRecords));
-                    AddNegativeTrustAnchorExtendedErrors(request, cachedResponse);
+                    cachedResponse.AddNegativeTrustAnchorExtendedDnsErrors();
                     return Task.FromResult(cachedResponse);
                 }
             }
