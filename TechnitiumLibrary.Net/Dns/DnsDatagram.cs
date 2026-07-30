@@ -20,6 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
@@ -832,7 +833,14 @@ namespace TechnitiumLibrary.Net.Dns
         {
             foreach (NegativeTrustAnchorInfo anchor in AppliedNegativeTrustAnchors)
             {
-                string extraText = "{\"d\":\"" + anchor.Name + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss") + "Z\"}";
+                //The timestamp must be RFC 3339, which is Gregorian by definition. A bare
+                //ToString(format) resolves against CurrentCulture, whose calendar may not be:
+                //under th-TH this emits year 2569 (Buddhist), under ar-SA a Hijri date. The
+                //result stays syntactically valid, so nothing downstream detects it - it just
+                //silently means the wrong instant. Format against the invariant culture, and
+                //quote the literal T/Z rather than relying on pass-through of unrecognised
+                //format specifiers.
+                string extraText = "{\"d\":\"" + anchor.Name + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
                 AddDnsClientExtendedError(EDnsExtendedDnsErrorCode.NegativeTrustAnchor, extraText);
             }
         }

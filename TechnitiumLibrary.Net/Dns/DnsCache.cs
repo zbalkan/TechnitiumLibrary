@@ -420,10 +420,23 @@ namespace TechnitiumLibrary.Net.Dns
         {
             if (request.DnsCacheWriteContext is not null)
                 return request.DnsCacheWriteContext;
+
+            //Scan for the first record that actually carries an identity. Returning on the first
+            //record regardless of whether it had one reported null whenever section[0] happened to
+            //be unstamped, silently dropping the policy identity of every record behind it.
             foreach (IReadOnlyList<DnsResourceRecord> section in sections)
-                if (section is not null)
-                    foreach (DnsResourceRecord record in section)
-                        return record.GetDnssecCacheMetadata().DnsCacheWriteContext;
+            {
+                if (section is null)
+                    continue;
+
+                foreach (DnsResourceRecord record in section)
+                {
+                    DnsCacheWriteContext recordContext = record.GetDnssecCacheMetadata().DnsCacheWriteContext;
+                    if (recordContext is not null)
+                        return recordContext;
+                }
+            }
+
             return null;
         }
 
