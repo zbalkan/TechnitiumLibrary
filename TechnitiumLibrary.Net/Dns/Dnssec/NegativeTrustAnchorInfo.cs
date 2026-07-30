@@ -5,6 +5,7 @@ Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
 namespace TechnitiumLibrary.Net.Dns.Dnssec
@@ -40,6 +41,27 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
 
             return domainName.Equals(anchorName, StringComparison.OrdinalIgnoreCase) ||
                 domainName.EndsWith("." + anchorName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Writes an anchor's cache encoding: owner name, then expiry as UTC ticks.
+        /// </summary>
+        /// <remarks>
+        /// Shared by the record and special-cache-record formats, which each embed this pair -
+        /// once for a single anchor, once per entry in a counted list. Keeping one encoder and one
+        /// decoder means the two formats cannot drift into disagreeing about the pair's layout.
+        /// </remarks>
+        internal static void WriteCacheEncodingTo(this NegativeTrustAnchorInfo anchor, BinaryWriter bW)
+        {
+            bW.Write(anchor.Name);
+            bW.Write(anchor.ExpiresOnUtc.UtcDateTime.Ticks);
+        }
+
+        /// <summary>Reads the encoding written by <see cref="WriteCacheEncodingTo"/>.</summary>
+        internal static NegativeTrustAnchorInfo ReadCacheEncodingFrom(BinaryReader bR)
+        {
+            string name = bR.ReadString();
+            return new NegativeTrustAnchorInfo(name, new DateTimeOffset(bR.ReadInt64(), TimeSpan.Zero));
         }
 
         internal static NegativeTrustAnchorInfo MergeMostRestrictive(this NegativeTrustAnchorInfo existing, NegativeTrustAnchorInfo candidate)
@@ -169,13 +191,18 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// </remarks>
     internal sealed class NegativeTrustAnchorSet
     {
-        public static readonly NegativeTrustAnchorSet Empty = new NegativeTrustAnchorSet(Array.Empty<NegativeTrustAnchorInfo>());
+        public static readonly NegativeTrustAnchorSet Empty = new NegativeTrustAnchorSet(new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.OrdinalIgnoreCase));
 
+        readonly Dictionary<string, NegativeTrustAnchorInfo> _anchorsByName;
         readonly IReadOnlyList<NegativeTrustAnchorInfo> _anchors;
 
-        private NegativeTrustAnchorSet(IReadOnlyList<NegativeTrustAnchorInfo> anchors)
+        private NegativeTrustAnchorSet(Dictionary<string, NegativeTrustAnchorInfo> anchorsByName)
         {
-            _anchors = anchors;
+            _anchorsByName = anchorsByName;
+
+            NegativeTrustAnchorInfo[] anchors = new NegativeTrustAnchorInfo[anchorsByName.Count];
+            anchorsByName.Values.CopyTo(anchors, 0);
+            _anchors = Array.AsReadOnly(anchors);
         }
 
         /// <summary>
@@ -201,7 +228,7 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
             if ((reported is null) || (reported.Count == 0))
                 return Empty;
 
-            Dictionary<string, NegativeTrustAnchorInfo> anchors = new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.Ordinal);
+            Dictionary<string, NegativeTrustAnchorInfo> anchors = new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.OrdinalIgnoreCase);
 
             foreach (NegativeTrustAnchorInfo anchor in reported)
             {
@@ -217,13 +244,7 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
                 anchors[canonicalName] = anchors.TryGetValue(canonicalName, out NegativeTrustAnchorInfo existing) ? existing.MergeMostRestrictive(canonicalAnchor) : canonicalAnchor;
             }
 
-            if (anchors.Count == 0)
-                return Empty;
-
-            NegativeTrustAnchorInfo[] frozen = new NegativeTrustAnchorInfo[anchors.Count];
-            anchors.Values.CopyTo(frozen, 0);
-
-            return new NegativeTrustAnchorSet(Array.AsReadOnly(frozen));
+            return anchors.Count == 0 ? Empty : new NegativeTrustAnchorSet(anchors);
         }
 
         public int Count
@@ -233,6 +254,15 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         { get { return _anchors; } }
 
         /// <summary>Finds the most specific anchor covering a name, if any.</summary>
+        /// <remarks>
+        /// Walks the name up to the root one label at a time, probing the anchor map at each node,
+        /// so the cost is the label count of the query name - typically three to five lookups -
+        /// rather than the size of the anchor set. The previous implementation scanned every
+        /// anchor and built a <c>"." + name</c> string per candidate, on the hot path at every zone
+        /// cut; with a large anchor set that dominated. Walking upwards also yields the
+        /// most-specific match by construction, with the root (the empty name) probed last, so no
+        /// name-length comparison is needed to break ties.
+        /// </remarks>
         public bool TryGetCoveringAnchor(string domainName, out NegativeTrustAnchorInfo anchor)
         {
             anchor = null;
@@ -240,17 +270,19 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
             if (domainName is null)
                 return false;
 
-            foreach (NegativeTrustAnchorInfo candidate in _anchors)
+            string node = domainName;
+
+            while (true)
             {
-                if (!NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(domainName, candidate.Name))
-                    continue;
+                if (_anchorsByName.TryGetValue(node, out anchor))
+                    return true;
 
-                //Longest owner name wins; the root, at length zero, is the least specific anchor.
-                if ((anchor is null) || (candidate.Name.Length > anchor.Name.Length))
-                    anchor = candidate;
+                if (node.Length == 0)
+                    return false; //the root was the last node to test
+
+                int separator = node.IndexOf('.');
+                node = (separator < 0) ? "" : node.Substring(separator + 1);
             }
-
-            return anchor is not null;
         }
     }
 }

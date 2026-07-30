@@ -574,8 +574,8 @@ namespace TechnitiumLibrary.Net.Dns
                     return false;
                 }
 
-                if ((securityContext.State == DnssecResolutionSecurityState.Secure) ||
-                     ((securityContext.State == DnssecResolutionSecurityState.InsecureNegativeTrustAnchor) &&
+                if ((securityContext.State == DnssecSecurityState.Secure) ||
+                     ((securityContext.State == DnssecSecurityState.InsecureNegativeTrustAnchor) &&
                       (negativeTrustAnchor.Name.Length > securityContext.NegativeTrustAnchor.Name.Length)))
                 {
                     securityContext = DnssecResolutionSecurityContext.InsecureByNegativeTrustAnchor(negativeTrustAnchor);
@@ -652,8 +652,40 @@ namespace TechnitiumLibrary.Net.Dns
 
         public static Task<DnsDatagram> RecursiveResolveAsync(DnsQuestionRecord question, IDnsCache cache = null, NetProxy proxy = null, IPv6Mode ipv6Mode = IPv6Mode.Disabled, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, bool minimalResponse = false, bool asyncNsResolution = false, List<DnsDatagram> rawResponses = null, CancellationToken cancellationToken = default)
         {
-            DnssecResolutionPolicy policy = dnssecValidation ? DnssecResolutionPolicy.BuiltIn : DnssecResolutionPolicy.Disabled;
-            return RecursiveResolveInternalAsync(question, cache, proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, minimalResponse, asyncNsResolution, rawResponses, policy, cancellationToken);
+            return RecursiveResolveWithOptionsAsync(question, ToRecursiveResolveOptions(cache, proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, minimalResponse, asyncNsResolution, rawResponses), cancellationToken);
+        }
+
+        /// <summary>
+        /// Projects the loose parameter list of the pre-<see cref="RecursiveResolveOptions"/> entry
+        /// points onto the options record, so each legacy overload is a one-line delegation rather
+        /// than a second copy of the body it shadows.
+        /// </summary>
+        /// <remarks>
+        /// The options record is a strict superset of these parameters, and the members it adds -
+        /// the negative trust anchor provider and positive trust anchors - default to absent, which
+        /// reproduces the legacy behaviour of resolving against the built-in root trust anchors
+        /// only. Callers wanting operator trust policy must use the options overloads.
+        /// </remarks>
+        private static RecursiveResolveOptions ToRecursiveResolveOptions(IDnsCache cache, NetProxy proxy, IPv6Mode ipv6Mode, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, NetworkAddress eDnsClientSubnet, int retries, int timeout, int concurrency, int maxStackCount, bool minimalResponse = false, bool asyncNsResolution = false, List<DnsDatagram> rawResponses = null)
+        {
+            return new RecursiveResolveOptions
+            {
+                Cache = cache,
+                Proxy = proxy,
+                IPv6Mode = ipv6Mode,
+                UdpPayloadSize = udpPayloadSize,
+                RandomizeName = randomizeName,
+                QnameMinimization = qnameMinimization,
+                DnssecValidation = dnssecValidation,
+                EDnsClientSubnet = eDnsClientSubnet,
+                Retries = retries,
+                Timeout = timeout,
+                Concurrency = concurrency,
+                MaxStackCount = maxStackCount,
+                MinimalResponse = minimalResponse,
+                AsyncNameServerResolution = asyncNsResolution,
+                RawResponses = rawResponses
+            };
         }
 
         public static Task<DnsDatagram> RecursiveResolveWithOptionsAsync(DnsQuestionRecord question, RecursiveResolveOptions options, CancellationToken cancellationToken = default)
@@ -2280,17 +2312,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         public static Task<DnsDatagram> RecursiveResolveQueryAsync(DnsQuestionRecord question, IDnsCache cache = null, NetProxy proxy = null, IPv6Mode ipv6Mode = IPv6Mode.Disabled, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, CancellationToken cancellationToken = default)
         {
-            if (cache is null)
-                cache = new DnsCache();
-
-            DnssecResolutionPolicy policy = dnssecValidation ? DnssecResolutionPolicy.BuiltIn : DnssecResolutionPolicy.Disabled;
-
-            return RecursiveResolveQueryAsync(question, cache, proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, policy, cancellationToken);
-        }
-
-        private static Task<DnsDatagram> RecursiveResolveQueryAsync(DnsQuestionRecord question, IDnsCache cache, NetProxy proxy, IPv6Mode ipv6Mode, ushort udpPayloadSize, bool randomizeName, bool qnameMinimization, bool dnssecValidation, NetworkAddress eDnsClientSubnet, int retries, int timeout, int concurrency, int maxStackCount, DnssecResolutionPolicy policy, CancellationToken cancellationToken)
-        {
-            return ResolveQueryAsync(question, q => RecursiveResolveInternalAsync(q, cache, proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, true, false, null, policy, cancellationToken));
+            return RecursiveResolveQueryWithOptionsAsync(question, ToRecursiveResolveOptions(cache ?? new DnsCache(), proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount), cancellationToken);
         }
 
         public static Task<DnsDatagram> RecursiveResolveQueryWithOptionsAsync(DnsQuestionRecord question, RecursiveResolveOptions options, CancellationToken cancellationToken = default)
@@ -2308,25 +2330,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         public static async Task<IReadOnlyList<IPAddress>> RecursiveResolveIPAsync(string domain, IDnsCache cache = null, NetProxy proxy = null, IPv6Mode ipv6Mode = IPv6Mode.Disabled, ushort udpPayloadSize = DnsDatagram.EDNS_DEFAULT_UDP_PAYLOAD_SIZE, bool randomizeName = false, bool qnameMinimization = false, bool dnssecValidation = false, NetworkAddress eDnsClientSubnet = null, int retries = 2, int timeout = 2000, int concurrency = 2, int maxStackCount = 16, CancellationToken cancellationToken = default)
         {
-            if (cache is null)
-                cache = new DnsCache();
-
-            DnssecResolutionPolicy policy = dnssecValidation ? DnssecResolutionPolicy.BuiltIn : DnssecResolutionPolicy.Disabled;
-
-            Task<DnsDatagram> ipv6Task = ipv6Mode != IPv6Mode.Disabled ? RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.AAAA, DnsClass.IN), cache, proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, policy, cancellationToken) : null;
-            Task<DnsDatagram> ipv4Task = RecursiveResolveQueryAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.A, DnsClass.IN), cache, proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount, policy, cancellationToken);
-
-            IReadOnlyList<IPAddress> ipv6Addresses = ipv6Mode != IPv6Mode.Disabled ? ParseResponseAAAA(await ipv6Task) : null;
-            IReadOnlyList<IPAddress> ipv4Addresses = ParseResponseA(await ipv4Task);
-
-            List<IPAddress> ipAddresses = new List<IPAddress>((ipv6Addresses is null ? 0 : ipv6Addresses.Count) + ipv4Addresses.Count);
-
-            if (ipv6Mode != IPv6Mode.Disabled)
-                ipAddresses.AddRange(ipv6Addresses);
-
-            ipAddresses.AddRange(ipv4Addresses);
-
-            return ipAddresses;
+            return await RecursiveResolveIPWithOptionsAsync(domain, ToRecursiveResolveOptions(cache ?? new DnsCache(), proxy, ipv6Mode, udpPayloadSize, randomizeName, qnameMinimization, dnssecValidation, eDnsClientSubnet, retries, timeout, concurrency, maxStackCount), cancellationToken);
         }
 
         public static async Task<IReadOnlyList<IPAddress>> RecursiveResolveIPWithOptionsAsync(string domain, RecursiveResolveOptions options, CancellationToken cancellationToken = default)
@@ -3175,7 +3179,7 @@ namespace TechnitiumLibrary.Net.Dns
                 return;
             }
 
-            if (candidate.State == DnssecChainSecurityState.InsecureNegativeTrustAnchor)
+            if (candidate.State == DnssecSecurityState.InsecureNegativeTrustAnchor)
             {
                 NegativeTrustAnchorInfo merged = boundaries[index].NegativeTrustAnchor.MergeMostRestrictive(candidate.NegativeTrustAnchor);
                 boundaries[index] = DnssecSecurityBoundary.InsecureByNegativeTrustAnchor(candidate.Name, merged);
@@ -3210,7 +3214,7 @@ namespace TechnitiumLibrary.Net.Dns
             bool IsPolicyInsecure(string domainName)
             {
                 DnssecSecurityBoundary boundary = GetEffectivePolicyBoundary(domainName);
-                if (boundary?.State == DnssecChainSecurityState.InsecureNegativeTrustAnchor)
+                if (boundary?.State == DnssecSecurityState.InsecureNegativeTrustAnchor)
                 {
                     proofNegativeTrustAnchors ??= new List<NegativeTrustAnchorInfo>(1);
                     int index = proofNegativeTrustAnchors.FindIndex(anchor => anchor.Name.Equals(boundary.NegativeTrustAnchor.Name, StringComparison.OrdinalIgnoreCase));
@@ -3219,7 +3223,7 @@ namespace TechnitiumLibrary.Net.Dns
                     else
                         proofNegativeTrustAnchors[index] = proofNegativeTrustAnchors[index].MergeMostRestrictive(boundary.NegativeTrustAnchor);
                 }
-                return (boundary is not null) && (boundary.State != DnssecChainSecurityState.Secure);
+                return (boundary is not null) && (boundary.State != DnssecSecurityState.Secure);
             }
 
             //Build an independent chain plan for every signer. A locally configured positive
@@ -3264,15 +3268,15 @@ namespace TechnitiumLibrary.Net.Dns
                     signerChain = IsDnsKeySetInsecureByUnsupportedAlgorithm(rootDnsKeyRecords) ? DnssecChainResult.InsecureByUnsupportedAlgorithm("") : signersName.Length == 0 ? DnssecChainResult.Secure(rootDnsKeyRecords) : await FindDnsKeyForAsync(signersName, @class, rootDnsKeyRecords, dnsClient, cache, udpPayloadSize, response, negativeTrustAnchors, null, cancellationToken);
                 }
 
-                if (signerChain.State == DnssecChainSecurityState.Secure)
+                if (signerChain.State == DnssecSecurityState.Secure)
                 {
                     allDnsKeyRecords.AddRange(signerChain.DnsKeyRecords);
                 }
                 else
                 {
-                    if (signerChain.State == DnssecChainSecurityState.InsecureNegativeTrustAnchor)
+                    if (signerChain.State == DnssecSecurityState.InsecureNegativeTrustAnchor)
                         AddSecurityBoundary(securityBoundaries, DnssecSecurityBoundary.InsecureByNegativeTrustAnchor(signerChain.InsecureZone, signerChain.NegativeTrustAnchor));
-                    else if (signerChain.State == DnssecChainSecurityState.InsecureUnsupportedAlgorithm)
+                    else if (signerChain.State == DnssecSecurityState.InsecureUnsupportedAlgorithm)
                         AddSecurityBoundary(securityBoundaries, DnssecSecurityBoundary.InsecureByUnsupportedAlgorithm(signerChain.InsecureZone));
                     else
                         AddSecurityBoundary(securityBoundaries, DnssecSecurityBoundary.InsecureByUnsignedDelegation(signerChain.InsecureZone));
@@ -3447,7 +3451,7 @@ namespace TechnitiumLibrary.Net.Dns
                 if ((response.Answer.Count == 0) && (response.Authority.Count == 0) && (response.Question.Count > 0))
                 {
                     DnssecSecurityBoundary boundary = GetEffectivePolicyBoundary(response.Question[0].Name);
-                    if ((boundary is not null) && (boundary.State == DnssecChainSecurityState.InsecureNegativeTrustAnchor))
+                    if ((boundary is not null) && (boundary.State == DnssecSecurityState.InsecureNegativeTrustAnchor))
                         response.AddAppliedNegativeTrustAnchor(boundary.NegativeTrustAnchor);
                 }
 
@@ -3495,7 +3499,7 @@ namespace TechnitiumLibrary.Net.Dns
                     foreach (DnsResourceRecord record in records)
                     {
                         DnssecSecurityBoundary boundary = GetEffectiveSecurityBoundary(record.Name, securityBoundaries);
-                        NegativeTrustAnchorInfo anchor = ((boundary is not null) && (boundary.State == DnssecChainSecurityState.InsecureNegativeTrustAnchor)) ? boundary.NegativeTrustAnchor : null;
+                        NegativeTrustAnchorInfo anchor = ((boundary is not null) && (boundary.State == DnssecSecurityState.InsecureNegativeTrustAnchor)) ? boundary.NegativeTrustAnchor : null;
                         record.SetDnssecValidationResult(DnssecStatus.Insecure, anchor, true);
                     }
                 }
@@ -3533,7 +3537,7 @@ namespace TechnitiumLibrary.Net.Dns
                 Dictionary<DnsResourceRecordType, List<DnsResourceRecord>> rrsets = groupedRecord.Value;
 
                 DnssecSecurityBoundary effectiveBoundary = GetEffectiveSecurityBoundary(ownerName, securityBoundaries);
-                if ((effectiveBoundary is not null) && (effectiveBoundary.State != DnssecChainSecurityState.Secure))
+                if ((effectiveBoundary is not null) && (effectiveBoundary.State != DnssecSecurityState.Secure))
                 {
                     NegativeTrustAnchorInfo rrsetAnchor = effectiveBoundary.NegativeTrustAnchor;
                     foreach (KeyValuePair<DnsResourceRecordType, List<DnsResourceRecord>> rrset in rrsets)
@@ -4464,12 +4468,12 @@ namespace TechnitiumLibrary.Net.Dns
             return best;
         }
 
-        private static int GetBoundaryPrecedence(DnssecChainSecurityState state)
+        private static int GetBoundaryPrecedence(DnssecSecurityState state)
         {
             return state switch
             {
-                DnssecChainSecurityState.InsecureNegativeTrustAnchor => 3,
-                DnssecChainSecurityState.Secure => 2,
+                DnssecSecurityState.InsecureNegativeTrustAnchor => 3,
+                DnssecSecurityState.Secure => 2,
                 _ => 1
             };
         }
@@ -6145,7 +6149,17 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        internal enum DnssecResolutionSecurityState
+        /// <summary>
+        /// The DNSSEC security state of a chain, a boundary, or the resolver's running context.
+        /// </summary>
+        /// <remarks>
+        /// One enum serves all three. They previously had separate declarations whose four
+        /// non-disabled members were identical, which meant every conversion between a chain
+        /// result, a boundary and the resolver context had to restate the same mapping.
+        /// <see cref="Disabled"/> is meaningful only for the resolver context, where it records
+        /// that validation was never requested; chain and boundary values never take it.
+        /// </remarks>
+        internal enum DnssecSecurityState
         {
             Disabled,
             Secure,
@@ -6166,56 +6180,48 @@ namespace TechnitiumLibrary.Net.Dns
             public static DnssecResolutionPolicy BuiltIn => new DnssecResolutionPolicy(NegativeTrustAnchorSet.Empty, null, CloneTrustAnchors(ROOT_TRUST_ANCHORS));
         }
 
-        internal sealed record DnssecResolutionSecurityContext(DnssecResolutionSecurityState State, IReadOnlyList<DnsResourceRecord> DsRecords, string BoundaryName, NegativeTrustAnchorInfo NegativeTrustAnchor)
+        internal sealed record DnssecResolutionSecurityContext(DnssecSecurityState State, IReadOnlyList<DnsResourceRecord> DsRecords, string BoundaryName, NegativeTrustAnchorInfo NegativeTrustAnchor)
         {
-            public static readonly DnssecResolutionSecurityContext Disabled = new DnssecResolutionSecurityContext(DnssecResolutionSecurityState.Disabled, null, null, null);
-            public bool IsSecure => State == DnssecResolutionSecurityState.Secure;
-            public static DnssecResolutionSecurityContext Secure(IReadOnlyList<DnsResourceRecord> dsRecords, string boundaryName) => new DnssecResolutionSecurityContext(DnssecResolutionSecurityState.Secure, dsRecords, boundaryName, null);
-            public static DnssecResolutionSecurityContext InsecureByUnsignedDelegation(string boundaryName) => new DnssecResolutionSecurityContext(DnssecResolutionSecurityState.InsecureUnsignedDelegation, null, boundaryName, null);
-            public static DnssecResolutionSecurityContext InsecureByNegativeTrustAnchor(NegativeTrustAnchorInfo anchor) => new DnssecResolutionSecurityContext(DnssecResolutionSecurityState.InsecureNegativeTrustAnchor, null, anchor.Name, anchor);
-            public static DnssecResolutionSecurityContext InsecureByUnsupportedAlgorithm(string boundaryName) => new DnssecResolutionSecurityContext(DnssecResolutionSecurityState.InsecureUnsupportedAlgorithm, null, boundaryName, null);
+            public static readonly DnssecResolutionSecurityContext Disabled = new DnssecResolutionSecurityContext(DnssecSecurityState.Disabled, null, null, null);
+            public bool IsSecure => State == DnssecSecurityState.Secure;
+            public static DnssecResolutionSecurityContext Secure(IReadOnlyList<DnsResourceRecord> dsRecords, string boundaryName) => new DnssecResolutionSecurityContext(DnssecSecurityState.Secure, dsRecords, boundaryName, null);
+            public static DnssecResolutionSecurityContext InsecureByUnsignedDelegation(string boundaryName) => new DnssecResolutionSecurityContext(DnssecSecurityState.InsecureUnsignedDelegation, null, boundaryName, null);
+            public static DnssecResolutionSecurityContext InsecureByNegativeTrustAnchor(NegativeTrustAnchorInfo anchor) => new DnssecResolutionSecurityContext(DnssecSecurityState.InsecureNegativeTrustAnchor, null, anchor.Name, anchor);
+            public static DnssecResolutionSecurityContext InsecureByUnsupportedAlgorithm(string boundaryName) => new DnssecResolutionSecurityContext(DnssecSecurityState.InsecureUnsupportedAlgorithm, null, boundaryName, null);
         }
 
-        internal enum DnssecChainSecurityState
+        internal sealed record DnssecSecurityBoundary(string Name, DnssecSecurityState State, NegativeTrustAnchorInfo NegativeTrustAnchor)
         {
-            Secure,
-            InsecureUnsignedDelegation,
-            InsecureNegativeTrustAnchor,
-            InsecureUnsupportedAlgorithm
+            public static DnssecSecurityBoundary Secure(string name) => new DnssecSecurityBoundary(name, DnssecSecurityState.Secure, null);
+            public static DnssecSecurityBoundary InsecureByUnsignedDelegation(string name) => new DnssecSecurityBoundary(name, DnssecSecurityState.InsecureUnsignedDelegation, null);
+            public static DnssecSecurityBoundary InsecureByNegativeTrustAnchor(string name, NegativeTrustAnchorInfo anchor) => new DnssecSecurityBoundary(name, DnssecSecurityState.InsecureNegativeTrustAnchor, anchor);
+            public static DnssecSecurityBoundary InsecureByUnsupportedAlgorithm(string name) => new DnssecSecurityBoundary(name, DnssecSecurityState.InsecureUnsupportedAlgorithm, null);
         }
 
-        internal sealed record DnssecSecurityBoundary(string Name, DnssecChainSecurityState State, NegativeTrustAnchorInfo NegativeTrustAnchor)
-        {
-            public static DnssecSecurityBoundary Secure(string name) => new DnssecSecurityBoundary(name, DnssecChainSecurityState.Secure, null);
-            public static DnssecSecurityBoundary InsecureByUnsignedDelegation(string name) => new DnssecSecurityBoundary(name, DnssecChainSecurityState.InsecureUnsignedDelegation, null);
-            public static DnssecSecurityBoundary InsecureByNegativeTrustAnchor(string name, NegativeTrustAnchorInfo anchor) => new DnssecSecurityBoundary(name, DnssecChainSecurityState.InsecureNegativeTrustAnchor, anchor);
-            public static DnssecSecurityBoundary InsecureByUnsupportedAlgorithm(string name) => new DnssecSecurityBoundary(name, DnssecChainSecurityState.InsecureUnsupportedAlgorithm, null);
-        }
-
-        sealed record DnssecChainResult(DnssecChainSecurityState State, IReadOnlyList<DnsResourceRecord> DnsKeyRecords, string InsecureZone, NegativeTrustAnchorInfo NegativeTrustAnchor)
+        sealed record DnssecChainResult(DnssecSecurityState State, IReadOnlyList<DnsResourceRecord> DnsKeyRecords, string InsecureZone, NegativeTrustAnchorInfo NegativeTrustAnchor)
         {
             public static DnssecChainResult Secure(IReadOnlyList<DnsResourceRecord> dnsKeyRecords)
             {
                 if ((dnsKeyRecords is null) || (dnsKeyRecords.Count == 0))
                     throw new ArgumentException("Secure chain results require DNSKEY records.", nameof(dnsKeyRecords));
-                return new DnssecChainResult(DnssecChainSecurityState.Secure, dnsKeyRecords, null, null);
+                return new DnssecChainResult(DnssecSecurityState.Secure, dnsKeyRecords, null, null);
             }
 
             public static DnssecChainResult InsecureByUnsignedDelegation(string insecureZone)
             {
-                return new DnssecChainResult(DnssecChainSecurityState.InsecureUnsignedDelegation, null, insecureZone, null);
+                return new DnssecChainResult(DnssecSecurityState.InsecureUnsignedDelegation, null, insecureZone, null);
             }
 
             public static DnssecChainResult InsecureByNegativeTrustAnchor(string insecureZone, NegativeTrustAnchorInfo anchor)
             {
                 if (anchor is null)
                     throw new ArgumentNullException(nameof(anchor));
-                return new DnssecChainResult(DnssecChainSecurityState.InsecureNegativeTrustAnchor, null, insecureZone, anchor);
+                return new DnssecChainResult(DnssecSecurityState.InsecureNegativeTrustAnchor, null, insecureZone, anchor);
             }
 
             public static DnssecChainResult InsecureByUnsupportedAlgorithm(string insecureZone)
             {
-                return new DnssecChainResult(DnssecChainSecurityState.InsecureUnsupportedAlgorithm, null, insecureZone, null);
+                return new DnssecChainResult(DnssecSecurityState.InsecureUnsupportedAlgorithm, null, insecureZone, null);
             }
         }
 

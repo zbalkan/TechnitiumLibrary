@@ -1640,7 +1640,7 @@ namespace TechnitiumLibrary.Net.Dns
                             {
                                 appliedNegativeTrustAnchors = new NegativeTrustAnchorInfo[anchorCount];
                                 for (int i = 0; i < anchorCount; i++)
-                                    appliedNegativeTrustAnchors[i] = new NegativeTrustAnchorInfo(bR.ReadString(), new DateTimeOffset(bR.ReadInt64(), TimeSpan.Zero));
+                                    appliedNegativeTrustAnchors[i] = NegativeTrustAnchorInfoExtensions.ReadCacheEncodingFrom(bR);
                             }
                         }
 
@@ -1821,10 +1821,7 @@ namespace TechnitiumLibrary.Net.Dns
                     anchorCount = byte.MaxValue;
                 bW.Write(Convert.ToByte(anchorCount));
                 for (int i = 0; i < anchorCount; i++)
-                {
-                    bW.Write(_appliedNegativeTrustAnchors[i].Name);
-                    bW.Write(_appliedNegativeTrustAnchors[i].ExpiresOnUtc.UtcDateTime.Ticks);
-                }
+                    _appliedNegativeTrustAnchors[i].WriteCacheEncodingTo(bW);
 
             }
 

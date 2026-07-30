@@ -244,7 +244,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                     record._dnssecStatus = (DnssecStatus)bR.ReadByte();
 
                     if ((version >= 3) && bR.ReadBoolean())
-                        record._appliedNegativeTrustAnchor = new NegativeTrustAnchorInfo(bR.ReadString(), new DateTimeOffset(bR.ReadInt64(), TimeSpan.Zero));
+                        record._appliedNegativeTrustAnchor = NegativeTrustAnchorInfoExtensions.ReadCacheEncodingFrom(bR);
 
                     //Versions 4 to 6 additionally carried a DNSSEC policy-generation stamp used to
                     //reject cache entries produced under a superseded trust policy. That mechanism
@@ -628,10 +628,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
 
             bW.Write(_appliedNegativeTrustAnchor is not null);
             if (_appliedNegativeTrustAnchor is not null)
-            {
-                bW.Write(_appliedNegativeTrustAnchor.Name);
-                bW.Write(_appliedNegativeTrustAnchor.ExpiresOnUtc.UtcDateTime.Ticks);
-            }
+                _appliedNegativeTrustAnchor.WriteCacheEncodingTo(bW);
 
             writeTagInfo();
         }
