@@ -733,6 +733,85 @@ namespace TechnitiumLibrary.Net.Dns
         /// The root zone - written either as the empty string or as "." - canonicalizes to the
         /// empty string, which is this codebase's representation of the root (deviation D1).
         /// </summary>
+        /// <summary>
+        /// Applies negative and positive trust anchor policy at one zone-cut boundary, updating
+        /// <paramref name="securityContext"/> in place.
+        /// </summary>
+        /// <remarks>
+        /// Extracted from the resolver loop so the RFC 7646 section 5 precedence rules it
+        /// implements can be tested directly: an NTA at a node carrying a configured positive
+        /// trust anchor "MUST take precedence over that trust anchor, effectively disabling it",
+        /// and "validation starts again if there is a positive trust anchor further down in the
+        /// chain". Both are security-relevant behaviours with no observable signature other than
+        /// the resulting context, so they are otherwise only reachable through a full recursive
+        /// resolution.
+        /// </remarks>
+        /// <returns><see langword="true"/> when policy decided this boundary and the caller
+        /// should stop its own DS traversal for it.</returns>
+        internal static bool TryApplyTrustPolicyAtBoundary(string boundaryName, bool dnssecValidation, INegativeTrustAnchorSnapshot negativeTrustAnchors, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, ref DnssecResolutionSecurityContext securityContext)
+        {
+            if (!dnssecValidation)
+                return false;
+
+            IReadOnlyList<DnsResourceRecord> positiveTrustAnchor = GetConfiguredTrustAnchorFor(positiveTrustAnchors, boundaryName);
+            string positiveTrustAnchorName = positiveTrustAnchor?[0].Name;
+            bool hasNegativeTrustAnchor = TryGetValidNegativeTrustAnchor(negativeTrustAnchors, boundaryName, out NegativeTrustAnchorInfo negativeTrustAnchor);
+            bool hasExactNegativeTrustAnchor = hasNegativeTrustAnchor && negativeTrustAnchor.Name.Equals(boundaryName, StringComparison.OrdinalIgnoreCase);
+            bool positiveTrustAnchorWins = (positiveTrustAnchor is not null) && (!hasNegativeTrustAnchor || (positiveTrustAnchorName.Length > negativeTrustAnchor.Name.Length));
+
+            //An exact NTA wins at the same node. A more-specific positive trust anchor
+            //restarts validation below an ancestor NTA.
+            if ((positiveTrustAnchor is not null) && hasExactNegativeTrustAnchor)
+            {
+                securityContext = DnssecResolutionSecurityContext.InsecureByNegativeTrustAnchor(negativeTrustAnchor);
+                return true;
+            }
+
+            if (positiveTrustAnchorWins)
+            {
+                bool alreadyInsideRestartedChain = securityContext.BoundaryName is not null &&
+                    ((positiveTrustAnchorName.Length == 0) ||
+                     securityContext.BoundaryName.Equals(positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase) ||
+                     securityContext.BoundaryName.EndsWith("." + positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase));
+                if (!alreadyInsideRestartedChain)
+                    securityContext = DnssecResolutionSecurityContext.Secure(positiveTrustAnchor, positiveTrustAnchorName);
+
+                //An exact positive anchor supplies this boundary directly. When a cached
+                //referral jumps below it, continue DS traversal from the positive anchor.
+                return boundaryName.Equals(positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (hasNegativeTrustAnchor)
+            {
+                //A positive trust anchor restarts validation for its entire subtree. A
+                //covering NTA above that secure restart boundary must not reactivate at each
+                //subsequent delegation; only an NTA at or below the restart can stop it again.
+                //This is the RFC 7646 section 5 rule that "validation starts again if there is
+                //a positive trust anchor further down in the chain", so coverage must go
+                //through the shared predicate: a root NTA has an empty name, against which an
+                //open-coded EndsWith("." + name) never matches, which would have re-asserted
+                //the anchor at every delegation below the restart and broken that MUST.
+                if (securityContext.IsSecure &&
+                    !string.IsNullOrEmpty(securityContext.BoundaryName) &&
+                    (securityContext.BoundaryName.Length > negativeTrustAnchor.Name.Length) &&
+                    NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(securityContext.BoundaryName, negativeTrustAnchor.Name))
+                {
+                    return false;
+                }
+
+                if ((securityContext.State == DnssecResolutionSecurityState.Secure) ||
+                     ((securityContext.State == DnssecResolutionSecurityState.InsecureNegativeTrustAnchor) &&
+                      (negativeTrustAnchor.Name.Length > securityContext.NegativeTrustAnchor.Name.Length)))
+                {
+                    securityContext = DnssecResolutionSecurityContext.InsecureByNegativeTrustAnchor(negativeTrustAnchor);
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool TryCanonicalizeNegativeTrustAnchorName(string name, out string canonicalName)
         {
             canonicalName = null;
@@ -879,11 +958,6 @@ namespace TechnitiumLibrary.Net.Dns
             DnsDatagram lastResponse = null;
             Exception lastException = null;
 
-            IReadOnlyList<DnsResourceRecord> GetPositiveTrustAnchor(string domainName)
-            {
-                return GetConfiguredTrustAnchorFor(resolutionPositiveTrustAnchors, domainName);
-            }
-
             IReadOnlyList<NegativeTrustAnchorInfo> GetAppliedNegativeTrustAnchors()
             {
                 return dnssecSecurityContext.NegativeTrustAnchor is null ? null : [dnssecSecurityContext.NegativeTrustAnchor];
@@ -900,66 +974,7 @@ namespace TechnitiumLibrary.Net.Dns
 
             bool ApplyTrustPolicyAtBoundary(string boundaryName, ref DnssecResolutionSecurityContext securityContext)
             {
-                if (!dnssecValidation)
-                    return false;
-
-                IReadOnlyList<DnsResourceRecord> positiveTrustAnchor = GetPositiveTrustAnchor(boundaryName);
-                string positiveTrustAnchorName = positiveTrustAnchor?[0].Name;
-                bool hasNegativeTrustAnchor = TryGetValidNegativeTrustAnchor(negativeTrustAnchors, boundaryName, out NegativeTrustAnchorInfo negativeTrustAnchor);
-                bool hasExactNegativeTrustAnchor = hasNegativeTrustAnchor && negativeTrustAnchor.Name.Equals(boundaryName, StringComparison.OrdinalIgnoreCase);
-                bool positiveTrustAnchorWins = (positiveTrustAnchor is not null) && (!hasNegativeTrustAnchor || (positiveTrustAnchorName.Length > negativeTrustAnchor.Name.Length));
-
-                //An exact NTA wins at the same node. A more-specific positive trust anchor
-                //restarts validation below an ancestor NTA.
-                if ((positiveTrustAnchor is not null) && hasExactNegativeTrustAnchor)
-                {
-                    securityContext = DnssecResolutionSecurityContext.InsecureByNegativeTrustAnchor(negativeTrustAnchor);
-                    return true;
-                }
-
-                if (positiveTrustAnchorWins)
-                {
-                    bool alreadyInsideRestartedChain = securityContext.BoundaryName is not null &&
-                        ((positiveTrustAnchorName.Length == 0) ||
-                         securityContext.BoundaryName.Equals(positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase) ||
-                         securityContext.BoundaryName.EndsWith("." + positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase));
-                    if (!alreadyInsideRestartedChain)
-                        securityContext = DnssecResolutionSecurityContext.Secure(positiveTrustAnchor, positiveTrustAnchorName);
-
-                    //An exact positive anchor supplies this boundary directly. When a cached
-                    //referral jumps below it, continue DS traversal from the positive anchor.
-                    return boundaryName.Equals(positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase);
-                }
-
-                if (hasNegativeTrustAnchor)
-                {
-                    //A positive trust anchor restarts validation for its entire subtree. A
-                    //covering NTA above that secure restart boundary must not reactivate at each
-                    //subsequent delegation; only an NTA at or below the restart can stop it again.
-                    //This is the RFC 7646 section 5 rule that "validation starts again if there is
-                    //a positive trust anchor further down in the chain", so coverage must go
-                    //through the shared predicate: a root NTA has an empty name, against which an
-                    //open-coded EndsWith("." + name) never matches, which would have re-asserted
-                    //the anchor at every delegation below the restart and broken that MUST.
-                    if (securityContext.IsSecure &&
-                        !string.IsNullOrEmpty(securityContext.BoundaryName) &&
-                        (securityContext.BoundaryName.Length > negativeTrustAnchor.Name.Length) &&
-                        NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(securityContext.BoundaryName, negativeTrustAnchor.Name))
-                    {
-                        return false;
-                    }
-
-                    if ((securityContext.State == DnssecResolutionSecurityState.Secure) ||
-                         ((securityContext.State == DnssecResolutionSecurityState.InsecureNegativeTrustAnchor) &&
-                          (negativeTrustAnchor.Name.Length > securityContext.NegativeTrustAnchor.Name.Length)))
-                    {
-                        securityContext = DnssecResolutionSecurityContext.InsecureByNegativeTrustAnchor(negativeTrustAnchor);
-                    }
-
-                    return true;
-                }
-
-                return false;
+                return TryApplyTrustPolicyAtBoundary(boundaryName, dnssecValidation, negativeTrustAnchors, resolutionPositiveTrustAnchors, ref securityContext);
             }
 
             void PushStack(string nextQName, DnsResourceRecordType nextQType)
@@ -2462,7 +2477,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        private static DnsDatagram ApplyNegativeTrustAnchorAnnotations(DnsDatagram response, IReadOnlyList<NegativeTrustAnchorInfo> anchors)
+        internal static DnsDatagram ApplyNegativeTrustAnchorAnnotations(DnsDatagram response, IReadOnlyList<NegativeTrustAnchorInfo> anchors)
         {
             if (anchors is not null)
             {
@@ -2475,7 +2490,10 @@ namespace TechnitiumLibrary.Net.Dns
                         IReadOnlyList<DnsResourceRecord> records = sections[sectionIndex];
                         foreach (DnsResourceRecord record in records)
                         {
-                            if (record.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase) || record.Name.EndsWith("." + anchor.Name, StringComparison.OrdinalIgnoreCase))
+                            //Shared coverage predicate: a root anchor is the empty name, which an
+                            //open-coded suffix test never matches, so every record below a root NTA
+                            //would have gone unannotated and lost its provenance (deviation D1).
+                            if (NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(record.Name, anchor.Name))
                             {
                                 record.SetDnssecValidationResult(DnssecStatus.Insecure, anchor, true);
                                 if (sectionIndex < 2)
@@ -3357,7 +3375,7 @@ namespace TechnitiumLibrary.Net.Dns
             return null;
         }
 
-        private static void AddApplicablePolicyBoundary(string domainName, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, INegativeTrustAnchorSnapshot negativeTrustAnchors, List<DnssecSecurityBoundary> securityBoundaries)
+        internal static void AddApplicablePolicyBoundary(string domainName, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, INegativeTrustAnchorSnapshot negativeTrustAnchors, List<DnssecSecurityBoundary> securityBoundaries)
         {
             if (!TryGetValidNegativeTrustAnchor(negativeTrustAnchors, domainName, out NegativeTrustAnchorInfo anchor))
                 return;
@@ -3366,7 +3384,12 @@ namespace TechnitiumLibrary.Net.Dns
             if (positiveTrustAnchor is not null)
             {
                 string positiveName = positiveTrustAnchor[0].Name;
-                if ((positiveName.Length > anchor.Name.Length) && positiveName.EndsWith("." + anchor.Name, StringComparison.OrdinalIgnoreCase))
+                //RFC 7646 section 5: "validation starts again if there is a positive trust anchor
+                //further down in the chain". The suffix test this replaces never matched a root
+                //anchor's empty name, so a positive anchor below a root NTA failed to record its
+                //secure restart boundary and the NTA boundary won instead - suspending validation
+                //for a subtree the operator had explicitly re-anchored.
+                if ((positiveName.Length > anchor.Name.Length) && NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(positiveName, anchor.Name))
                 {
                     AddSecurityBoundary(securityBoundaries, DnssecSecurityBoundary.Secure(positiveName));
                     return;
@@ -6373,7 +6396,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        enum DnssecResolutionSecurityState
+        internal enum DnssecResolutionSecurityState
         {
             Disabled,
             Secure,
@@ -6388,7 +6411,7 @@ namespace TechnitiumLibrary.Net.Dns
             public static DnssecResolutionPolicySnapshot BuiltIn => CreateBuiltInSnapshot();
         }
 
-        sealed record DnssecResolutionSecurityContext(DnssecResolutionSecurityState State, IReadOnlyList<DnsResourceRecord> DsRecords, string BoundaryName, NegativeTrustAnchorInfo NegativeTrustAnchor)
+        internal sealed record DnssecResolutionSecurityContext(DnssecResolutionSecurityState State, IReadOnlyList<DnsResourceRecord> DsRecords, string BoundaryName, NegativeTrustAnchorInfo NegativeTrustAnchor)
         {
             public static readonly DnssecResolutionSecurityContext Disabled = new DnssecResolutionSecurityContext(DnssecResolutionSecurityState.Disabled, null, null, null);
             public bool IsSecure => State == DnssecResolutionSecurityState.Secure;
@@ -6398,7 +6421,7 @@ namespace TechnitiumLibrary.Net.Dns
             public static DnssecResolutionSecurityContext InsecureByUnsupportedAlgorithm(string boundaryName) => new DnssecResolutionSecurityContext(DnssecResolutionSecurityState.InsecureUnsupportedAlgorithm, null, boundaryName, null);
         }
 
-        enum DnssecChainSecurityState
+        internal enum DnssecChainSecurityState
         {
             Secure,
             InsecureUnsignedDelegation,
@@ -6406,7 +6429,7 @@ namespace TechnitiumLibrary.Net.Dns
             InsecureUnsupportedAlgorithm
         }
 
-        sealed record DnssecSecurityBoundary(string Name, DnssecChainSecurityState State, NegativeTrustAnchorInfo NegativeTrustAnchor)
+        internal sealed record DnssecSecurityBoundary(string Name, DnssecChainSecurityState State, NegativeTrustAnchorInfo NegativeTrustAnchor)
         {
             public static DnssecSecurityBoundary Secure(string name) => new DnssecSecurityBoundary(name, DnssecChainSecurityState.Secure, null);
             public static DnssecSecurityBoundary InsecureByUnsignedDelegation(string name) => new DnssecSecurityBoundary(name, DnssecChainSecurityState.InsecureUnsignedDelegation, null);
