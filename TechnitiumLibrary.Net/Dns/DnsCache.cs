@@ -864,14 +864,22 @@ namespace TechnitiumLibrary.Net.Dns
                 return; //ineligible response
 
             //Reject mixed-policy responses before stamping records. This prevents composition or
-            //custom callers from laundering records produced under different trust policies.
+            //custom callers from laundering records produced under different trust policies. A
+            //record with no context at all is not proof that no policy applies to it - it may
+            //simply not have been stamped - so an unscoped record next to a policy-scoped one
+            //must never let the whole response be silently adopted into that policy's identity.
             DnsCacheWriteContext writeContext = response.DnsCacheWriteContext;
             bool conflictingPolicyContext = false;
-            bool specialRecordMissingContext = false;
+            bool sawUnscopedRecord = false;
             void ObserveContext(DnsCacheWriteContext context)
             {
-                if ((context is null) || conflictingPolicyContext)
+                if (conflictingPolicyContext)
                     return;
+                if (context is null)
+                {
+                    sawUnscopedRecord = true;
+                    return;
+                }
                 if (writeContext is null)
                     writeContext = context;
                 else if (!HasSamePolicyIdentity(writeContext, context))
@@ -881,20 +889,27 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 foreach (DnsResourceRecord record in section)
                 {
+                    if (record.Type == DnsResourceRecordType.OPT)
+                        continue;
+
                     ObserveContext(record.GetDnssecCacheMetadata().DnsCacheWriteContext);
                     if (record.RDATA is DnsSpecialCacheRecordData specialRecord)
                     {
-                        if (specialRecord.DnsCacheWriteContext is null)
-                            specialRecordMissingContext = true;
                         ObserveContext(specialRecord.DnsCacheWriteContext);
                         foreach (IReadOnlyList<DnsResourceRecord> nestedSection in new[] { specialRecord.OriginalAnswer, specialRecord.OriginalAuthority, specialRecord.OriginalAdditional })
                             foreach (DnsResourceRecord nestedRecord in nestedSection)
+                            {
+                                if (nestedRecord.Type == DnsResourceRecordType.OPT)
+                                    continue;
                                 ObserveContext(nestedRecord.GetDnssecCacheMetadata().DnsCacheWriteContext);
+                            }
                     }
                 }
             }
-            if (conflictingPolicyContext || (specialRecordMissingContext && (writeContext is not null)))
+            if (conflictingPolicyContext)
                 return;
+            if (sawUnscopedRecord && ((response.DnsCacheWriteContext is not null) || (writeContext is not null)))
+                return; //mixed scoped/unscoped provenance under one response; reject rather than launder identity
             if ((response.DnsCacheWriteContext is null) && (writeContext is not null))
                 response.SetDnsCacheWriteContext(writeContext);
 
@@ -2214,6 +2229,18 @@ namespace TechnitiumLibrary.Net.Dns
 
             readonly ConcurrentDictionary<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> _entries;
 
+            //SetRecords and RemoveExpiredRecords each enforce the composite-response invariant
+            //(a PositiveCache record for one type must not coexist with a CNAME, or with the
+            //complementary NS/PARENT_NS/CHILD_NS representation) across several independent
+            //ConcurrentDictionary operations. Individual dictionary operations are atomic, but the
+            //multi-key sequence is not, so two writers - e.g. one caching a CNAME and another
+            //caching a composite PositiveCache record for the same entry - can interleave their
+            //cleanup and final assignment steps and leave both representations installed. This
+            //lock serializes writers against each other so that invariant always holds once a write
+            //completes; reads remain lock-free since a single-key lookup is already atomic on its
+            //own and does not need to observe a consistent cross-key snapshot.
+            readonly object _writeLock = new object();
+
             #endregion
 
             #region constructor
@@ -2305,6 +2332,14 @@ namespace TechnitiumLibrary.Net.Dns
                 if (records.Count == 0)
                     return;
 
+                lock (_writeLock)
+                {
+                    SetRecordsLocked(records);
+                }
+            }
+
+            private void SetRecordsLocked(IReadOnlyList<DnsResourceRecord> records)
+            {
                 DnsResourceRecord firstRecord = records[0];
                 DnsResourceRecordType type = firstRecord.Type;
 
@@ -2522,10 +2557,13 @@ namespace TechnitiumLibrary.Net.Dns
 
             public void RemoveExpiredRecords()
             {
-                foreach (KeyValuePair<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> entry in _entries)
+                lock (_writeLock)
                 {
-                    if (DnsResourceRecord.IsRRSetStale(entry.Value) || HasExpiredNegativeTrustAnchor(entry.Value))
-                        _entries.TryRemove(entry.Key, out _); //RR Set or accepting NTA is expired
+                    foreach (KeyValuePair<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> entry in _entries)
+                    {
+                        if (DnsResourceRecord.IsRRSetStale(entry.Value) || HasExpiredNegativeTrustAnchor(entry.Value))
+                            _entries.TryRemove(entry.Key, out _); //RR Set or accepting NTA is expired
+                    }
                 }
             }
 

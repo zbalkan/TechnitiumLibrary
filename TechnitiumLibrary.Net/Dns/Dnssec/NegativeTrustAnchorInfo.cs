@@ -125,6 +125,83 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         /// <summary>Gets the instant at which this immutable policy view was captured.</summary>
         DateTimeOffset CapturedOnUtc { get; }
 
+        /// <summary>
+        /// Gets every negative trust anchor active in this snapshot. The resolver reads this once,
+        /// at capture time, to build its own frozen copy of the policy - implementations must
+        /// return a view that reflects only the anchors active at <see cref="CapturedOnUtc"/> and
+        /// must not change what it yields afterward.
+        /// </summary>
+        IReadOnlyCollection<NegativeTrustAnchorInfo> Anchors { get; }
+
         bool TryGetCoveringAnchor(string domainName, out NegativeTrustAnchorInfo anchor);
+    }
+
+    /// <summary>
+    /// A library-owned, immutable negative trust anchor snapshot built by copying every anchor out
+    /// of an externally supplied <see cref="INegativeTrustAnchorSnapshot"/> at capture time.
+    /// </summary>
+    /// <remarks>
+    /// An external provider's own snapshot object could be backed by a live, mutable collection
+    /// that continues to change after capture even though the provider contract calls the
+    /// snapshot immutable - the resolver has no way to enforce that promise on an object it does
+    /// not own. Materializing <see cref="INegativeTrustAnchorSnapshot.Anchors"/> into this frozen
+    /// wrapper once, at capture, and never touching the original object again closes that gap: the
+    /// resolver's entire view of active anchors for one logical resolution is fixed at capture
+    /// time, matching the guarantee the cache scope/revision/generation identity already implies.
+    /// </remarks>
+    internal sealed class FrozenNegativeTrustAnchorSnapshot : INegativeTrustAnchorSnapshot
+    {
+        readonly IReadOnlyList<NegativeTrustAnchorInfo> _anchors;
+
+        public FrozenNegativeTrustAnchorSnapshot(Guid policyScopeId, Guid policyRevisionId, long generation, DateTimeOffset capturedOnUtc, IReadOnlyList<NegativeTrustAnchorInfo> anchors)
+        {
+            PolicyScopeId = policyScopeId;
+            PolicyRevisionId = policyRevisionId;
+            Generation = generation;
+            CapturedOnUtc = capturedOnUtc;
+            _anchors = anchors;
+        }
+
+        public Guid PolicyScopeId { get; }
+
+        public Guid PolicyRevisionId { get; }
+
+        public long Generation { get; }
+
+        public DateTimeOffset CapturedOnUtc { get; }
+
+        public IReadOnlyCollection<NegativeTrustAnchorInfo> Anchors
+        { get { return (IReadOnlyCollection<NegativeTrustAnchorInfo>)_anchors; } }
+
+        public bool TryGetCoveringAnchor(string domainName, out NegativeTrustAnchorInfo anchor)
+        {
+            anchor = null;
+
+            if (string.IsNullOrEmpty(domainName))
+                return false;
+
+            NegativeTrustAnchorInfo best = null;
+
+            foreach (NegativeTrustAnchorInfo candidate in _anchors)
+            {
+                if ((candidate is null) || string.IsNullOrEmpty(candidate.Name))
+                    continue;
+
+                bool matches = domainName.Equals(candidate.Name, StringComparison.OrdinalIgnoreCase) ||
+                    domainName.EndsWith("." + candidate.Name, StringComparison.OrdinalIgnoreCase);
+
+                if (!matches)
+                    continue;
+
+                if ((best is null) || (candidate.Name.Length > best.Name.Length))
+                    best = candidate;
+            }
+
+            if (best is null)
+                return false;
+
+            anchor = best;
+            return true;
+        }
     }
 }

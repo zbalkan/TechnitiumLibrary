@@ -407,12 +407,32 @@ namespace TechnitiumLibrary.Net.Dns
                 return null;
             try
             {
-                return provider.CaptureSnapshot();
+                return FreezeNegativeTrustAnchorSnapshot(provider.CaptureSnapshot());
             }
             catch
             {
                 return null; //NTA policy must not become a DNS availability dependency
             }
+        }
+
+        //Materializes every anchor out of an externally supplied snapshot, once, at capture time,
+        //into a library-owned FrozenNegativeTrustAnchorSnapshot so the resolver never holds a
+        //reference to an object the external provider could still be mutating. See the remarks on
+        //FrozenNegativeTrustAnchorSnapshot for why this is necessary despite the provider contract
+        //calling the snapshot immutable.
+        private static INegativeTrustAnchorSnapshot FreezeNegativeTrustAnchorSnapshot(INegativeTrustAnchorSnapshot snapshot)
+        {
+            if (snapshot is null)
+                return null;
+
+            List<NegativeTrustAnchorInfo> anchors = new List<NegativeTrustAnchorInfo>();
+            foreach (NegativeTrustAnchorInfo anchor in snapshot.Anchors)
+            {
+                if (anchor is not null)
+                    anchors.Add(anchor);
+            }
+
+            return new FrozenNegativeTrustAnchorSnapshot(snapshot.PolicyScopeId, snapshot.PolicyRevisionId, snapshot.Generation, snapshot.CapturedOnUtc, anchors);
         }
 
         private static bool TryCapturePositiveTrustAnchorSnapshot(IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, out Dictionary<string, IReadOnlyList<DnsResourceRecord>> snapshot)
@@ -511,7 +531,17 @@ namespace TechnitiumLibrary.Net.Dns
                 if (!TryCapturePositiveTrustAnchorSnapshot(captured.PositiveTrustAnchors, out Dictionary<string, IReadOnlyList<DnsResourceRecord>> capturedPositiveTrustAnchors))
                     throw new DnsClientException("The DNSSEC trust policy snapshot contains invalid or concurrently modified positive trust anchors.");
 
-                return new DnssecResolutionPolicySnapshot(captured.PolicyScopeId, CombinePolicyRevisionIds(captured.PolicyRevisionId, rootTrustAnchorRevisionId), captured.Generation, captured.CapturedOnUtc, captured.NegativeTrustAnchors, capturedPositiveTrustAnchors, rootTrustAnchorSnapshot);
+                INegativeTrustAnchorSnapshot frozenNegativeTrustAnchors;
+                try
+                {
+                    frozenNegativeTrustAnchors = FreezeNegativeTrustAnchorSnapshot(captured.NegativeTrustAnchors);
+                }
+                catch (Exception ex)
+                {
+                    throw new DnsClientException("Unable to capture a coherent negative trust anchor snapshot.", ex);
+                }
+
+                return new DnssecResolutionPolicySnapshot(captured.PolicyScopeId, CombinePolicyRevisionIds(captured.PolicyRevisionId, rootTrustAnchorRevisionId), captured.Generation, captured.CapturedOnUtc, frozenNegativeTrustAnchors, capturedPositiveTrustAnchors, rootTrustAnchorSnapshot);
             }
 
             if ((negativeTrustAnchorProvider is not null) && (legacyPositiveTrustAnchorSnapshot is not null) && (legacyPositiveTrustAnchorSnapshot.Count > 0))
@@ -4210,7 +4240,9 @@ namespace TechnitiumLibrary.Net.Dns
                         {
                             if (commonAnchor is null)
                                 commonAnchor = record.AppliedNegativeTrustAnchor;
-                            else if (!commonAnchor.Name.Equals(record.AppliedNegativeTrustAnchor.Name, StringComparison.OrdinalIgnoreCase))
+                            else if (commonAnchor.Name.Equals(record.AppliedNegativeTrustAnchor.Name, StringComparison.OrdinalIgnoreCase))
+                                commonAnchor = commonAnchor.MergeMostRestrictive(record.AppliedNegativeTrustAnchor); //keep the earliest expiry among dependencies
+                            else
                                 anchorMismatch = true;
                         }
                         else

@@ -605,7 +605,7 @@ namespace TechnitiumLibrary.Net.Dns
 
             datagram._metadata = _metadata;
             datagram._edns = _edns;
-            datagram._dnsClientExtendedErrors = _dnsClientExtendedErrors;
+            datagram._dnsClientExtendedErrors = CloneExtendedErrorsList();
             datagram._responseOnlyNegativeTrustAnchors = _responseOnlyNegativeTrustAnchors;
             datagram._dnsCacheWriteContext = _dnsCacheWriteContext;
             if (datagram.HasAnswerOrAuthorityNegativeTrustAnchor || (datagram.ResponseOnlyNegativeTrustAnchors.Count > 0))
@@ -620,6 +620,15 @@ namespace TechnitiumLibrary.Net.Dns
         internal void AddDnsClientExtendedError(EDnsExtendedDnsErrorCode errorCode, string extraText = null)
         {
             AddDnsClientExtendedError(new EDnsExtendedDnsErrorOptionData(errorCode, extraText));
+        }
+
+        //A clone must not share its generated-error list with its source: AddDnsClientExtendedError
+        //mutates the list in place once it exists, so two datagrams sharing the same List<T>
+        //instance would let a presentation call on one (e.g. the newly public
+        //AddNegativeTrustAnchorExtendedDnsErrors) silently add entries to the other.
+        private List<EDnsExtendedDnsErrorOptionData> CloneExtendedErrorsList()
+        {
+            return _dnsClientExtendedErrors is null ? null : new List<EDnsExtendedDnsErrorOptionData>(_dnsClientExtendedErrors);
         }
 
         internal void AddDnsClientExtendedErrors(IReadOnlyCollection<EDnsExtendedDnsErrorOptionData> dnsErrors)
@@ -871,7 +880,7 @@ namespace TechnitiumLibrary.Net.Dns
             else
                 datagram._edns = DnsDatagramEdns.ReadOPTFrom(additional, _RCODE);
 
-            datagram._dnsClientExtendedErrors = _dnsClientExtendedErrors;
+            datagram._dnsClientExtendedErrors = CloneExtendedErrorsList();
             datagram._responseOnlyNegativeTrustAnchors = _responseOnlyNegativeTrustAnchors;
             datagram._dnsCacheWriteContext = _dnsCacheWriteContext;
             if (datagram.HasAnswerOrAuthorityNegativeTrustAnchor || (datagram.ResponseOnlyNegativeTrustAnchors.Count > 0))
