@@ -862,7 +862,13 @@ namespace TechnitiumLibrary.Net.Dns
             //silently means the wrong instant. Format against the invariant culture, and
             //quote the literal T/Z rather than relying on pass-through of unrecognised
             //format specifiers.
-            return "{\"d\":\"" + domainName + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
+            //The name is escaped rather than interpolated. Anchors reaching this method through
+            //the resolver are canonical ASCII domain names, which contain nothing JSON would
+            //object to - but this method and CloneWithResponseAnnotations are both public, and
+            //together they let an application put an arbitrary name here. Concatenating it
+            //produced malformed JSON for a name containing a quote, a backslash or a control
+            //character, silently, in a field that goes out on the wire.
+            return "{\"d\":\"" + JsonEncodedText.Encode(domainName) + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
         }
 
         internal void SetShadowEDnsClientSubnetOption(EDnsClientSubnetOptionData shadowECSOption)

@@ -99,6 +99,40 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         }
 
         /// <summary>
+        /// Determines whether a special cache record, or anything it wraps, was accepted under a
+        /// negative trust anchor at all - whether or not that anchor has since expired.
+        /// </summary>
+        /// <remarks>
+        /// For the AD bit, not for eviction. RFC 7646 section 6 forbids setting AD on a response an
+        /// anchor affected, and that holds for the anchor's whole life, so the expiry-based check
+        /// is the wrong question here. A cache that stores negative answers as a special record
+        /// cannot answer it with <see cref="CanSetAuthenticData"/> either: the record's own
+        /// provenance is not on any of the resource records it wraps.
+        /// </remarks>
+        public static bool HasNegativeTrustAnchor(DnsCache.DnsSpecialCacheRecordData specialRecord)
+        {
+            if (specialRecord is null)
+                return false;
+
+            if ((specialRecord.AppliedNegativeTrustAnchors is not null) && (specialRecord.AppliedNegativeTrustAnchors.Count > 0))
+                return true;
+
+            foreach (IReadOnlyList<DnsResourceRecord> records in new[] { specialRecord.OriginalAnswer, specialRecord.OriginalAuthority, specialRecord.OriginalAdditional })
+            {
+                if (records is null)
+                    continue;
+
+                foreach (DnsResourceRecord record in records)
+                {
+                    if (record.GetDnssecCacheMetadata().AppliedNegativeTrustAnchor is not null)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Determines whether a cached response may set the AD bit.
         /// </summary>
         /// <remarks>
