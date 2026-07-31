@@ -103,9 +103,9 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         /// negative trust anchor at all - whether or not that anchor has since expired.
         /// </summary>
         /// <remarks>
-        /// For the AD bit, not for eviction. RFC 7646 section 6 forbids setting AD on a response an
-        /// anchor affected, and that holds for the anchor's whole life, so the expiry-based check
-        /// is the wrong question here. A cache that stores negative answers as a special record
+        /// For the AD bit, not for eviction. RFC 7646 section 1.1 defines an NTA as making the
+        /// validator treat the zone as unsigned and "not set the Authentic Data (AD) bit", and that
+        /// holds for the anchor's whole life - so the expiry-based check is the wrong question here. A cache that stores negative answers as a special record
         /// cannot answer it with <see cref="CanSetAuthenticData"/> either: the record's own
         /// provenance is not on any of the resource records it wraps.
         /// </remarks>
@@ -139,7 +139,7 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         /// True only when there is data to vouch for and every non-RRSIG, non-OPT record in it
         /// validated to <see cref="DnssecStatus.Secure"/>. A record demoted by a negative trust
         /// anchor is <see cref="DnssecStatus.Insecure"/>, so this also satisfies RFC 7646
-        /// section 6 - but by consequence rather than by naming anchors, and a cache that
+        /// section 1.1 - but by consequence rather than by naming anchors, and a cache that
         /// derives AD any other way must check anchors explicitly.
         /// </remarks>
         public static bool CanSetAuthenticData(IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority)

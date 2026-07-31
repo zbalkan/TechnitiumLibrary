@@ -488,7 +488,7 @@ namespace TechnitiumLibrary.Net.Dns
         /// <paramref name="securityContext"/> in place.
         /// </summary>
         /// <remarks>
-        /// Extracted from the resolver loop so the RFC 7646 section 5 precedence rules it
+        /// Extracted from the resolver loop so the RFC 7646 section 2.1 and 3 precedence rules it
         /// implements can be tested directly: an NTA at a node carrying a configured positive
         /// trust anchor "MUST take precedence over that trust anchor, effectively disabling it",
         /// and "validation starts again if there is a positive trust anchor further down in the

@@ -36,7 +36,7 @@ namespace TechnitiumLibrary.Net.Dns
         /// anchor used to accept that data has expired. Expiry is the only negative-trust-anchor
         /// invalidation the library performs; invalidation when the operator <i>adds or removes</i>
         /// an anchor belongs to the application, which must flush entries at and below the anchor
-        /// node. See RFC 7646 section 5 and deviation D5 on
+        /// node. See RFC 7646 section 4 and deviation D5 on
         /// <see cref="Dnssec.INegativeTrustAnchorProvider"/>.
         /// </para>
         /// </remarks>

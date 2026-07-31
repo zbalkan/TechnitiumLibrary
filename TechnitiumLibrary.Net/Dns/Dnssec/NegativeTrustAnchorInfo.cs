@@ -52,7 +52,7 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         /// This is the single definition of NTA coverage. Every site that needs it must use this
         /// rather than open-coding a suffix test, because the root zone is the empty name and a
         /// literal <c>EndsWith("." + anchorName)</c> silently fails to match anything against it.
-        /// Two such tests previously shipped, one of which suppressed the RFC 7646 section 5
+        /// Two such tests previously shipped, one of which suppressed the RFC 7646 section 3
         /// positive-trust-anchor restart below a root anchor.
         /// </remarks>
         internal static bool IsNameCoveredByAnchorName(string domainName, string anchorName)
@@ -159,12 +159,12 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// </para>
     ///
     /// <list type="number">
-    /// <item>Capping anchor lifetime. RFC 7646 section 5: the lifetime "SHOULD NOT exceed a
+    /// <item>Capping anchor lifetime. RFC 7646 section 4: the lifetime "SHOULD NOT exceed a
     /// week".</item>
     /// <item>Periodically retrying validation while an anchor is active, and removing the anchor
-    /// once validation succeeds (RFC 7646 section 5).</item>
+    /// once validation succeeds (RFC 7646 section 4).</item>
     /// <item>Flushing cached entries at and below the anchor node whenever an anchor is added or
-    /// removed. RFC 7646 section 5 requires this on removal; it is equally necessary on addition,
+    /// removed. RFC 7646 section 4 requires this on removal; it is equally necessary on addition,
     /// since already-cached secure records are otherwise unaffected until their TTL expires.
     /// Anchor <i>expiry</i> needs no flush, but only because the cache refuses to serve a record
     /// carrying an expired anchor. <see cref="DnsCache"/> does that on its read paths; an
@@ -183,7 +183,7 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// </para>
     ///
     /// <list type="bullet">
-    /// <item><b>D1 - root zone anchors are accepted.</b> RFC 7646 section 5 says an NTA "SHOULD be
+    /// <item><b>D1 - root zone anchors are accepted.</b> RFC 7646 section 2.1 says an NTA "SHOULD be
     /// used only in a specific domain or sub-domain". An anchor at the root is therefore
     /// discouraged, and it suspends validation for the entire namespace. It is nonetheless
     /// accepted, matching the reference implementation of the EDE draft (PowerDNS Recursor, which
@@ -208,12 +208,12 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// feature disabled by default. Satisfying the draft's SHOULD is consequently a deployment
     /// responsibility, not a library guarantee.</item>
     ///
-    /// <item><b>D4 - anchor lifetime is not capped.</b> RFC 7646 section 5 says an NTA lifetime
+    /// <item><b>D4 - anchor lifetime is not capped.</b> RFC 7646 section 4 says an NTA lifetime
     /// "SHOULD NOT exceed a week". Anchor names are validated and canonicalized at capture but
     /// expiry is not, since the acceptable ceiling is operator policy. See caller obligation 1
     /// above.</item>
     ///
-    /// <item><b>D5 - cache invalidation is delegated.</b> RFC 7646 section 5 says that when
+    /// <item><b>D5 - cache invalidation is delegated.</b> RFC 7646 section 4 says that when
     /// removing an NTA "the implementation SHOULD remove all cached entries at and below the NTA
     /// node". A library cache cannot know when operator policy changed. See caller obligation 3
     /// above. An earlier revision carried a policy-generation stamp on every cached record to

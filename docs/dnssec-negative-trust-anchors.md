@@ -16,9 +16,9 @@ authority to evict the server's cache.
 
 ## 1. What the library does
 
-- Applies negative trust anchor precedence at every zone cut, per RFC 7646 §5.
+- Applies negative trust anchor precedence at every zone cut, per RFC 7646 §2.1 and §3.
 - Suspends validation for names covered by an active anchor, and clears the AD bit on affected
-  responses, per RFC 7646 §6.
+  responses, per RFC 7646 §1.1.
 - Records **which** anchor caused a chain to be demoted, as provenance on the affected records and
   on the response, and preserves it across the cache.
 - Rejects cached data once the anchor that justified accepting it has expired — *in `DnsCache`*.
@@ -33,12 +33,12 @@ These are enumerated in the XML documentation on `INegativeTrustAnchorProvider` 
 |---|---|---|
 | 0 | **Migrate the resolve call sites** to `RecursiveResolveWithOptionsAsync`. The legacy overload cannot carry an anchor provider and fails silently | see §3 |
 | 1 | **Store and manage anchors** — admin API/UI, persistence, listing. Normalize operator input with `NegativeTrustAnchorInfo.TryCanonicalizeName` and store the canonical form | — |
-| 2 | **Cap anchor lifetime.** "The lifetime SHOULD NOT exceed a week" | RFC 7646 §5 |
-| 3 | **Retry validation periodically** while an anchor is active, and remove it once validation succeeds | RFC 7646 §5 |
-| 4 | **Flush cached entries at and below the anchor node** when an anchor is **added or removed** | RFC 7646 §5 |
+| 2 | **Cap anchor lifetime.** "The lifetime SHOULD NOT exceed a week" | RFC 7646 §4 |
+| 3 | **Retry validation periodically** while an anchor is active, and remove it once validation succeeds | RFC 7646 §4 |
+| 4 | **Flush cached entries at and below the anchor node** when an anchor is **added or removed** | RFC 7646 §4 |
 | 5 | **Decide whether EDE 33 reaches clients**, and how verbose it is | draft §4 |
 | 6 | **Suppress EDE 33 when the query was not subject to validation** | see §6 below |
-| 7 | **Log anchor creation/removal**; consider disclosing active anchors to operators | RFC 7646 §7 |
+| 7 | **Log anchor creation/removal**; consider disclosing active anchors to operators | RFC 7646 §3.1 |
 
 Obligation 4 deserves emphasis. The RFC requires the flush on *removal*; it is equally necessary on
 *addition*, because already-cached secure records are otherwise unaffected until their TTL expires
@@ -201,16 +201,16 @@ undocumented ones are not.**
 
 | ID | Deviation | Spec text departed from |
 |----|-----------|-------------------------|
-| **D1** | Root-zone anchors are accepted. Discarding an explicitly configured anchor — which previously happened silently — is more surprising than honouring it. PowerDNS supports and tests a root NTA. The accompanying MUST is not violated: the root has no names above it. | RFC 7646 §5 — an NTA "SHOULD be used only in a specific domain or sub-domain" |
+| **D1** | Root-zone anchors are accepted. Discarding an explicitly configured anchor — which previously happened silently — is more surprising than honouring it. PowerDNS supports and tests a root NTA. The accompanying MUST is not violated: the root has no names above it. | RFC 7646 §2.1 — an NTA "SHOULD be used only in a specific domain or sub-domain" |
 | **D2** | EDE 33 is emitted on **causation**, not coverage. A name already insecure for an unrelated reason that merely sits under an anchor produces no EDE here; PowerDNS produces one. This is a strict subset of what the draft permits, so it is conformant, but it is narrower than the reference implementation. | draft §4 — a resolver MAY emit "regardless of whether the presence of the NTA had a material effect" |
 | **D3** | The library never emits on its own; the server decides. Satisfying the draft's SHOULD is a deployment responsibility. | draft §4 — an operator applying an NTA "SHOULD return this EDE in affected responses" |
-| **D4** | Anchor lifetime is not capped. Names are validated at capture; expiry ceilings are operator policy. See obligation 2. | RFC 7646 §5 — lifetime "SHOULD NOT exceed a week" |
-| **D5** | Cache invalidation on anchor add/remove is delegated to the caller. See obligation 4. An earlier revision enforced this in-library with a per-record policy stamp; it was removed because it cost ~800 lines and invalidated the whole cache rather than the affected subtree. | RFC 7646 §5 — "SHOULD remove all cached entries at and below the NTA node" |
+| **D4** | Anchor lifetime is not capped. Names are validated at capture; expiry ceilings are operator policy. See obligation 2. | RFC 7646 §4 — lifetime "SHOULD NOT exceed a week" |
+| **D5** | Cache invalidation on anchor add/remove is delegated to the caller. See obligation 4. An earlier revision enforced this in-library with a per-record policy stamp; it was removed because it cost ~800 lines and invalidated the whole cache rather than the affected subtree. | RFC 7646 §4 — "SHOULD remove all cached entries at and below the NTA node" |
 | **D6** | EXTRA-TEXT carries structured JSON. The draft registers the names `d` and `t` for this field, so the structured form is offered. The root zone renders as `"."`, since the draft's "no trailing period" rule leaves the root with no usable representation. | RFC 8914 §2 — EXTRA-TEXT is "intended for human consumption (not automated parsing)" |
 
 ## 9. Conformance notes
 
-> **Not implemented: positive trust anchor interaction.** RFC 7646 §5 also requires that an NTA at a
+> **Not implemented: positive trust anchor interaction.** RFC 7646 §3 also requires that an NTA at a
 > node carrying a configured positive trust anchor (PTA) disables that PTA, and that a PTA further
 > down the chain restarts validation. Neither rule is implemented, because nothing in this library
 > or in Technitium DNS Server can configure a PTA in the first place — the requirements are vacuous
@@ -220,8 +220,8 @@ undocumented ones are not.**
 
 Behaviours the library guarantees, which the server should not re-implement or override:
 
-- An NTA **does not affect names above it** in the authentication chain (RFC 7646 §5, MUST NOT).
-- The AD bit is **not set** on an NTA-affected response (RFC 7646 §6).
+- An NTA **does not affect names above it** in the authentication chain (RFC 7646 §2.1, MUST NOT).
+- The AD bit is **not set** on an NTA-affected response (RFC 7646 §1.1).
 - Where multiple anchors apply, the **most specific** owner name wins; duplicates merge to the
   **earliest** expiry.
 - A DS RRset that is not uniformly `Secure` is **never** treated as an unsigned delegation — an
