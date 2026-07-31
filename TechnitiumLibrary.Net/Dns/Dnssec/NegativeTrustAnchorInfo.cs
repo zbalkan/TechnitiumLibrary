@@ -62,8 +62,17 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
             if (anchorName.Length == 0)
                 return true; //root zone anchor covers the entire namespace
 
-            return domainName.Equals(anchorName, StringComparison.OrdinalIgnoreCase) ||
-                domainName.EndsWith("." + anchorName, StringComparison.OrdinalIgnoreCase);
+            //Compared in place rather than with EndsWith("." + anchorName), which allocated a
+            //string on every call. This runs per record per anchor while annotating a response and
+            //again at every zone cut, so the concatenation was pure garbage on the hot path.
+            int offset = domainName.Length - anchorName.Length;
+
+            if (offset == 0)
+                return domainName.Equals(anchorName, StringComparison.OrdinalIgnoreCase);
+
+            return (offset > 0) &&
+                (domainName[offset - 1] == '.') &&
+                domainName.AsSpan(offset).Equals(anchorName, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -225,6 +234,23 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         /// Returns the negative trust anchors currently in force. Called once per logical
         /// resolution; the returned collection is copied immediately and never retained.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The returned collection must not be mutated after it is returned.</b> Canonicalizing
+        /// the anchors is the expensive part of starting a resolution, so the result is memoized
+        /// against the identity of the collection returned here: reporting the same instance twice
+        /// is taken as reporting the same anchors, and the previous canonicalized set is reused.
+        /// </para>
+        ///
+        /// <para>
+        /// An implementation should therefore hold an immutable snapshot and return that same
+        /// instance until the anchors change, then return a new one - which is also the cheapest
+        /// implementation, since this is called once per resolution and the anchors change only
+        /// when an operator acts. Returning a freshly built collection every call remains correct
+        /// but forfeits the memo; mutating a collection already returned does not, and will keep
+        /// the resolver on stale anchors.
+        /// </para>
+        /// </remarks>
         IReadOnlyCollection<NegativeTrustAnchorInfo> GetActiveAnchors();
     }
 
@@ -241,14 +267,27 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// </remarks>
     internal sealed class NegativeTrustAnchorSet
     {
-        public static readonly NegativeTrustAnchorSet Empty = new NegativeTrustAnchorSet(new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.OrdinalIgnoreCase));
+        //Ordinal, not OrdinalIgnoreCase. Every key is put through canonicalization first, which ends
+        //in ToLowerInvariant over an A-label, and the only caller canonicalizes the query name the
+        //same way before looking it up - so the two sides are already in one case and the
+        //case-insensitive comparer only bought a much slower hash. A hypothetical unnormalized
+        //probe now misses, which leaves validation enabled: the fail-closed direction.
+        public static readonly NegativeTrustAnchorSet Empty = new NegativeTrustAnchorSet(new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.Ordinal));
+
+        static volatile CaptureMemo _memo;
 
         readonly Dictionary<string, NegativeTrustAnchorInfo> _anchorsByName;
+
+        //Built once with the set. Obtaining it per lookup re-validates that the comparer supports
+        //span keys every time, which cost more than the substrings it was meant to save.
+        readonly Dictionary<string, NegativeTrustAnchorInfo>.AlternateLookup<ReadOnlySpan<char>> _anchorsByNameSpan;
+
         readonly IReadOnlyList<NegativeTrustAnchorInfo> _anchors;
 
         private NegativeTrustAnchorSet(Dictionary<string, NegativeTrustAnchorInfo> anchorsByName)
         {
             _anchorsByName = anchorsByName;
+            _anchorsByNameSpan = anchorsByName.GetAlternateLookup<ReadOnlySpan<char>>();
 
             NegativeTrustAnchorInfo[] anchors = new NegativeTrustAnchorInfo[anchorsByName.Count];
             anchorsByName.Values.CopyTo(anchors, 0);
@@ -278,7 +317,18 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
             if ((reported is null) || (reported.Count == 0))
                 return Empty;
 
-            Dictionary<string, NegativeTrustAnchorInfo> anchors = new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.OrdinalIgnoreCase);
+            //Capture runs once per logical resolution, and canonicalizing every anchor is the
+            //expensive part of it - each name goes through IDN conversion and validation. Rebuilding
+            //an unchanged set on every query made the cost of the feature scale with query rate
+            //times anchor count, for a set that changes only when an operator acts or the sweep
+            //runs. A provider that reports the same collection instance is reporting the same
+            //anchors, so the previous result is reused; see the immutability obligation on
+            //INegativeTrustAnchorProvider.GetActiveAnchors.
+            CaptureMemo memo = _memo;
+            if ((memo is not null) && ReferenceEquals(memo.Reported, reported))
+                return memo.Set;
+
+            Dictionary<string, NegativeTrustAnchorInfo> anchors = new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.Ordinal);
 
             foreach (NegativeTrustAnchorInfo anchor in reported)
             {
@@ -294,7 +344,27 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
                 anchors[canonicalName] = anchors.TryGetValue(canonicalName, out NegativeTrustAnchorInfo existing) ? existing.MergeMostRestrictive(canonicalAnchor) : canonicalAnchor;
             }
 
-            return anchors.Count == 0 ? Empty : new NegativeTrustAnchorSet(anchors);
+            NegativeTrustAnchorSet captured = anchors.Count == 0 ? Empty : new NegativeTrustAnchorSet(anchors);
+
+            //Single entry, and racy on purpose: two threads capturing at once may each build a set
+            //and one write wins. Both sets are equivalent and immutable, so the loser is simply
+            //garbage. A lock here would put every resolution through one gate to save an allocation
+            //that only happens when the anchors have actually changed.
+            _memo = new CaptureMemo(reported, captured);
+
+            return captured;
+        }
+
+        sealed class CaptureMemo
+        {
+            public readonly IReadOnlyCollection<NegativeTrustAnchorInfo> Reported;
+            public readonly NegativeTrustAnchorSet Set;
+
+            public CaptureMemo(IReadOnlyCollection<NegativeTrustAnchorInfo> reported, NegativeTrustAnchorSet set)
+            {
+                Reported = reported;
+                Set = set;
+            }
         }
 
         public int Count
@@ -320,18 +390,26 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
             if (domainName is null)
                 return false;
 
-            string node = domainName;
+            //The overwhelmingly common deployment configures no anchors at all, and without this
+            //every zone cut of every query still walked the name to the root probing an empty map.
+            if (_anchorsByName.Count == 0)
+                return false;
+
+            //Walked as a span over the original string. Substring per label allocated one string
+            //per level of the name - four or five per lookup, at every zone cut - to produce keys
+            //that were discarded immediately. The alternate lookup hashes the span directly.
+            ReadOnlySpan<char> node = domainName;
 
             while (true)
             {
-                if (_anchorsByName.TryGetValue(node, out anchor))
+                if (_anchorsByNameSpan.TryGetValue(node, out anchor))
                     return true;
 
                 if (node.Length == 0)
                     return false; //the root was the last node to test
 
                 int separator = node.IndexOf('.');
-                node = (separator < 0) ? "" : node.Substring(separator + 1);
+                node = (separator < 0) ? ReadOnlySpan<char>.Empty : node.Slice(separator + 1);
             }
         }
     }

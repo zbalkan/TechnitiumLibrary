@@ -462,7 +462,7 @@ namespace TechnitiumLibrary.Net.Dns
         {
             NegativeTrustAnchorSet negativeTrustAnchors = dnssecValidation ? NegativeTrustAnchorSet.Capture(negativeTrustAnchorProvider, CanonicalizeNegativeTrustAnchorNameOrNull) : null;
 
-            return new DnssecResolutionPolicy(negativeTrustAnchors, CloneTrustAnchors(ROOT_TRUST_ANCHORS));
+            return DnssecResolutionPolicy.WithLazyRootTrustAnchors(negativeTrustAnchors);
         }
 
         /// <summary>
@@ -6081,12 +6081,58 @@ namespace TechnitiumLibrary.Net.Dns
         /// The DNSSEC trust policy in force for one logical resolution. Captured once and threaded
         /// through every nested lookup so a chain cannot be validated under two different policies.
         /// </summary>
-        internal sealed record DnssecResolutionPolicy(NegativeTrustAnchorSet NegativeTrustAnchors, IReadOnlyList<DnsResourceRecord> RootTrustAnchors)
+        internal sealed class DnssecResolutionPolicy
         {
+            public NegativeTrustAnchorSet NegativeTrustAnchors { get; }
+
+            IReadOnlyList<DnsResourceRecord> _rootTrustAnchors;
+
+            public DnssecResolutionPolicy(NegativeTrustAnchorSet negativeTrustAnchors, IReadOnlyList<DnsResourceRecord> rootTrustAnchors)
+            {
+                NegativeTrustAnchors = negativeTrustAnchors;
+                _rootTrustAnchors = rootTrustAnchors;
+            }
+
+            private DnssecResolutionPolicy(NegativeTrustAnchorSet negativeTrustAnchors)
+            {
+                NegativeTrustAnchors = negativeTrustAnchors;
+            }
+
+            /// <summary>
+            /// The root trust anchors for this resolution: this policy's own copy, never shared
+            /// with another.
+            /// </summary>
+            /// <remarks>
+            /// Cloned on first read rather than at construction. The records are mutable - a
+            /// resolution can stamp validation results onto them - so each policy must own its
+            /// copy, but a policy captured for a non-validating resolution never reads them, and
+            /// deep-copying the DS records including their digests cost several hundred bytes on
+            /// every query regardless. Raced initialization is resolved by CompareExchange so that
+            /// all readers observe one instance; a loser's copy is simply garbage.
+            /// </remarks>
+            public IReadOnlyList<DnsResourceRecord> RootTrustAnchors
+            {
+                get
+                {
+                    IReadOnlyList<DnsResourceRecord> anchors = _rootTrustAnchors;
+                    if (anchors is not null)
+                        return anchors;
+
+                    Interlocked.CompareExchange(ref _rootTrustAnchors, CloneTrustAnchors(ROOT_TRUST_ANCHORS), null);
+                    return _rootTrustAnchors;
+                }
+            }
+
+            /// <summary>A policy whose root trust anchors are cloned only if something reads them.</summary>
+            public static DnssecResolutionPolicy WithLazyRootTrustAnchors(NegativeTrustAnchorSet negativeTrustAnchors)
+            {
+                return new DnssecResolutionPolicy(negativeTrustAnchors);
+            }
+
             public static readonly DnssecResolutionPolicy Disabled = new DnssecResolutionPolicy(NegativeTrustAnchorSet.Empty, Array.Empty<DnsResourceRecord>());
 
             /// <summary>The default policy: root trust anchors only, no operator overrides.</summary>
-            public static DnssecResolutionPolicy BuiltIn => new DnssecResolutionPolicy(NegativeTrustAnchorSet.Empty, CloneTrustAnchors(ROOT_TRUST_ANCHORS));
+            public static DnssecResolutionPolicy BuiltIn => WithLazyRootTrustAnchors(NegativeTrustAnchorSet.Empty);
         }
 
         internal sealed record DnssecResolutionSecurityContext(DnssecSecurityState State, IReadOnlyList<DnsResourceRecord> DsRecords, string BoundaryName, NegativeTrustAnchorInfo NegativeTrustAnchor)
