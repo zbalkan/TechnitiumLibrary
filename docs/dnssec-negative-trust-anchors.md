@@ -16,7 +16,7 @@ authority to evict the server's cache.
 
 ## 1. What the library does
 
-- Applies NTA and positive-trust-anchor (PTA) precedence at every zone cut, per RFC 7646 §5.
+- Applies negative trust anchor precedence at every zone cut, per RFC 7646 §5.
 - Suspends validation for names covered by an active anchor, and clears the AD bit on affected
   responses, per RFC 7646 §6.
 - Records **which** anchor caused a chain to be demoted, as provenance on the affected records and
@@ -86,7 +86,6 @@ RecursiveResolveOptions options = new RecursiveResolveOptions
     Cache = _cacheZoneManager,
     DnssecValidation = true,
     NegativeTrustAnchorProvider = _ntaProvider,
-    PositiveTrustAnchors = _configuredTrustAnchors,   // optional; DnsClient.TrustAnchors equivalent
 };
 
 DnsDatagram response = await DnsClient.RecursiveResolveQueryWithOptionsAsync(question, options);
@@ -211,12 +210,16 @@ undocumented ones are not.**
 
 ## 9. Conformance notes
 
+> **Not implemented: positive trust anchor interaction.** RFC 7646 §5 also requires that an NTA at a
+> node carrying a configured positive trust anchor (PTA) disables that PTA, and that a PTA further
+> down the chain restarts validation. Neither rule is implemented, because nothing in this library
+> or in Technitium DNS Server can configure a PTA in the first place — the requirements are vacuous
+> rather than violated. An earlier revision carried the machinery for both; it was removed as
+> unreachable code threaded through the most delicate part of the resolver. Adding PTA configuration
+> later means restoring these two rules alongside it.
+
 Behaviours the library guarantees, which the server should not re-implement or override:
 
-- An NTA at a node carrying a configured positive trust anchor **takes precedence**, disabling it
-  (RFC 7646 §5, MUST).
-- A positive trust anchor **further down the chain restarts validation**, and a covering anchor does
-  not re-assert itself at deeper delegations below that restart (RFC 7646 §5, MUST).
 - An NTA **does not affect names above it** in the authentication chain (RFC 7646 §5, MUST NOT).
 - The AD bit is **not set** on an NTA-affected response (RFC 7646 §6).
 - Where multiple anchors apply, the **most specific** owner name wins; duplicates merge to the

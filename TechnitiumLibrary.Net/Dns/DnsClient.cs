@@ -77,7 +77,6 @@ namespace TechnitiumLibrary.Net.Dns
         public bool AsyncNameServerResolution { get; init; }
         public List<DnsDatagram> RawResponses { get; init; }
         public INegativeTrustAnchorProvider NegativeTrustAnchorProvider { get; init; }
-        public IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> PositiveTrustAnchors { get; init; }
     }
 
     public class DnsClient : IDnsClient
@@ -459,35 +458,11 @@ namespace TechnitiumLibrary.Net.Dns
         /// section 5 already assigns cache invalidation to whoever changes the policy, and the
         /// stamp invalidated the entire cache rather than the affected subtree.
         /// </remarks>
-        private static DnssecResolutionPolicy CaptureDnssecResolutionPolicy(bool dnssecValidation, INegativeTrustAnchorProvider negativeTrustAnchorProvider, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors)
+        private static DnssecResolutionPolicy CaptureDnssecResolutionPolicy(bool dnssecValidation, INegativeTrustAnchorProvider negativeTrustAnchorProvider)
         {
-            if (!dnssecValidation)
-                return DnssecResolutionPolicy.Disabled;
+            NegativeTrustAnchorSet negativeTrustAnchors = dnssecValidation ? NegativeTrustAnchorSet.Capture(negativeTrustAnchorProvider, CanonicalizeNegativeTrustAnchorNameOrNull) : null;
 
-            NegativeTrustAnchorSet negativeTrustAnchors = NegativeTrustAnchorSet.Capture(negativeTrustAnchorProvider, CanonicalizeNegativeTrustAnchorNameOrNull);
-
-            //Copy the positive anchors so a caller mutating its own dictionary mid-resolution
-            //cannot change which names validate part-way through one chain.
-            Dictionary<string, IReadOnlyList<DnsResourceRecord>> capturedPositiveTrustAnchors = null;
-            if (positiveTrustAnchors is not null)
-            {
-                capturedPositiveTrustAnchors = new Dictionary<string, IReadOnlyList<DnsResourceRecord>>(StringComparer.OrdinalIgnoreCase);
-
-                foreach (KeyValuePair<string, IReadOnlyList<DnsResourceRecord>> entry in positiveTrustAnchors)
-                {
-                    string canonicalName = CanonicalizeNegativeTrustAnchorNameOrNull(entry.Key);
-                    if ((canonicalName is null) || (entry.Value is null) || (entry.Value.Count == 0))
-                        continue;
-
-                    if (IsValidConfiguredTrustAnchor(canonicalName, entry.Value))
-                        capturedPositiveTrustAnchors[canonicalName] = entry.Value;
-                }
-
-                if (capturedPositiveTrustAnchors.Count == 0)
-                    capturedPositiveTrustAnchors = null;
-            }
-
-            return new DnssecResolutionPolicy(negativeTrustAnchors, capturedPositiveTrustAnchors, CloneTrustAnchors(ROOT_TRUST_ANCHORS));
+            return new DnssecResolutionPolicy(negativeTrustAnchors, CloneTrustAnchors(ROOT_TRUST_ANCHORS));
         }
 
         /// <summary>
@@ -523,57 +498,15 @@ namespace TechnitiumLibrary.Net.Dns
         /// </remarks>
         /// <returns><see langword="true"/> when policy decided this boundary and the caller
         /// should stop its own DS traversal for it.</returns>
-        internal static bool TryApplyTrustPolicyAtBoundary(string boundaryName, bool dnssecValidation, NegativeTrustAnchorSet negativeTrustAnchors, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, ref DnssecResolutionSecurityContext securityContext)
+        internal static bool TryApplyTrustPolicyAtBoundary(string boundaryName, bool dnssecValidation, NegativeTrustAnchorSet negativeTrustAnchors, ref DnssecResolutionSecurityContext securityContext)
         {
             if (!dnssecValidation)
                 return false;
 
-            IReadOnlyList<DnsResourceRecord> positiveTrustAnchor = GetConfiguredTrustAnchorFor(positiveTrustAnchors, boundaryName);
-            string positiveTrustAnchorName = positiveTrustAnchor?[0].Name;
             bool hasNegativeTrustAnchor = TryGetValidNegativeTrustAnchor(negativeTrustAnchors, boundaryName, out NegativeTrustAnchorInfo negativeTrustAnchor);
-            bool hasExactNegativeTrustAnchor = hasNegativeTrustAnchor && negativeTrustAnchor.Name.Equals(boundaryName, StringComparison.OrdinalIgnoreCase);
-            bool positiveTrustAnchorWins = (positiveTrustAnchor is not null) && (!hasNegativeTrustAnchor || (positiveTrustAnchorName.Length > negativeTrustAnchor.Name.Length));
-
-            //An exact NTA wins at the same node. A more-specific positive trust anchor
-            //restarts validation below an ancestor NTA.
-            if ((positiveTrustAnchor is not null) && hasExactNegativeTrustAnchor)
-            {
-                securityContext = DnssecResolutionSecurityContext.InsecureByNegativeTrustAnchor(negativeTrustAnchor);
-                return true;
-            }
-
-            if (positiveTrustAnchorWins)
-            {
-                bool alreadyInsideRestartedChain = securityContext.BoundaryName is not null &&
-                    ((positiveTrustAnchorName.Length == 0) ||
-                     securityContext.BoundaryName.Equals(positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase) ||
-                     securityContext.BoundaryName.EndsWith("." + positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase));
-                if (!alreadyInsideRestartedChain)
-                    securityContext = DnssecResolutionSecurityContext.Secure(positiveTrustAnchor, positiveTrustAnchorName);
-
-                //An exact positive anchor supplies this boundary directly. When a cached
-                //referral jumps below it, continue DS traversal from the positive anchor.
-                return boundaryName.Equals(positiveTrustAnchorName, StringComparison.OrdinalIgnoreCase);
-            }
 
             if (hasNegativeTrustAnchor)
             {
-                //A positive trust anchor restarts validation for its entire subtree. A
-                //covering NTA above that secure restart boundary must not reactivate at each
-                //subsequent delegation; only an NTA at or below the restart can stop it again.
-                //This is the RFC 7646 section 5 rule that "validation starts again if there is
-                //a positive trust anchor further down in the chain", so coverage must go
-                //through the shared predicate: a root NTA has an empty name, against which an
-                //open-coded EndsWith("." + name) never matches, which would have re-asserted
-                //the anchor at every delegation below the restart and broken that MUST.
-                if (securityContext.IsSecure &&
-                    !string.IsNullOrEmpty(securityContext.BoundaryName) &&
-                    (securityContext.BoundaryName.Length > negativeTrustAnchor.Name.Length) &&
-                    NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(securityContext.BoundaryName, negativeTrustAnchor.Name))
-                {
-                    return false;
-                }
-
                 if ((securityContext.State == DnssecSecurityState.Secure) ||
                      ((securityContext.State == DnssecSecurityState.InsecureNegativeTrustAnchor) &&
                       (negativeTrustAnchor.Name.Length > securityContext.NegativeTrustAnchor.Name.Length)))
@@ -704,7 +637,7 @@ namespace TechnitiumLibrary.Net.Dns
         public static Task<DnsDatagram> RecursiveResolveWithOptionsAsync(DnsQuestionRecord question, RecursiveResolveOptions options, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(options);
-            DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(options.DnssecValidation, options.NegativeTrustAnchorProvider, options.PositiveTrustAnchors);
+            DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(options.DnssecValidation, options.NegativeTrustAnchorProvider);
             return RecursiveResolveInternalAsync(question, options.Cache, options.Proxy, options.IPv6Mode, options.UdpPayloadSize, options.RandomizeName, options.QnameMinimization, options.DnssecValidation, options.EDnsClientSubnet, options.Retries, options.Timeout, options.Concurrency, options.MaxStackCount, options.MinimalResponse, options.AsyncNameServerResolution, options.RawResponses, policy, cancellationToken);
         }
 
@@ -723,8 +656,6 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 cache.CacheResponse(response, isDnssecBadCache, responseZoneCut);
             }
-
-            Dictionary<string, IReadOnlyList<DnsResourceRecord>> resolutionPositiveTrustAnchors = dnssecValidation ? policy?.PositiveTrustAnchors : null;
 
             if (qnameMinimization)
             {
@@ -792,7 +723,7 @@ namespace TechnitiumLibrary.Net.Dns
 
             bool ApplyTrustPolicyAtBoundary(string boundaryName, ref DnssecResolutionSecurityContext securityContext)
             {
-                return TryApplyTrustPolicyAtBoundary(boundaryName, dnssecValidation, negativeTrustAnchors, resolutionPositiveTrustAnchors, ref securityContext);
+                return TryApplyTrustPolicyAtBoundary(boundaryName, dnssecValidation, negativeTrustAnchors, ref securityContext);
             }
 
             void PushStack(string nextQName, DnsResourceRecordType nextQType)
@@ -1320,7 +1251,6 @@ namespace TechnitiumLibrary.Net.Dns
 
                             dnsClient = new DnsClient(resolvedNameServers);
                             dnsClient._concurrency = concurrency;
-                            dnsClient._trustAnchors = resolutionPositiveTrustAnchors;
 
                             if (ipv6Mode != IPv6Mode.Disabled)
                             {
@@ -1534,7 +1464,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                                     try
                                     {
-                                        await DnssecValidateResponseAsync(response, currentLastDSRecords, policy.RootTrustAnchors, dnsClient, cache, udpPayloadSize, negativeTrustAnchors, resolutionPositiveTrustAnchors, cancellationToken1);
+                                        await DnssecValidateResponseAsync(response, currentLastDSRecords, policy.RootTrustAnchors, dnsClient, cache, udpPayloadSize, negativeTrustAnchors, cancellationToken1);
                                         if (response.HasAnswerOrAuthorityNegativeTrustAnchor)
                                             response.ClearAuthenticData();
                                     }
@@ -2337,7 +2267,7 @@ namespace TechnitiumLibrary.Net.Dns
         public static Task<DnsDatagram> RecursiveResolveQueryWithOptionsAsync(DnsQuestionRecord question, RecursiveResolveOptions options, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(options);
-            DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(options.DnssecValidation, options.NegativeTrustAnchorProvider, options.PositiveTrustAnchors);
+            DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(options.DnssecValidation, options.NegativeTrustAnchorProvider);
             return RecursiveResolveQueryWithOptionsAsync(question, options, policy, cancellationToken);
         }
 
@@ -2362,7 +2292,7 @@ namespace TechnitiumLibrary.Net.Dns
         {
             ArgumentNullException.ThrowIfNull(options);
             RecursiveResolveOptions effectiveOptions = options.Cache is null ? options with { Cache = new DnsCache() } : options;
-            DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(effectiveOptions.DnssecValidation, effectiveOptions.NegativeTrustAnchorProvider, effectiveOptions.PositiveTrustAnchors);
+            DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(effectiveOptions.DnssecValidation, effectiveOptions.NegativeTrustAnchorProvider);
             Task<DnsDatagram> ipv6Task = effectiveOptions.IPv6Mode != IPv6Mode.Disabled ? RecursiveResolveQueryWithOptionsAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.AAAA, DnsClass.IN), effectiveOptions, policy, cancellationToken) : null;
             Task<DnsDatagram> ipv4Task = RecursiveResolveQueryWithOptionsAsync(new DnsQuestionRecord(domain, DnsResourceRecordType.A, DnsClass.IN), effectiveOptions, policy, cancellationToken);
             IReadOnlyList<IPAddress> ipv6Addresses = effectiveOptions.IPv6Mode != IPv6Mode.Disabled ? ParseResponseAAAA(await ipv6Task) : null;
@@ -3146,51 +3076,11 @@ namespace TechnitiumLibrary.Net.Dns
             return rootServers;
         }
 
-        private static bool IsValidConfiguredTrustAnchor(string ownerName, IReadOnlyList<DnsResourceRecord> trustAnchor)
-        {
-            if ((trustAnchor is null) || (trustAnchor.Count == 0))
-                return false;
-            foreach (DnsResourceRecord record in trustAnchor)
-                if ((record is null) || (record.Type != DnsResourceRecordType.DS) || (record.Class != DnsClass.IN) || (record.RDATA is not DnsDSRecordData) || !record.Name.Equals(ownerName, StringComparison.OrdinalIgnoreCase))
-                    return false;
-            return true;
-        }
 
-        private static IReadOnlyList<DnsResourceRecord> GetConfiguredTrustAnchorFor(IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, string signerName)
-        {
-            if (positiveTrustAnchors is null)
-                return null;
-
-            string domain = signerName;
-            while (domain is not null)
-            {
-                if (positiveTrustAnchors.TryGetValue(domain, out IReadOnlyList<DnsResourceRecord> trustAnchor) && IsValidConfiguredTrustAnchor(domain, trustAnchor))
-                    return trustAnchor;
-                domain = DnsCache.GetParentZone(domain);
-            }
-            return null;
-        }
-
-        internal static void AddApplicablePolicyBoundary(string domainName, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, NegativeTrustAnchorSet negativeTrustAnchors, List<DnssecSecurityBoundary> securityBoundaries)
+        internal static void AddApplicablePolicyBoundary(string domainName, NegativeTrustAnchorSet negativeTrustAnchors, List<DnssecSecurityBoundary> securityBoundaries)
         {
             if (!TryGetValidNegativeTrustAnchor(negativeTrustAnchors, domainName, out NegativeTrustAnchorInfo anchor))
                 return;
-
-            IReadOnlyList<DnsResourceRecord> positiveTrustAnchor = GetConfiguredTrustAnchorFor(positiveTrustAnchors, domainName);
-            if (positiveTrustAnchor is not null)
-            {
-                string positiveName = positiveTrustAnchor[0].Name;
-                //RFC 7646 section 5: "validation starts again if there is a positive trust anchor
-                //further down in the chain". The suffix test this replaces never matched a root
-                //anchor's empty name, so a positive anchor below a root NTA failed to record its
-                //secure restart boundary and the NTA boundary won instead - suspending validation
-                //for a subtree the operator had explicitly re-anchored.
-                if ((positiveName.Length > anchor.Name.Length) && NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(positiveName, anchor.Name))
-                {
-                    AddSecurityBoundary(securityBoundaries, DnssecSecurityBoundary.Secure(positiveName));
-                    return;
-                }
-            }
 
             AddSecurityBoundary(securityBoundaries, DnssecSecurityBoundary.InsecureByNegativeTrustAnchor(anchor.Name, anchor));
         }
@@ -3216,7 +3106,7 @@ namespace TechnitiumLibrary.Net.Dns
             cache.CacheResponse(response, isDnssecBadCache, zoneCut);
         }
 
-        private static async Task DnssecValidateResponseAsync(DnsDatagram response, IReadOnlyList<DnsResourceRecord> lastDSRecords, IReadOnlyList<DnsResourceRecord> rootTrustAnchors, DnsClient dnsClient, IDnsCache cache, ushort udpPayloadSize, NegativeTrustAnchorSet negativeTrustAnchors, IReadOnlyDictionary<string, IReadOnlyList<DnsResourceRecord>> positiveTrustAnchors, CancellationToken cancellationToken = default)
+        private static async Task DnssecValidateResponseAsync(DnsDatagram response, IReadOnlyList<DnsResourceRecord> lastDSRecords, IReadOnlyList<DnsResourceRecord> rootTrustAnchors, DnsClient dnsClient, IDnsCache cache, ushort udpPayloadSize, NegativeTrustAnchorSet negativeTrustAnchors, CancellationToken cancellationToken = default)
         {
             DnsClass @class = response.Question[0].Class;
             List<DnsResourceRecord> allDnsKeyRecords = new List<DnsResourceRecord>(4);
@@ -3224,15 +3114,15 @@ namespace TechnitiumLibrary.Net.Dns
             List<NegativeTrustAnchorInfo> proofNegativeTrustAnchors = null;
 
             if (response.Question.Count > 0)
-                AddApplicablePolicyBoundary(response.Question[0].Name, positiveTrustAnchors, negativeTrustAnchors, securityBoundaries);
+                AddApplicablePolicyBoundary(response.Question[0].Name, negativeTrustAnchors, securityBoundaries);
             foreach (IReadOnlyList<DnsResourceRecord> records in new[] { response.Answer, response.Authority, response.Additional })
                 foreach (DnsResourceRecord record in records)
                     if ((record.Type != DnsResourceRecordType.RRSIG) && (record.Type != DnsResourceRecordType.OPT))
-                        AddApplicablePolicyBoundary(record.Name, positiveTrustAnchors, negativeTrustAnchors, securityBoundaries);
+                        AddApplicablePolicyBoundary(record.Name, negativeTrustAnchors, securityBoundaries);
 
             DnssecSecurityBoundary GetEffectivePolicyBoundary(string domainName)
             {
-                AddApplicablePolicyBoundary(domainName, positiveTrustAnchors, negativeTrustAnchors, securityBoundaries);
+                AddApplicablePolicyBoundary(domainName, negativeTrustAnchors, securityBoundaries);
                 return GetEffectiveSecurityBoundary(domainName, securityBoundaries);
             }
 
@@ -3251,20 +3141,16 @@ namespace TechnitiumLibrary.Net.Dns
                 return (boundary is not null) && (boundary.State != DnssecSecurityState.Secure);
             }
 
-            //Build an independent chain plan for every signer. A locally configured positive
-            //anchor below a covering NTA restarts validation; an exact NTA wins at its boundary.
+            //Build an independent chain plan for every signer. An exact NTA wins at its boundary.
             IReadOnlyCollection<string> signersNames = FindSignersNames(response);
             foreach (string signersName in signersNames)
             {
-                IReadOnlyList<DnsResourceRecord> configuredTrustAnchor = GetConfiguredTrustAnchorFor(positiveTrustAnchors, signersName);
-                IReadOnlyList<DnsResourceRecord> startDSRecords = configuredTrustAnchor ?? lastDSRecords;
+                IReadOnlyList<DnsResourceRecord> startDSRecords = lastDSRecords;
                 string startOwnerName = startDSRecords[0].Name;
 
-                bool positiveAnchorBelowNta = false;
                 if (TryGetValidNegativeTrustAnchor(negativeTrustAnchors, signersName, out NegativeTrustAnchorInfo coveringAnchor))
                 {
-                    positiveAnchorBelowNta = (configuredTrustAnchor is not null) && (startOwnerName.Length > coveringAnchor.Name.Length) && startOwnerName.EndsWith("." + coveringAnchor.Name, StringComparison.OrdinalIgnoreCase);
-                    if (!positiveAnchorBelowNta && startOwnerName.Equals(coveringAnchor.Name, StringComparison.OrdinalIgnoreCase))
+                    if (startOwnerName.Equals(coveringAnchor.Name, StringComparison.OrdinalIgnoreCase))
                     {
                         AddSecurityBoundary(securityBoundaries, DnssecSecurityBoundary.InsecureByNegativeTrustAnchor(startOwnerName, coveringAnchor));
                         continue; //the exact NTA is evaluated before any DNSKEY operation
@@ -3272,8 +3158,6 @@ namespace TechnitiumLibrary.Net.Dns
                 }
 
                 IReadOnlyList<DnsResourceRecord> startDnsKeyRecords = await GetDnsKeyForAsync(startDSRecords, dnsClient, cache, udpPayloadSize, cancellationToken);
-                if (configuredTrustAnchor is not null)
-                    AddSecurityBoundary(securityBoundaries, DnssecSecurityBoundary.Secure(startOwnerName));
                 DnssecChainResult signerChain;
                 if (IsDnsKeySetInsecureByUnsupportedAlgorithm(startDnsKeyRecords))
                 {
@@ -3285,7 +3169,7 @@ namespace TechnitiumLibrary.Net.Dns
                 }
                 else if (signersName.EndsWith("." + startOwnerName, StringComparison.OrdinalIgnoreCase) || (startOwnerName.Length == 0))
                 {
-                    signerChain = await FindDnsKeyForAsync(signersName, @class, startDnsKeyRecords, dnsClient, cache, udpPayloadSize, response, negativeTrustAnchors, positiveAnchorBelowNta ? coveringAnchor : null, cancellationToken);
+                    signerChain = await FindDnsKeyForAsync(signersName, @class, startDnsKeyRecords, dnsClient, cache, udpPayloadSize, response, negativeTrustAnchors, null, cancellationToken);
                 }
                 else
                 {
@@ -5664,7 +5548,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         private Task<DnsDatagram> InternalDnssecResolveAsync(DnsQuestionRecord question, CancellationToken cancellationToken = default)
         {
-            return InternalDnssecResolveAsync(question, CaptureDnssecResolutionPolicy(true, _negativeTrustAnchorProvider, _trustAnchors), cancellationToken);
+            return InternalDnssecResolveAsync(question, CaptureDnssecResolutionPolicy(true, _negativeTrustAnchorProvider), cancellationToken);
         }
 
         private async Task<DnsDatagram> InternalDnssecResolveAsync(DnsQuestionRecord question, DnssecResolutionPolicy policy, CancellationToken cancellationToken = default)
@@ -5718,7 +5602,7 @@ namespace TechnitiumLibrary.Net.Dns
                         //dnssec validate response
                         try
                         {
-                            await DnssecValidateResponseAsync(response, policy.RootTrustAnchors, policy.RootTrustAnchors, this, cache, _udpPayloadSize, policy.NegativeTrustAnchors, policy.PositiveTrustAnchors, cancellationToken1);
+                            await DnssecValidateResponseAsync(response, policy.RootTrustAnchors, policy.RootTrustAnchors, this, cache, _udpPayloadSize, policy.NegativeTrustAnchors, cancellationToken1);
                             if (response.HasAnswerOrAuthorityNegativeTrustAnchor)
                                 response.ClearAuthenticData();
                         }
@@ -5766,7 +5650,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         private async Task<DnsDatagram> InternalCachedResolveQueryAsync(DnsQuestionRecord question, CancellationToken cancellationToken)
         {
-            DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(_dnssecValidation, _negativeTrustAnchorProvider, _trustAnchors);
+            DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(_dnssecValidation, _negativeTrustAnchorProvider);
 
             void CacheResolverResponse(DnsDatagram response, bool isDnssecBadCache = false)
             {
@@ -6197,12 +6081,12 @@ namespace TechnitiumLibrary.Net.Dns
         /// The DNSSEC trust policy in force for one logical resolution. Captured once and threaded
         /// through every nested lookup so a chain cannot be validated under two different policies.
         /// </summary>
-        internal sealed record DnssecResolutionPolicy(NegativeTrustAnchorSet NegativeTrustAnchors, Dictionary<string, IReadOnlyList<DnsResourceRecord>> PositiveTrustAnchors, IReadOnlyList<DnsResourceRecord> RootTrustAnchors)
+        internal sealed record DnssecResolutionPolicy(NegativeTrustAnchorSet NegativeTrustAnchors, IReadOnlyList<DnsResourceRecord> RootTrustAnchors)
         {
-            public static readonly DnssecResolutionPolicy Disabled = new DnssecResolutionPolicy(NegativeTrustAnchorSet.Empty, null, Array.Empty<DnsResourceRecord>());
+            public static readonly DnssecResolutionPolicy Disabled = new DnssecResolutionPolicy(NegativeTrustAnchorSet.Empty, Array.Empty<DnsResourceRecord>());
 
             /// <summary>The default policy: root trust anchors only, no operator overrides.</summary>
-            public static DnssecResolutionPolicy BuiltIn => new DnssecResolutionPolicy(NegativeTrustAnchorSet.Empty, null, CloneTrustAnchors(ROOT_TRUST_ANCHORS));
+            public static DnssecResolutionPolicy BuiltIn => new DnssecResolutionPolicy(NegativeTrustAnchorSet.Empty, CloneTrustAnchors(ROOT_TRUST_ANCHORS));
         }
 
         internal sealed record DnssecResolutionSecurityContext(DnssecSecurityState State, IReadOnlyList<DnsResourceRecord> DsRecords, string BoundaryName, NegativeTrustAnchorInfo NegativeTrustAnchor)
@@ -6217,7 +6101,6 @@ namespace TechnitiumLibrary.Net.Dns
 
         internal sealed record DnssecSecurityBoundary(string Name, DnssecSecurityState State, NegativeTrustAnchorInfo NegativeTrustAnchor)
         {
-            public static DnssecSecurityBoundary Secure(string name) => new DnssecSecurityBoundary(name, DnssecSecurityState.Secure, null);
             public static DnssecSecurityBoundary InsecureByUnsignedDelegation(string name) => new DnssecSecurityBoundary(name, DnssecSecurityState.InsecureUnsignedDelegation, null);
             public static DnssecSecurityBoundary InsecureByNegativeTrustAnchor(string name, NegativeTrustAnchorInfo anchor) => new DnssecSecurityBoundary(name, DnssecSecurityState.InsecureNegativeTrustAnchor, anchor);
             public static DnssecSecurityBoundary InsecureByUnsupportedAlgorithm(string name) => new DnssecSecurityBoundary(name, DnssecSecurityState.InsecureUnsupportedAlgorithm, null);
