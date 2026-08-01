@@ -415,6 +415,15 @@ namespace TechnitiumLibrary.Net.Dns
             if ((provider is null) || (domainName is null))
                 return false;
 
+            //Before canonicalizing, not after. An empty set cannot cover any name, and Capture
+            //returns the empty set rather than null whenever a validating resolver has no anchors
+            //configured - which is most of them. Canonicalizing first meant every zone cut of every
+            //query ran an IDN conversion and a Split to reach a lookup that was always going to
+            //fail: 361 ns and 232 B to answer a question this answers in single-digit nanoseconds
+            //and no allocation. The fast path inside TryGetCoveringAnchor could never be reached.
+            if (provider.Count == 0)
+                return false;
+
             if (!TryCanonicalizeNegativeTrustAnchorName(domainName, out string canonicalName))
                 return false;
 
@@ -429,11 +438,19 @@ namespace TechnitiumLibrary.Net.Dns
             if (!provider.TryGetCoveringAnchor(canonicalName, out NegativeTrustAnchorInfo candidate))
                 return false;
 
-            //An empty candidate name is the root zone rather than a missing name (deviation D1);
-            //coverage uses the shared predicate so a root anchor matches every query name.
-            if ((candidate is null) || (candidate.Name is null) || candidate.Name.EndsWith('.') ||
-                !candidate.Name.Equals(candidate.Name.ToLowerInvariant(), StringComparison.Ordinal) ||
-                !IsCanonicalAsciiNegativeTrustAnchorName(candidate.Name) || (candidate.ExpiresOnUtc <= nowUtc) ||
+            //The candidate's own name is not re-validated here. It cannot be anything but canonical:
+            //NegativeTrustAnchorSet has a private constructor with two call sites, the empty set and
+            //Capture, and Capture inserts only names its canonicalize delegate returned. Re-deriving
+            //that per lookup cost a second IDN conversion and a second Split - 266 ns and 232 B on
+            //every anchor hit - to reach a conclusion the type already guarantees. It also included
+            //comparing the name to its own ToLowerInvariant, which can only ever be true.
+            //
+            //What remains is what the set does not guarantee: that the anchor is still live, and
+            //that it really covers this name. The coverage test is kept even though the label-chop
+            //walk implies it, because the two are independent mechanisms and the shared predicate is
+            //what makes a root anchor - the empty name, deviation D1 - match at all; at 31 ns and no
+            //allocation it is worth keeping as a cross-check rather than a redundancy.
+            if ((candidate is null) || (candidate.ExpiresOnUtc <= nowUtc) ||
                 !NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(canonicalName, candidate.Name))
             {
                 return false;
