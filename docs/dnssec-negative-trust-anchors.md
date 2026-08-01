@@ -218,6 +218,18 @@ undocumented ones are not.**
 > unreachable code threaded through the most delicate part of the resolver. Adding PTA configuration
 > later means restoring these two rules alongside it.
 
+> **Partially implemented: revalidation does not poll every authoritative server.** Obligation 3
+> comes from RFC 7646 §4, which adds that "before removing the NTA, all authoritative resolvers
+> listed in the zone should be checked", while conceding that "due to anycast and load balancers, it
+> may not be possible to check all instances". Technitium DNS Server runs one recursive resolution
+> per anchor and reaches whichever server the resolver picks, so a zone repaired on some
+> authoritative servers but not others can have its anchor removed on the strength of a healthy one.
+> An application implementing this obligation should know the same pitfall applies to the obvious
+> implementation, and that the anchor's lifetime is what bounds the exposure. §4 also asks for the
+> probe to be an SOA query at the anchor node, and warns that accepting a validated NOERROR/NODATA
+> there removes anchors for names below a healthy parent — `www.example.com` broken while
+> `example.com/SOA` is fine. Requiring an authoritative SOA at the anchor name itself avoids that.
+
 Behaviours the library guarantees, which the server should not re-implement or override:
 
 - An NTA **does not affect names above it** in the authentication chain (RFC 7646 §2.1, MUST NOT).
