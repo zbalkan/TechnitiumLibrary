@@ -208,7 +208,57 @@ undocumented ones are not.**
 | **D5** | Cache invalidation on anchor add/remove is delegated to the caller. See obligation 4. An earlier revision enforced this in-library with a per-record policy stamp; it was removed because it cost ~800 lines and invalidated the whole cache rather than the affected subtree. | RFC 7646 §4 — "SHOULD remove all cached entries at and below the NTA node" |
 | **D6** | EXTRA-TEXT carries structured JSON. The draft registers the names `d` and `t` for this field, so the structured form is offered. The root zone renders as `"."`, since the draft's "no trailing period" rule leaves the root with no usable representation. | RFC 8914 §2 — EXTRA-TEXT is "intended for human consumption (not automated parsing)" |
 
-## 9. Conformance notes
+## 9. Comparison against PowerDNS Recursor
+
+PowerDNS Recursor PR [#17737](https://github.com/PowerDNS/pdns/pull/17737) implements the same
+feature — EDE 33 for negative trust anchors — against the same specifications. It is by
+[Babak Farrokhi](https://github.com/farrokhi), who also authored draft-farrokhi-dnsop-ede-nta, so
+where it diverges from its own draft that is worth noting rather than assuming an oversight.
+
+Three kinds of difference showed up on comparison, and they are not the same kind of fact. The
+first is decisions two independent implementations reached the same way, which is corroborating
+evidence rather than a coincidence. The second is decisions made differently on purpose, already
+covered above as deviations D1–D6, tabulated here for a side-by-side view. The third is
+differences that follow from architecture rather than from a choice — a design in this codebase
+would not read as a decision if compared to nothing, so they are recorded as consequences of
+structure, not as a competitive claim against PowerDNS's PR, which is scoped narrowly to
+emission and inherits an anchor store that predates it.
+
+### 9.1 Same conclusion, reached independently
+
+| Decision | PowerDNS | Here |
+|---|---|---|
+| Root-zone NTA is a valid anchor | tested against `negAnchors[g_rootdnsname]` | accepted as the empty name (D1) |
+| Coverage found by walking the name up one label at a time | `isCoveredByNTA()` + `DNSName::chopOff()` | `NegativeTrustAnchorSet.TryGetCoveringAnchor` |
+| EDE 33 never changes AD or validation | stated in their docs | draft §3 requires it; enforced by construction — emission never touches `AuthenticData` |
+| Emission is an operator setting, not automatic | `nta_extended_error` | `negativeTrustAnchorExtendedError` |
+| Emission gated on the query actually being subject to validation, not the server-wide setting | added in their PR's second commit, via `shouldValidate()` | adopted from this PR after shipping the gap it closes; see §6 above |
+
+### 9.2 Same question, decided differently on purpose
+
+| Decision | PowerDNS | Here | Why |
+|---|---|---|---|
+| Trigger | coverage — emitted whenever an NTA covers the name; their docs state it "does not assert that the NTA is why the answer is insecure" | causation — only when an anchor actually demoted the chain | D2 |
+| Default | **off** — their PR's third commit reverses the first commit's default from on to off | **on** | draft §4 SHOULD; see the note at the setting's declaration |
+| EXTRA-TEXT | always zero-length | zero-length by default, structured `{"d","t"}` opt-in | D6 |
+| Instances per response | at most one (`std::optional<EDNSExtendedError> d_extendedError`) | one per applied anchor, deduplicated identical instances | draft §4 permits several and requires, when there are several, that each instance's EXTRA-TEXT be populated — the dedup is what keeps the default (empty EXTRA-TEXT) mode conformant, since two anchors otherwise producing two empty instances collapse to the one the RFC allows |
+| Behaviour when another EDE is already set | **suppressed** — their gate includes `!d_extendedError` | **added alongside** | RFC 8914 §3: "Senders MAY include more than one EDE option" |
+
+### 9.3 Different because the two resolvers are built differently
+
+Not choices either implementation made about NTAs specifically — consequences of the shape each
+resolver already had before this feature existed.
+
+| Area | PowerDNS | Here | Root cause |
+|---|---|---|---|
+| Anchor lifetime | `std::map<DNSName, std::string>` — domain to a free-text reason, **no expiry field** | expiry per anchor, one-week ceiling (D4), swept | their pre-existing NTA store has nowhere to record a lifetime; RFC 7646 §4's "NTAs MUST expire automatically" does not apply to a structure that cannot express one |
+| Revalidation | not present in this PR | SOA spot check per §4, with an operator override (see §6) | only meaningful once something has an expiry to retire early |
+| Cache invalidation on add/remove | none — their docs state a cached response is unaffected until it expires or `rec_control wipe-cache` runs | subtree flush on add and remove (D5) | their packet cache stores whole serialized responses; this cache stores individual records that can each carry provenance and be evaluated on the way out |
+| Carrying anchor provenance through the cache | not needed — the same process reads `vState::Insecure` and consults `negAnchors` at the point it emits | stamped on records and datagrams (§4 above), read back out at emission time | the library/server split means the component deciding what to emit is not the component that validated; provenance has to survive the trip between them |
+| Serving a record after its anchor lapses | does not arise | records admitted under a lapsed anchor stop being served (§6, §7) | consequence of anchors having an expiry at all |
+| Where anchors are configured | Lua config / `rec_control add-nta`, held in a process-global `g_luaconfs` | `INegativeTrustAnchorProvider`, implemented by the server's own anchor manager, exposed over a REST API and published as an immutable snapshot | this library is consumed by more than one server and must not own operator policy; PowerDNS's recursor is the operator surface |
+
+## 10. Conformance notes
 
 > **Not implemented: positive trust anchor interaction.** RFC 7646 §3 also requires that an NTA at a
 > node carrying a configured positive trust anchor (PTA) disables that PTA, and that a PTA further
