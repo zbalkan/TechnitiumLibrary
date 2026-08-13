@@ -419,17 +419,11 @@ namespace TechnitiumLibrary.Net.Dns
 
         private static IReadOnlyList<NegativeTrustAnchorInfo> GetResponseOnlyNegativeTrustAnchorsForRetainedSections(DnsSpecialCacheRecordData specialRecord, params IReadOnlyList<DnsResourceRecord>[] retainedSections)
         {
-            List<NegativeTrustAnchorInfo> responseOnlyAnchors = new List<NegativeTrustAnchorInfo>();
+            List<NegativeTrustAnchorInfo> responseOnlyAnchors = null;
 
             void Add(NegativeTrustAnchorInfo anchor)
             {
-                if (anchor is null)
-                    return;
-                int index = responseOnlyAnchors.FindIndex(existing => existing.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase));
-                if (index < 0)
-                    responseOnlyAnchors.Add(anchor);
-                else
-                    responseOnlyAnchors[index] = responseOnlyAnchors[index].MergeMostRestrictive(anchor);
+                NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref responseOnlyAnchors, anchor);
             }
 
             foreach (NegativeTrustAnchorInfo anchor in specialRecord.AppliedNegativeTrustAnchors)
@@ -467,7 +461,7 @@ namespace TechnitiumLibrary.Net.Dns
                 }
             }
 
-            return responseOnlyAnchors;
+            return (IReadOnlyList<NegativeTrustAnchorInfo>)responseOnlyAnchors ?? Array.Empty<NegativeTrustAnchorInfo>();
         }
 
         #endregion

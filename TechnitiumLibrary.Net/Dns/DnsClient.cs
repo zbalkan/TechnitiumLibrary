@@ -669,11 +669,6 @@ namespace TechnitiumLibrary.Net.Dns
             if (cache is null)
                 cache = new DnsCache();
 
-            void CacheResolverResponse(DnsDatagram response, bool isDnssecBadCache = false, string responseZoneCut = null)
-            {
-                cache.CacheResponse(response, isDnssecBadCache, responseZoneCut);
-            }
-
             if (qnameMinimization)
             {
                 question = question.Clone(); //clone question so that original object is not affected
@@ -870,7 +865,7 @@ namespace TechnitiumLibrary.Net.Dns
                     if (eDnsClientSubnet is not null)
                         failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(eDnsClientSubnet.PrefixLength, eDnsClientSubnet.PrefixLength, eDnsClientSubnet.Address));
 
-                    CacheResolverResponse(failureResponse);
+                    CacheDnssecResponse(cache, failureResponse);
 
                     throw new DnsClientException("DnsClient recursive resolution exceeded the maximum stack count for domain: " + question.Name.ToLowerInvariant());
                 }
@@ -1623,7 +1618,7 @@ namespace TechnitiumLibrary.Net.Dns
                             response.AddDnsClientExtendedErrors(extendedDnsErrors);
 
                         //cache response
-                        CacheResolverResponse(response, false, zoneCut);
+                        CacheDnssecResponse(cache, response, false, zoneCut);
 
                         //set as last response
                         lastResponse = response;
@@ -2093,7 +2088,7 @@ namespace TechnitiumLibrary.Net.Dns
                             if (eDnsClientSubnet is not null)
                                 failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(eDnsClientSubnet.PrefixLength, eDnsClientSubnet.PrefixLength, eDnsClientSubnet.Address));
 
-                            CacheResolverResponse(failureResponse);
+                            CacheDnssecResponse(cache, failureResponse);
                         }
                         else if (lastException is DnsClientResponseDnssecValidationException ex)
                         {
@@ -2101,7 +2096,7 @@ namespace TechnitiumLibrary.Net.Dns
                             if (extendedDnsErrors.Count > 0)
                                 ex.Response.AddDnsClientExtendedErrors(extendedDnsErrors);
 
-                            CacheResolverResponse(ex.Response, true);
+                            CacheDnssecResponse(cache, ex.Response, true);
 
                             if ((ex.Response.Question.Count == 0) || !ex.Response.Question[0].Equals(question))
                             {
@@ -2113,7 +2108,7 @@ namespace TechnitiumLibrary.Net.Dns
                                 if (eDnsClientSubnet is not null)
                                     failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(eDnsClientSubnet.PrefixLength, eDnsClientSubnet.PrefixLength, eDnsClientSubnet.Address));
 
-                                CacheResolverResponse(failureResponse);
+                                CacheDnssecResponse(cache, failureResponse);
                             }
 
                             ExceptionDispatchInfo.Throw(lastException);
@@ -2131,7 +2126,7 @@ namespace TechnitiumLibrary.Net.Dns
                             if (eDnsClientSubnet is not null)
                                 failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(eDnsClientSubnet.PrefixLength, eDnsClientSubnet.PrefixLength, eDnsClientSubnet.Address));
 
-                            CacheResolverResponse(failureResponse);
+                            CacheDnssecResponse(cache, failureResponse);
                         }
                         else if (lastException is SocketException ex2)
                         {
@@ -2149,7 +2144,7 @@ namespace TechnitiumLibrary.Net.Dns
                             if (eDnsClientSubnet is not null)
                                 failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(eDnsClientSubnet.PrefixLength, eDnsClientSubnet.PrefixLength, eDnsClientSubnet.Address));
 
-                            CacheResolverResponse(failureResponse);
+                            CacheDnssecResponse(cache, failureResponse);
                         }
                         else if (lastException is IOException ex3)
                         {
@@ -2174,7 +2169,7 @@ namespace TechnitiumLibrary.Net.Dns
                             if (eDnsClientSubnet is not null)
                                 failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(eDnsClientSubnet.PrefixLength, eDnsClientSubnet.PrefixLength, eDnsClientSubnet.Address));
 
-                            CacheResolverResponse(failureResponse);
+                            CacheDnssecResponse(cache, failureResponse);
                         }
                         else
                         {
@@ -2190,7 +2185,7 @@ namespace TechnitiumLibrary.Net.Dns
                             if (eDnsClientSubnet is not null)
                                 failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(eDnsClientSubnet.PrefixLength, eDnsClientSubnet.PrefixLength, eDnsClientSubnet.Address));
 
-                            CacheResolverResponse(failureResponse);
+                            CacheDnssecResponse(cache, failureResponse);
                         }
 
                         throw new DnsClientNoResponseException("DnsClient failed to recursively resolve the request '" + question.ToString() + "': no valid response from name servers [" + nameServers.Join() + "] at delegation " + zoneCut + ".", lastException);
@@ -2222,7 +2217,7 @@ namespace TechnitiumLibrary.Net.Dns
                                 if (eDnsClientSubnet is not null)
                                     failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(eDnsClientSubnet.PrefixLength, eDnsClientSubnet.PrefixLength, eDnsClientSubnet.Address));
 
-                                CacheResolverResponse(failureResponse);
+                                CacheDnssecResponse(cache, failureResponse);
 
                                 throw new DnsClientResponseDnssecValidationException("Attack detected! DNSSEC validation failed due to unable to find DS records for owner name: " + lastQuestion.Name.ToLowerInvariant(), lastResponse is null ? failureResponse : lastResponse);
                         }
@@ -5669,11 +5664,6 @@ namespace TechnitiumLibrary.Net.Dns
         {
             DnssecResolutionPolicy policy = CaptureDnssecResolutionPolicy(_dnssecValidation, _negativeTrustAnchorProvider);
 
-            void CacheResolverResponse(DnsDatagram response, bool isDnssecBadCache = false)
-            {
-                _cache.CacheResponse(response, isDnssecBadCache);
-            }
-
             return await ResolveQueryAsync(question, async delegate (DnsQuestionRecord q)
             {
                 if ((_conditionalForwardingZoneCut is not null) && !q.Name.Equals(_conditionalForwardingZoneCut, StringComparison.OrdinalIgnoreCase) && !q.Name.EndsWith("." + _conditionalForwardingZoneCut, StringComparison.OrdinalIgnoreCase))
@@ -5699,7 +5689,7 @@ namespace TechnitiumLibrary.Net.Dns
                     //removing NS records from authority section and glue records to prevent them from being cached as referrer when answer section is empty
                     newResponse = GetMinimalResponseWithoutNSAndGlue(newResponse);
 
-                    CacheResolverResponse(newResponse);
+                    CacheDnssecResponse(_cache, newResponse);
 
                     return newResponse;
                 }
@@ -5713,7 +5703,7 @@ namespace TechnitiumLibrary.Net.Dns
                     if (ex is DnsClientResponseDnssecValidationException ex2)
                     {
                         //cached as bad cache
-                        CacheResolverResponse(ex2.Response, true);
+                        CacheDnssecResponse(_cache, ex2.Response, true);
                     }
                     else if (ex is DnsClientNoResponseException)
                     {
@@ -5735,7 +5725,7 @@ namespace TechnitiumLibrary.Net.Dns
                         if (_eDnsClientSubnet is not null)
                             failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(_eDnsClientSubnet.PrefixLength, _eDnsClientSubnet.PrefixLength, _eDnsClientSubnet.Address));
 
-                        CacheResolverResponse(failureResponse);
+                        CacheDnssecResponse(_cache, failureResponse);
                     }
                     else if (ex is SocketException ex4)
                     {
@@ -5750,7 +5740,7 @@ namespace TechnitiumLibrary.Net.Dns
                         if (_eDnsClientSubnet is not null)
                             failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(_eDnsClientSubnet.PrefixLength, _eDnsClientSubnet.PrefixLength, _eDnsClientSubnet.Address));
 
-                        CacheResolverResponse(failureResponse);
+                        CacheDnssecResponse(_cache, failureResponse);
                     }
                     else if (ex is IOException ex5)
                     {
@@ -5772,7 +5762,7 @@ namespace TechnitiumLibrary.Net.Dns
                         if (_eDnsClientSubnet is not null)
                             failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(_eDnsClientSubnet.PrefixLength, _eDnsClientSubnet.PrefixLength, _eDnsClientSubnet.Address));
 
-                        CacheResolverResponse(failureResponse);
+                        CacheDnssecResponse(_cache, failureResponse);
                     }
                     else
                     {
@@ -5783,7 +5773,7 @@ namespace TechnitiumLibrary.Net.Dns
                         if (_eDnsClientSubnet is not null)
                             failureResponse.SetShadowEDnsClientSubnetOption(new EDnsClientSubnetOptionData(_eDnsClientSubnet.PrefixLength, _eDnsClientSubnet.PrefixLength, _eDnsClientSubnet.Address));
 
-                        CacheResolverResponse(failureResponse);
+                        CacheDnssecResponse(_cache, failureResponse);
                     }
 
                     throw;
@@ -6147,9 +6137,6 @@ namespace TechnitiumLibrary.Net.Dns
             }
 
             public static readonly DnssecResolutionPolicy Disabled = new DnssecResolutionPolicy(NegativeTrustAnchorSet.Empty, Array.Empty<DnsResourceRecord>());
-
-            /// <summary>The default policy: root trust anchors only, no operator overrides.</summary>
-            public static DnssecResolutionPolicy BuiltIn => WithLazyRootTrustAnchors(NegativeTrustAnchorSet.Empty);
         }
 
         internal sealed record DnssecResolutionSecurityContext(DnssecSecurityState State, IReadOnlyList<DnsResourceRecord> DsRecords, string BoundaryName, NegativeTrustAnchorInfo NegativeTrustAnchor)

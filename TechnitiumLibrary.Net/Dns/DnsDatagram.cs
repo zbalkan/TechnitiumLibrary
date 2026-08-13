@@ -2491,27 +2491,16 @@ namespace TechnitiumLibrary.Net.Dns
             get
             {
                 List<NegativeTrustAnchorInfo> anchors = null;
-                void AddAnchor(NegativeTrustAnchorInfo anchor)
-                {
-                    if (anchor is null)
-                        return;
-                    anchors ??= new List<NegativeTrustAnchorInfo>(1);
-                    int index = anchors.FindIndex(a => a.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase));
-                    if (index < 0)
-                        anchors.Add(anchor);
-                    else
-                        anchors[index] = anchors[index].MergeMostRestrictive(anchor);
-                }
 
                 if (_responseOnlyNegativeTrustAnchors is not null)
                     foreach (NegativeTrustAnchorInfo anchor in _responseOnlyNegativeTrustAnchors)
-                        AddAnchor(anchor);
+                        NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref anchors, anchor);
                 foreach (DnsResourceRecord record in _answer)
-                    AddAnchor(record.AppliedNegativeTrustAnchor);
+                    NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref anchors, record.AppliedNegativeTrustAnchor);
                 foreach (DnsResourceRecord record in _authority)
-                    AddAnchor(record.AppliedNegativeTrustAnchor);
+                    NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref anchors, record.AppliedNegativeTrustAnchor);
                 foreach (DnsResourceRecord record in _additional)
-                    AddAnchor(record.AppliedNegativeTrustAnchor);
+                    NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref anchors, record.AppliedNegativeTrustAnchor);
 
                 return anchors ?? (IReadOnlyList<NegativeTrustAnchorInfo>)Array.Empty<NegativeTrustAnchorInfo>();
             }

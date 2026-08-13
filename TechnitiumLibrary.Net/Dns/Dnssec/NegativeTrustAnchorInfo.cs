@@ -114,6 +114,30 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
                 retained.Name.Equals(dependency.Name, StringComparison.OrdinalIgnoreCase) &&
                 (retained.ExpiresOnUtc <= dependency.ExpiresOnUtc);
         }
+
+        /// <summary>
+        /// Inserts an anchor into a by-name-deduplicated list, or merges it into the entry already
+        /// there for that name via <see cref="MergeMostRestrictive"/>. Allocates the list itself,
+        /// on first use, so a response with no anchors never allocates one.
+        /// </summary>
+        /// <remarks>
+        /// One definition for a pattern that otherwise reappears wherever provenance from several
+        /// sources - retained records, response-only annotations, a special cache record's own
+        /// list - is folded into a single by-name list for a response.
+        /// </remarks>
+        internal static void AddOrMergeMostRestrictive(ref List<NegativeTrustAnchorInfo> anchors, NegativeTrustAnchorInfo anchor)
+        {
+            if (anchor is null)
+                return;
+
+            anchors ??= new List<NegativeTrustAnchorInfo>(1);
+
+            int index = anchors.FindIndex(existing => existing.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+                anchors.Add(anchor);
+            else
+                anchors[index] = anchors[index].MergeMostRestrictive(anchor);
+        }
     }
 
     /// <summary>
