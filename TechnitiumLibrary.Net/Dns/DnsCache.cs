@@ -24,6 +24,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using TechnitiumLibrary.Net.Dns.Dnssec;
 using TechnitiumLibrary.Net.Dns.EDnsOptions;
@@ -1931,7 +1932,11 @@ namespace TechnitiumLibrary.Net.Dns
             //walks the same keys. This lock serializes writers against each other so the invariants
             //hold once a write completes; reads stay lock-free, since a single-key lookup is already
             //atomic and does not need a consistent cross-key snapshot.
-            readonly object _writeLock = new object();
+            //System.Threading.Lock rather than a plain object: a dedicated mutex type, thread-owned
+            //rather than reentrant-by-object-identity, and the compiler recognizes it in a lock
+            //statement and emits Lock.EnterScope() instead of Monitor.Enter/Exit - cheaper, and not
+            //vulnerable to an unrelated lock (this) elsewhere in the process ever aliasing it.
+            readonly Lock _writeLock = new Lock();
 
             //Set under _writeLock by the cleanup pass once it has decided this entry is empty and
             //is about to detach it from the owning cache dictionary. A writer that reaches an
