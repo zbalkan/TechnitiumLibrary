@@ -6114,20 +6114,13 @@ namespace TechnitiumLibrary.Net.Dns
             /// resolution can stamp validation results onto them - so each policy must own its
             /// copy, but a policy captured for a non-validating resolution never reads them, and
             /// deep-copying the DS records including their digests cost several hundred bytes on
-            /// every query regardless. Raced initialization is resolved by CompareExchange so that
-            /// all readers observe one instance; a loser's copy is simply garbage.
+            /// every query regardless. <see cref="LazyInitializer.EnsureInitialized{T}(ref T, Func{T})"/>
+            /// resolves raced initialization so that all readers observe one instance; a loser's
+            /// clone is simply discarded.
             /// </remarks>
             public IReadOnlyList<DnsResourceRecord> RootTrustAnchors
             {
-                get
-                {
-                    IReadOnlyList<DnsResourceRecord> anchors = _rootTrustAnchors;
-                    if (anchors is not null)
-                        return anchors;
-
-                    Interlocked.CompareExchange(ref _rootTrustAnchors, CloneTrustAnchors(ROOT_TRUST_ANCHORS), null);
-                    return _rootTrustAnchors;
-                }
+                get { return LazyInitializer.EnsureInitialized(ref _rootTrustAnchors, static () => CloneTrustAnchors(ROOT_TRUST_ANCHORS)); }
             }
 
             /// <summary>A policy whose root trust anchors are cloned only if something reads them.</summary>
