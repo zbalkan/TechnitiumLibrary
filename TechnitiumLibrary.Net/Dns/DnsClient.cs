@@ -397,21 +397,6 @@ namespace TechnitiumLibrary.Net.Dns
                 ROOT_TRUST_ANCHORS = rootTrustAnchors;
         }
 
-        /// <summary>
-        /// The root trust anchors currently loaded, as an independent copy.
-        /// </summary>
-        /// <remarks>
-        /// Cloned rather than exposing <see cref="ROOT_TRUST_ANCHORS"/> directly, for the same
-        /// reason <see cref="DnssecResolutionPolicy.RootTrustAnchors"/> clones it for a
-        /// resolution: the records a resolution reads may be stamped with validation results
-        /// concurrently, and a caller here - diagnostics, typically - must not observe or be
-        /// affected by that.
-        /// </remarks>
-        public static IReadOnlyList<DnsResourceRecord> RootTrustAnchors
-        {
-            get { return CloneTrustAnchors(ROOT_TRUST_ANCHORS); }
-        }
-
         private static IReadOnlyList<DnsResourceRecord> CloneTrustAnchors(IReadOnlyList<DnsResourceRecord> trustAnchors)
         {
             DnsResourceRecord[] clones = new DnsResourceRecord[trustAnchors.Count];
