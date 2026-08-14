@@ -144,16 +144,18 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// How much detail an emitted EDE 33 option discloses in its EXTRA-TEXT field.
     /// </summary>
     /// <remarks>
-    /// The structured form names the anchor and states when it expires. The anchor name can be
-    /// broader than the name the client asked about, and the expiry tells any observer how long
-    /// the validation bypass has left to run, so disclosure is a deliberate operator choice rather
-    /// than a default. See deviation D6 on <see cref="INegativeTrustAnchorProvider"/>.
+    /// The structured form names the anchor and states when it expires; the plain-text form states
+    /// only that some anchor applied, as a fixed human-readable sentence rather than JSON. The
+    /// anchor name can be broader than the name the client asked about, and the expiry tells any
+    /// observer how long the validation bypass has left to run, so that disclosure is a deliberate
+    /// operator choice via <see cref="Structured"/> specifically, not the default. See deviation D6
+    /// on <see cref="INegativeTrustAnchorProvider"/>.
     /// </remarks>
     public enum NegativeTrustAnchorExtraTextMode
     {
         /// <summary>
         /// Emit a bare option with zero-length EXTRA-TEXT, disclosing only that an anchor applied.
-        /// RFC 8914 section 2 permits this, and it is what the reference implementation emits.
+        /// RFC 8914 section 2 permits this.
         /// </summary>
         None = 0,
 
@@ -161,7 +163,16 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
         /// Emit the draft's structured object - <c>{"d":"&lt;anchor&gt;","t":"&lt;RFC 3339 expiry&gt;"}</c>
         /// - using the JSON names the draft registers for this field.
         /// </summary>
-        Structured = 1
+        Structured = 1,
+
+        /// <summary>
+        /// Emit a fixed, anchor-agnostic sentence stating that a negative trust anchor was applied,
+        /// citing RFC 7646. Non-empty, so RFC 8914 section 2's "intended for human consumption"
+        /// purpose is actually served, but static and anchor-agnostic, so it discloses nothing
+        /// beyond <see cref="None"/> - anchor-specific detail is what <see cref="Structured"/> is
+        /// for.
+        /// </summary>
+        PlainText = 2
     }
 
     /// <summary>Library-owned DNSSEC validation metadata for cache implementations.</summary>
@@ -259,7 +270,13 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// nonetheless registers the JSON names "d" and "t" for exactly this field, so the structured
     /// form is available when the application requests it. The root zone is rendered as "." rather
     /// than the empty string the draft's "no trailing period" rule would imply, because an empty
-    /// "d" is not a usable domain name representation for a consumer.</item>
+    /// "d" is not a usable domain name representation for a consumer. A third, fixed-sentence mode
+    /// is also available for operators who want RFC 8914 section 2's "human consumption" purpose
+    /// actually served without the structured form's anchor-specific disclosure. Cloudflare's
+    /// production EDE 33 rollout (https://blog.cloudflare.com/dnssec-nta-ede-33/) found a fixed,
+    /// non-empty sentence more useful in practice than an empty EXTRA-TEXT field; this mode
+    /// follows that finding with its own wording, not a reproduction of Cloudflare's exact
+    /// text.</item>
     /// </list>
     /// </remarks>
     public interface INegativeTrustAnchorProvider

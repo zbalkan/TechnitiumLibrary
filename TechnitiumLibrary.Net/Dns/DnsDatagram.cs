@@ -803,8 +803,8 @@ namespace TechnitiumLibrary.Net.Dns
         /// </summary>
         /// <param name="extraTextMode">
         /// How much detail to disclose. Defaults to
-        /// <see cref="NegativeTrustAnchorExtraTextMode.None"/> - a bare option, disclosing nothing
-        /// beyond the fact that an anchor applied.
+        /// <see cref="NegativeTrustAnchorExtraTextMode.PlainText"/> - a fixed, non-empty sentence
+        /// disclosing nothing beyond the fact that an anchor applied.
         /// </param>
         /// <remarks>
         /// <para>
@@ -830,45 +830,67 @@ namespace TechnitiumLibrary.Net.Dns
         /// Emission is idempotent, and
         /// <see cref="AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData)"/> will not add an
         /// option already present in the response's own EDNS options, so a diagnostic forwarded
-        /// from upstream is not duplicated. With
-        /// <see cref="NegativeTrustAnchorExtraTextMode.None"/> several applied anchors collapse to
-        /// a single bare option, which the draft permits; with
-        /// <see cref="NegativeTrustAnchorExtraTextMode.Structured"/> each yields a distinct option,
-        /// satisfying the draft's requirement that EXTRA-TEXT be populated whenever multiple
-        /// instances appear.
+        /// from upstream is not duplicated. With <see cref="NegativeTrustAnchorExtraTextMode.None"/>
+        /// or <see cref="NegativeTrustAnchorExtraTextMode.PlainText"/>, several applied anchors
+        /// collapse to a single option, because every anchor produces identical EXTRA-TEXT under
+        /// either mode and <see cref="AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData)"/>
+        /// dedups on INFO-CODE and EXTRA-TEXT together - which the draft permits. With
+        /// <see cref="NegativeTrustAnchorExtraTextMode.Structured"/> each anchor's EXTRA-TEXT
+        /// differs, so each yields a distinct option, satisfying the draft's requirement that
+        /// EXTRA-TEXT be populated whenever multiple instances appear.
         /// </para>
         /// </remarks>
-        public void AddNegativeTrustAnchorExtendedDnsErrors(NegativeTrustAnchorExtraTextMode extraTextMode = NegativeTrustAnchorExtraTextMode.None)
+        public void AddNegativeTrustAnchorExtendedDnsErrors(NegativeTrustAnchorExtraTextMode extraTextMode = NegativeTrustAnchorExtraTextMode.PlainText)
         {
             foreach (NegativeTrustAnchorInfo anchor in AppliedNegativeTrustAnchors)
                 AddDnsClientExtendedError(EDnsExtendedDnsErrorCode.NegativeTrustAnchor, GetNegativeTrustAnchorExtraText(anchor, extraTextMode));
         }
 
+        //Fixed, anchor-agnostic sentence for NegativeTrustAnchorExtraTextMode.PlainText - deviation
+        //D6. Modeled on Cloudflare's field-proven EDE 33 rollout
+        //(https://blog.cloudflare.com/dnssec-nta-ede-33/), which settled on a static, non-empty,
+        //human-readable sentence rather than empty EXTRA-TEXT; wording is this implementation's own.
+        private const string NegativeTrustAnchorPlainTextExtra = "DNSSEC validation has been suspended for this answer by a Negative Trust Anchor; see RFC 7646.";
+
         private static string GetNegativeTrustAnchorExtraText(NegativeTrustAnchorInfo anchor, NegativeTrustAnchorExtraTextMode extraTextMode)
         {
-            if (extraTextMode != NegativeTrustAnchorExtraTextMode.Structured)
-                return null; //zero-length EXTRA-TEXT, which RFC 8914 section 2 permits
+            switch (extraTextMode)
+            {
+                case NegativeTrustAnchorExtraTextMode.None:
+                    return null; //zero-length EXTRA-TEXT, which RFC 8914 section 2 permits
 
-            //The draft describes "d" as fully-qualified A-label form with no trailing period,
-            //which has no representation for the root zone - stripping the period leaves the
-            //empty string. Render the root as "." so a consumer sees a usable domain name
-            //rather than an empty field (deviation D6).
-            string domainName = (anchor.Name.Length == 0) ? "." : anchor.Name;
+                case NegativeTrustAnchorExtraTextMode.PlainText:
+                    return NegativeTrustAnchorPlainTextExtra;
 
-            //The timestamp must be RFC 3339, which is Gregorian by definition. A bare
-            //ToString(format) resolves against CurrentCulture, whose calendar may not be:
-            //under th-TH this emits year 2569 (Buddhist), under ar-SA a Hijri date. The
-            //result stays syntactically valid, so nothing downstream detects it - it just
-            //silently means the wrong instant. Format against the invariant culture, and
-            //quote the literal T/Z rather than relying on pass-through of unrecognised
-            //format specifiers.
-            //The name is escaped rather than interpolated. Anchors reaching this method through
-            //the resolver are canonical ASCII domain names, which contain nothing JSON would
-            //object to - but this method and CloneWithResponseAnnotations are both public, and
-            //together they let an application put an arbitrary name here. Concatenating it
-            //produced malformed JSON for a name containing a quote, a backslash or a control
-            //character, silently, in a field that goes out on the wire.
-            return "{\"d\":\"" + JsonEncodedText.Encode(domainName) + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
+                case NegativeTrustAnchorExtraTextMode.Structured:
+                    //The draft describes "d" as fully-qualified A-label form with no trailing
+                    //period, which has no representation for the root zone - stripping the period
+                    //leaves the empty string. Render the root as "." so a consumer sees a usable
+                    //domain name rather than an empty field (deviation D6).
+                    string domainName = (anchor.Name.Length == 0) ? "." : anchor.Name;
+
+                    //The timestamp must be RFC 3339, which is Gregorian by definition. A bare
+                    //ToString(format) resolves against CurrentCulture, whose calendar may not be:
+                    //under th-TH this emits year 2569 (Buddhist), under ar-SA a Hijri date. The
+                    //result stays syntactically valid, so nothing downstream detects it - it just
+                    //silently means the wrong instant. Format against the invariant culture, and
+                    //quote the literal T/Z rather than relying on pass-through of unrecognised
+                    //format specifiers.
+                    //The name is escaped rather than interpolated. Anchors reaching this method
+                    //through the resolver are canonical ASCII domain names, which contain nothing
+                    //JSON would object to - but this method and CloneWithResponseAnnotations are
+                    //both public, and together they let an application put an arbitrary name here.
+                    //Concatenating it produced malformed JSON for a name containing a quote, a
+                    //backslash or a control character, silently, in a field that goes out on the
+                    //wire.
+                    return "{\"d\":\"" + JsonEncodedText.Encode(domainName) + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
+
+                default:
+                    //An unrecognised mode - e.g. a future member added without a matching case here
+                    //- must not silently disclose more than the caller asked for. Fail toward
+                    //None's zero-length text rather than toward Structured's per-anchor detail.
+                    return null;
+            }
         }
 
         internal void SetShadowEDnsClientSubnetOption(EDnsClientSubnetOptionData shadowECSOption)
