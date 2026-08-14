@@ -218,13 +218,22 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// names up the authentication chain" - is not violated, because the root has no names above
     /// it.</item>
     ///
-    /// <item><b>D2 - the EDE is emitted on causation, not coverage.</b> The draft permits a
-    /// resolver to emit EDE 33 "on any responses while an NTA is in effect, regardless of whether
-    /// the presence of the NTA had a material effect". This implementation emits only where an NTA
-    /// actually demoted a chain that would otherwise have validated, which is a strict subset of
-    /// what the draft allows and therefore conformant, but narrower than the reference
-    /// implementation. A name that was already insecure for an unrelated reason and merely happens
-    /// to sit under an NTA produces no EDE here, where PowerDNS produces one.</item>
+    /// <item><b>D2 - the EDE is emitted on coverage, like the rest of the ecosystem.</b> The draft
+    /// permits a resolver to emit EDE 33 "on any responses while an NTA is in effect, regardless of
+    /// whether the presence of the NTA had a material effect", and this implementation does exactly
+    /// that: for any name a live anchor covers, coverage is checked and recorded before any
+    /// independent DS/DNSKEY chain-walk is attempted for that name (<c>AddApplicablePolicyBoundary</c>,
+    /// then <c>GetEffectiveSecurityBoundary</c>'s precedence, run first at every boundary in
+    /// <c>DnssecValidateResponseAsync</c> in <c>TechnitiumLibrary.Net.Dns.DnsClient</c>), so the
+    /// implementation never independently discovers whether a covered name would have been
+    /// insecure anyway - coverage is all there is to check. A name that is genuinely insecure for a
+    /// reason unconnected to any anchor still gets the anchor's provenance once it falls under that
+    /// anchor's coverage; only names entirely outside any anchor's coverage produce no EDE. This
+    /// matches PowerDNS, Cloudflare's 1.1.1.1
+    /// (https://blog.cloudflare.com/dnssec-nta-ede-33/: "returns EDE 33 on any response generated
+    /// while an NTA is active, regardless of whether the query itself would have failed DNSSEC
+    /// validation"), and Unbound (NLnetLabs/unbound PR #1470) - coverage is the ecosystem norm, not
+    /// a narrowing this implementation departs from.</item>
     ///
     /// <item><b>D3 - emission is off unless the application asks for it.</b> The draft says an
     /// operator applying an NTA "SHOULD return this EDE in affected responses". This library never
