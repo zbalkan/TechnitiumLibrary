@@ -270,13 +270,9 @@ namespace TechnitiumLibrary.Net.Dns.Dnssec
     /// nonetheless registers the JSON names "d" and "t" for exactly this field, so the structured
     /// form is available when the application requests it. The root zone is rendered as "." rather
     /// than the empty string the draft's "no trailing period" rule would imply, because an empty
-    /// "d" is not a usable domain name representation for a consumer. A third, fixed-sentence mode
-    /// is also available for operators who want RFC 8914 section 2's "human consumption" purpose
-    /// actually served without the structured form's anchor-specific disclosure. Cloudflare's
-    /// production EDE 33 rollout (https://blog.cloudflare.com/dnssec-nta-ede-33/) found a fixed,
-    /// non-empty sentence more useful in practice than an empty EXTRA-TEXT field; this mode
-    /// follows that finding with its own wording, not a reproduction of Cloudflare's exact
-    /// text.</item>
+    /// "d" is not a usable domain name representation for a consumer. A third mode,
+    /// <see cref="NegativeTrustAnchorExtraTextMode.PlainText"/>, trades that structure for a fixed
+    /// non-empty sentence instead - see that member for the rationale.</item>
     /// </list>
     /// </remarks>
     public interface INegativeTrustAnchorProvider
