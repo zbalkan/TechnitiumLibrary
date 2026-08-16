@@ -123,7 +123,6 @@ namespace TechnitiumLibrary.Net.Dns
         int _timeout = 2000;
         int _concurrency = 2;
 
-        Dictionary<string, IReadOnlyList<DnsResourceRecord>> _trustAnchors;
         INegativeTrustAnchorProvider _negativeTrustAnchorProvider;
 
         #endregion
@@ -496,22 +495,17 @@ namespace TechnitiumLibrary.Net.Dns
         }
 
         /// <summary>
-        /// Canonicalizes an NTA owner or query name to lower-case ASCII with no trailing dot.
-        /// The root zone - written either as the empty string or as "." - canonicalizes to the
-        /// empty string, which is this codebase's representation of the root (deviation D1).
-        /// </summary>
-        /// <summary>
-        /// Applies negative and positive trust anchor policy at one zone-cut boundary, updating
+        /// Applies negative trust anchor policy at one zone-cut boundary, updating
         /// <paramref name="securityContext"/> in place.
         /// </summary>
         /// <remarks>
-        /// Extracted from the resolver loop so the RFC 7646 section 2.1 and 3 precedence rules it
-        /// implements can be tested directly: an NTA at a node carrying a configured positive
-        /// trust anchor "MUST take precedence over that trust anchor, effectively disabling it",
-        /// and "validation starts again if there is a positive trust anchor further down in the
-        /// chain". Both are security-relevant behaviours with no observable signature other than
-        /// the resulting context, so they are otherwise only reachable through a full recursive
-        /// resolution.
+        /// Extracted from the resolver loop so the RFC 7646 section 2.1 and 3 rule it implements
+        /// can be tested directly: an NTA at or above a boundary suspends validation for that
+        /// boundary and everything beneath it, most-specific anchor wins. This is a
+        /// security-relevant behaviour with no observable signature other than the resulting
+        /// context, so it is otherwise only reachable through a full recursive resolution.
+        /// Positive trust anchor configuration - which RFC 7646 section 5 also gives precedence
+        /// rules for - is not implemented here; see the integration guide's non-conformance note.
         /// </remarks>
         /// <returns><see langword="true"/> when policy decided this boundary and the caller
         /// should stop its own DS traversal for it.</returns>
@@ -1467,7 +1461,6 @@ namespace TechnitiumLibrary.Net.Dns
                                         dnsClient1._randomizeName = dnsClient._randomizeName;
                                         dnsClient1._dnssecValidation = dnsClient._dnssecValidation;
                                         dnsClient1._negativeTrustAnchorProvider = dnsClient._negativeTrustAnchorProvider;
-                                        dnsClient1._trustAnchors = dnsClient._trustAnchors;
                                         dnsClient1._retries = dnsClient._retries;
                                         dnsClient1._timeout = dnsClient._timeout;
 
@@ -3181,12 +3174,12 @@ namespace TechnitiumLibrary.Net.Dns
                 }
                 else if (signersName.EndsWith("." + startOwnerName, StringComparison.OrdinalIgnoreCase) || (startOwnerName.Length == 0))
                 {
-                    signerChain = await FindDnsKeyForAsync(signersName, @class, startDnsKeyRecords, dnsClient, cache, udpPayloadSize, response, negativeTrustAnchors, null, cancellationToken);
+                    signerChain = await FindDnsKeyForAsync(signersName, @class, startDnsKeyRecords, dnsClient, cache, udpPayloadSize, response, negativeTrustAnchors, cancellationToken);
                 }
                 else
                 {
                     IReadOnlyList<DnsResourceRecord> rootDnsKeyRecords = await GetDnsKeyForAsync(rootTrustAnchors, dnsClient, cache, udpPayloadSize, cancellationToken);
-                    signerChain = IsDnsKeySetInsecureByUnsupportedAlgorithm(rootDnsKeyRecords) ? DnssecChainResult.InsecureByUnsupportedAlgorithm("") : signersName.Length == 0 ? DnssecChainResult.Secure(rootDnsKeyRecords) : await FindDnsKeyForAsync(signersName, @class, rootDnsKeyRecords, dnsClient, cache, udpPayloadSize, response, negativeTrustAnchors, null, cancellationToken);
+                    signerChain = IsDnsKeySetInsecureByUnsupportedAlgorithm(rootDnsKeyRecords) ? DnssecChainResult.InsecureByUnsupportedAlgorithm("") : signersName.Length == 0 ? DnssecChainResult.Secure(rootDnsKeyRecords) : await FindDnsKeyForAsync(signersName, @class, rootDnsKeyRecords, dnsClient, cache, udpPayloadSize, response, negativeTrustAnchors, cancellationToken);
                 }
 
                 if (signerChain.State == DnssecSecurityState.Secure)
@@ -3685,7 +3678,7 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        private static async Task<DnssecChainResult> FindDnsKeyForAsync(string ownerName, DnsClass @class, IReadOnlyList<DnsResourceRecord> currentDnsKeyRecords, DnsClient dnsClient, IDnsCache cache, ushort udpPayloadSize, DnsDatagram originalResponse, NegativeTrustAnchorSet negativeTrustAnchors, NegativeTrustAnchorInfo ignoredAncestorAnchor, CancellationToken cancellationToken)
+        private static async Task<DnssecChainResult> FindDnsKeyForAsync(string ownerName, DnsClass @class, IReadOnlyList<DnsResourceRecord> currentDnsKeyRecords, DnsClient dnsClient, IDnsCache cache, ushort udpPayloadSize, DnsDatagram originalResponse, NegativeTrustAnchorSet negativeTrustAnchors, CancellationToken cancellationToken)
         {
             string dnsKeyOwnerName = currentDnsKeyRecords[0].Name;
 
@@ -3708,9 +3701,8 @@ namespace TechnitiumLibrary.Net.Dns
                 if (nextDomain.Length <= dnsKeyOwnerName.Length)
                     continue; //continue till current DNSKEY domain name
 
-                //An NTA takes precedence over DS and positive trust anchors at this boundary.
-                if (TryGetValidNegativeTrustAnchor(negativeTrustAnchors, nextDomain, out NegativeTrustAnchorInfo anchor) &&
-                    ((ignoredAncestorAnchor is null) || !anchor.Name.Equals(ignoredAncestorAnchor.Name, StringComparison.OrdinalIgnoreCase)))
+                //An NTA takes precedence over DS at this boundary.
+                if (TryGetValidNegativeTrustAnchor(negativeTrustAnchors, nextDomain, out NegativeTrustAnchorInfo anchor))
                 {
                     return DnssecChainResult.InsecureByNegativeTrustAnchor(nextDomain, anchor);
                 }
@@ -4381,7 +4373,7 @@ namespace TechnitiumLibrary.Net.Dns
             DnssecSecurityBoundary best = null;
             foreach (DnssecSecurityBoundary boundary in boundaries)
             {
-                if ((boundary.Name.Length > 0) && !domain.Equals(boundary.Name, StringComparison.OrdinalIgnoreCase) && !domain.EndsWith("." + boundary.Name, StringComparison.OrdinalIgnoreCase))
+                if (!NegativeTrustAnchorInfoExtensions.IsNameCoveredByAnchorName(domain, boundary.Name))
                     continue;
                 if ((best is null) || (boundary.Name.Length > best.Name.Length) || ((boundary.Name.Length == best.Name.Length) && (GetBoundaryPrecedence(boundary.State) > GetBoundaryPrecedence(best.State))))
                     best = boundary;
@@ -5883,49 +5875,6 @@ namespace TechnitiumLibrary.Net.Dns
             return ResolveIPAsync(this, domain, ipv6Mode, cancellationToken);
         }
 
-        public void AddTrustAnchor(string domain, DnsDSRecordData dsRecord)
-        {
-            if (_trustAnchors is null)
-                _trustAnchors = new Dictionary<string, IReadOnlyList<DnsResourceRecord>>();
-
-            DnsResourceRecord dsRR = new DnsResourceRecord(domain, DnsResourceRecordType.DS, DnsClass.IN, 0, dsRecord);
-
-            if (_trustAnchors.TryGetValue(domain, out IReadOnlyList<DnsResourceRecord> existingRecords))
-                _trustAnchors[domain] = [.. existingRecords, dsRR];
-            else
-                _trustAnchors.Add(domain, [dsRR]);
-        }
-
-        public void AddTrustAnchor(string domain, ushort keyTag, DnssecAlgorithm algorithm, DnssecDigestType digestType, byte[] digest)
-        {
-            AddTrustAnchor(domain, new DnsDSRecordData(keyTag, algorithm, digestType, digest));
-        }
-
-        public void AddTrustAnchor(string domain, ushort keyTag, DnssecAlgorithm algorithm, DnssecDigestType digestType, string digest)
-        {
-            AddTrustAnchor(domain, keyTag, algorithm, digestType, Convert.FromHexString(digest));
-        }
-
-        public void AddTrustAnchor(string domain, DnsDNSKEYRecordData dnskeyRecord)
-        {
-            AddTrustAnchor(domain, dnskeyRecord.CreateDS(domain, DnssecDigestType.SHA256));
-        }
-
-        public void AddTrustAnchor(string domain, DnsDnsKeyFlag flags, DnssecAlgorithm algorithm, DnssecPublicKey publicKey)
-        {
-            AddTrustAnchor(domain, new DnsDNSKEYRecordData(flags, 3, algorithm, publicKey));
-        }
-
-        public void AddTrustAnchor(string domain, DnsDnsKeyFlag flags, DnssecAlgorithm algorithm, byte[] publicKey)
-        {
-            AddTrustAnchor(domain, flags, algorithm, DnssecPublicKey.Parse(algorithm, publicKey));
-        }
-
-        public void AddTrustAnchor(string domain, DnsDnsKeyFlag flags, DnssecAlgorithm algorithm, string publicKey)
-        {
-            AddTrustAnchor(domain, flags, algorithm, Convert.FromBase64String(publicKey));
-        }
-
         #endregion
 
         #region property
@@ -5972,7 +5921,6 @@ namespace TechnitiumLibrary.Net.Dns
         /// <summary>Gets or sets the active negative trust anchor provider used only during DNSSEC validation.</summary>
         /// <remarks>
         /// Callers must invalidate affected resolver caches whenever provider semantics change.
-        /// Use <see cref="DnssecTrustPolicyProvider"/> when positive trust anchors may coexist.
         /// </remarks>
         public INegativeTrustAnchorProvider NegativeTrustAnchorProvider
         {
@@ -6026,17 +5974,6 @@ namespace TechnitiumLibrary.Net.Dns
         {
             get { return _concurrency; }
             set { _concurrency = value; }
-        }
-
-        public IDictionary<string, IReadOnlyList<DnsResourceRecord>> TrustAnchors
-        {
-            get
-            {
-                if (_trustAnchors is null)
-                    _trustAnchors = new Dictionary<string, IReadOnlyList<DnsResourceRecord>>();
-
-                return _trustAnchors;
-            }
         }
 
         #endregion
