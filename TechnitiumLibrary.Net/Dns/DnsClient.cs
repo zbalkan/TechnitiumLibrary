@@ -123,6 +123,7 @@ namespace TechnitiumLibrary.Net.Dns
         int _timeout = 2000;
         int _concurrency = 2;
 
+        Dictionary<string, IReadOnlyList<DnsResourceRecord>> _trustAnchors;
         INegativeTrustAnchorProvider _negativeTrustAnchorProvider;
 
         #endregion
@@ -5550,6 +5551,49 @@ namespace TechnitiumLibrary.Net.Dns
             return response;
         }
 
+        /// <summary>
+        /// Selects the DS trust anchors to start DNSSEC validation from for one response: an
+        /// operator-configured anchor from <see cref="TrustAnchors"/> matching (or an ancestor of)
+        /// a signer name in the response, or <paramref name="rootTrustAnchors"/> when none is
+        /// configured or none matches. This lets <see cref="ResolveAsync(DnsQuestionRecord,
+        /// CancellationToken)"/> validate a response against a locally-known zone key without a
+        /// chain to the root - e.g. a signed zone that is not yet delegated.
+        /// </summary>
+        private IReadOnlyList<DnsResourceRecord> GetTrustAnchorsFor(DnsDatagram response, IReadOnlyList<DnsResourceRecord> rootTrustAnchors)
+        {
+            if (_trustAnchors is null)
+                return rootTrustAnchors;
+
+            IReadOnlyCollection<string> signersNames = FindSignersNames(response);
+            List<DnsResourceRecord> selectedTrustAnchors = new List<DnsResourceRecord>();
+
+            foreach (string signersName in signersNames)
+            {
+                string domain = signersName;
+
+                while (domain is not null)
+                {
+                    if (_trustAnchors.TryGetValue(domain, out IReadOnlyList<DnsResourceRecord> dsRecords))
+                    {
+                        foreach (DnsResourceRecord dsRecord in dsRecords)
+                        {
+                            if (!selectedTrustAnchors.Contains(dsRecord))
+                                selectedTrustAnchors.Add(dsRecord);
+                        }
+
+                        break;
+                    }
+
+                    domain = DnsCache.GetParentZone(domain);
+                }
+            }
+
+            if (selectedTrustAnchors.Count > 0)
+                return selectedTrustAnchors;
+
+            return rootTrustAnchors;
+        }
+
         private Task<DnsDatagram> InternalDnssecResolveAsync(DnsQuestionRecord question, CancellationToken cancellationToken = default)
         {
             return InternalDnssecResolveAsync(question, CaptureDnssecResolutionPolicy(true, _negativeTrustAnchorProvider), cancellationToken);
@@ -5606,7 +5650,7 @@ namespace TechnitiumLibrary.Net.Dns
                         //dnssec validate response
                         try
                         {
-                            await DnssecValidateResponseAsync(response, policy.RootTrustAnchors, policy.RootTrustAnchors, this, cache, _udpPayloadSize, policy.NegativeTrustAnchors, cancellationToken1);
+                            await DnssecValidateResponseAsync(response, GetTrustAnchorsFor(response, policy.RootTrustAnchors), policy.RootTrustAnchors, this, cache, _udpPayloadSize, policy.NegativeTrustAnchors, cancellationToken1);
                             if (response.HasAnswerOrAuthorityNegativeTrustAnchor)
                                 response.ClearAuthenticData();
                         }
@@ -5875,6 +5919,49 @@ namespace TechnitiumLibrary.Net.Dns
             return ResolveIPAsync(this, domain, ipv6Mode, cancellationToken);
         }
 
+        public void AddTrustAnchor(string domain, DnsDSRecordData dsRecord)
+        {
+            if (_trustAnchors is null)
+                _trustAnchors = new Dictionary<string, IReadOnlyList<DnsResourceRecord>>();
+
+            DnsResourceRecord dsRR = new DnsResourceRecord(domain, DnsResourceRecordType.DS, DnsClass.IN, 0, dsRecord);
+
+            if (_trustAnchors.TryGetValue(domain, out IReadOnlyList<DnsResourceRecord> existingRecords))
+                _trustAnchors[domain] = [.. existingRecords, dsRR];
+            else
+                _trustAnchors.Add(domain, [dsRR]);
+        }
+
+        public void AddTrustAnchor(string domain, ushort keyTag, DnssecAlgorithm algorithm, DnssecDigestType digestType, byte[] digest)
+        {
+            AddTrustAnchor(domain, new DnsDSRecordData(keyTag, algorithm, digestType, digest));
+        }
+
+        public void AddTrustAnchor(string domain, ushort keyTag, DnssecAlgorithm algorithm, DnssecDigestType digestType, string digest)
+        {
+            AddTrustAnchor(domain, keyTag, algorithm, digestType, Convert.FromHexString(digest));
+        }
+
+        public void AddTrustAnchor(string domain, DnsDNSKEYRecordData dnskeyRecord)
+        {
+            AddTrustAnchor(domain, dnskeyRecord.CreateDS(domain, DnssecDigestType.SHA256));
+        }
+
+        public void AddTrustAnchor(string domain, DnsDnsKeyFlag flags, DnssecAlgorithm algorithm, DnssecPublicKey publicKey)
+        {
+            AddTrustAnchor(domain, new DnsDNSKEYRecordData(flags, 3, algorithm, publicKey));
+        }
+
+        public void AddTrustAnchor(string domain, DnsDnsKeyFlag flags, DnssecAlgorithm algorithm, byte[] publicKey)
+        {
+            AddTrustAnchor(domain, flags, algorithm, DnssecPublicKey.Parse(algorithm, publicKey));
+        }
+
+        public void AddTrustAnchor(string domain, DnsDnsKeyFlag flags, DnssecAlgorithm algorithm, string publicKey)
+        {
+            AddTrustAnchor(domain, flags, algorithm, Convert.FromBase64String(publicKey));
+        }
+
         #endregion
 
         #region property
@@ -5974,6 +6061,17 @@ namespace TechnitiumLibrary.Net.Dns
         {
             get { return _concurrency; }
             set { _concurrency = value; }
+        }
+
+        public IDictionary<string, IReadOnlyList<DnsResourceRecord>> TrustAnchors
+        {
+            get
+            {
+                if (_trustAnchors is null)
+                    _trustAnchors = new Dictionary<string, IReadOnlyList<DnsResourceRecord>>();
+
+                return _trustAnchors;
+            }
         }
 
         #endregion
