@@ -17,37 +17,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 */
 
-using System;
 using System.Threading.Tasks;
 
 namespace TechnitiumLibrary.Net.Dns
 {
-
     public interface IDnsCache
     {
-        /// <summary>Queries cached resolver data.</summary>
-        /// <remarks>
-        /// Implementations must restore resolver-local
-        /// <see cref="DnsDatagram.AppliedNegativeTrustAnchors"/> provenance, and must not set AD
-        /// when any returned answer or authority record was accepted under a negative trust anchor.
-        ///
-        /// <para>
-        /// Implementations must not return an RRset or special response after any negative trust
-        /// anchor used to accept that data has expired. Expiry is the only negative-trust-anchor
-        /// invalidation the library performs; invalidation when the operator <i>adds or removes</i>
-        /// an anchor belongs to the application, which must flush entries at and below the anchor
-        /// node. See RFC 7646 section 4 and deviation D5 on
-        /// <see cref="Dnssec.INegativeTrustAnchorProvider"/>.
-        /// </para>
-        /// </remarks>
         Task<DnsDatagram> QueryAsync(DnsDatagram request, bool serveStale = false, bool findClosestNameServers = false, bool resetExpiry = false);
 
-        /// <summary>Caches a resolver response, including its negative trust anchor provenance.</summary>
-        /// <remarks>
-        /// Records accepted under a negative trust anchor carry that anchor as provenance. An
-        /// implementation must preserve it, both so the anchor's expiry can be honoured on read
-        /// and so the application can decide whether to disclose it to clients as EDE 33.
-        /// </remarks>
         void CacheResponse(DnsDatagram response, bool isDnssecBadCache = false, string zoneCut = null);
     }
 }

@@ -20,7 +20,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
@@ -29,7 +28,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TechnitiumLibrary.IO;
-using TechnitiumLibrary.Net.Dns.Dnssec;
 using TechnitiumLibrary.Net.Dns.EDnsOptions;
 using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
@@ -74,7 +72,6 @@ namespace TechnitiumLibrary.Net.Dns
         DnsDatagramMetadata _metadata;
         DnsDatagramEdns _edns;
         List<EDnsExtendedDnsErrorOptionData> _dnsClientExtendedErrors;
-        IReadOnlyList<NegativeTrustAnchorInfo> _responseOnlyNegativeTrustAnchors;
         bool _shadowHideECSOption;
         EDnsClientSubnetOptionData _shadowECSOption;
 
@@ -605,10 +602,7 @@ namespace TechnitiumLibrary.Net.Dns
 
             datagram._metadata = _metadata;
             datagram._edns = _edns;
-            datagram._dnsClientExtendedErrors = CloneExtendedErrorsList();
-            datagram._responseOnlyNegativeTrustAnchors = _responseOnlyNegativeTrustAnchors;
-            if (datagram.HasAnswerOrAuthorityNegativeTrustAnchor || (datagram.ResponseOnlyNegativeTrustAnchors.Count > 0))
-                datagram._AD = 0;
+            datagram._dnsClientExtendedErrors = _dnsClientExtendedErrors;
             datagram._shadowHideECSOption = _shadowHideECSOption;
             datagram._shadowECSOption = _shadowECSOption;
             datagram.Tag = Tag;
@@ -619,15 +613,6 @@ namespace TechnitiumLibrary.Net.Dns
         internal void AddDnsClientExtendedError(EDnsExtendedDnsErrorCode errorCode, string extraText = null)
         {
             AddDnsClientExtendedError(new EDnsExtendedDnsErrorOptionData(errorCode, extraText));
-        }
-
-        //A clone must not share its generated-error list with its source: AddDnsClientExtendedError
-        //mutates the list in place once it exists, so two datagrams sharing the same List<T>
-        //instance would let a presentation call on one (e.g. the newly public
-        //AddNegativeTrustAnchorExtendedDnsErrors) silently add entries to the other.
-        private List<EDnsExtendedDnsErrorOptionData> CloneExtendedErrorsList()
-        {
-            return _dnsClientExtendedErrors is null ? null : new List<EDnsExtendedDnsErrorOptionData>(_dnsClientExtendedErrors);
         }
 
         internal void AddDnsClientExtendedErrors(IReadOnlyCollection<EDnsExtendedDnsErrorOptionData> dnsErrors)
@@ -644,20 +629,6 @@ namespace TechnitiumLibrary.Net.Dns
 
         internal void AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData dnsError)
         {
-            //Defense in depth: a response reconstructed from cache (or forwarded upstream) may
-            //already carry this exact INFO-CODE/EXTRA-TEXT in its wire-level EDNS options - e.g. an
-            //upstream resolver's own EDE-33 - so only add it to the generated-error list, which a
-            //consuming application layers on top of response.EDNS.Options, if it is not already
-            //present in either place. This prevents the same diagnostic being surfaced twice.
-            if (_edns is not null)
-            {
-                foreach (EDnsOption option in _edns.Options)
-                {
-                    if ((option.Code == EDnsOptionCode.EXTENDED_DNS_ERROR) && dnsError.Equals(option.Data))
-                        return;
-                }
-            }
-
             if (_dnsClientExtendedErrors is null)
                 _dnsClientExtendedErrors = new List<EDnsExtendedDnsErrorOptionData>();
 
@@ -685,206 +656,6 @@ namespace TechnitiumLibrary.Net.Dns
             }
         }
 
-        internal IReadOnlyList<NegativeTrustAnchorInfo> GetResponseOnlyNegativeTrustAnchorsForRetainedSections(IReadOnlyList<DnsResourceRecord> retainedAnswer, IReadOnlyList<DnsResourceRecord> retainedAuthority, IReadOnlyList<DnsResourceRecord> retainedAdditional)
-        {
-            List<NegativeTrustAnchorInfo> residual = new List<NegativeTrustAnchorInfo>();
-            void Add(NegativeTrustAnchorInfo anchor)
-            {
-                if (anchor is null)
-                    return;
-                int index = residual.FindIndex(a => a.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase));
-                if (index < 0)
-                    residual.Add(anchor);
-                else
-                    residual[index] = residual[index].MergeMostRestrictive(anchor);
-            }
-            foreach (NegativeTrustAnchorInfo anchor in ResponseOnlyNegativeTrustAnchors)
-                Add(anchor);
-
-            bool IsRetained(NegativeTrustAnchorInfo anchor)
-            {
-                foreach (IReadOnlyList<DnsResourceRecord> records in new[] { retainedAnswer, retainedAuthority })
-                {
-                    if (records is null)
-                        continue;
-                    foreach (DnsResourceRecord record in records)
-                        if (record.AppliedNegativeTrustAnchor.RepresentsDependency(anchor))
-                            return true;
-                }
-                return false;
-            }
-
-            //Only discarded answer/authority provenance affects response authentication.
-            //Additional-only provenance remains record-carried while the record is retained.
-            foreach (IReadOnlyList<DnsResourceRecord> records in new[] { _answer, _authority })
-                foreach (DnsResourceRecord record in records)
-                    if ((record.AppliedNegativeTrustAnchor is not null) && !IsRetained(record.AppliedNegativeTrustAnchor))
-                        Add(record.AppliedNegativeTrustAnchor);
-            return residual;
-        }
-
-        internal DnsDatagram CloneRetainingResolverProvenance(IReadOnlyList<DnsResourceRecord> answer = null, IReadOnlyList<DnsResourceRecord> authority = null, IReadOnlyList<DnsResourceRecord> additional = null)
-        {
-            IReadOnlyList<DnsResourceRecord> retainedAnswer = answer ?? _answer;
-            IReadOnlyList<DnsResourceRecord> retainedAuthority = authority ?? _authority;
-            IReadOnlyList<DnsResourceRecord> retainedAdditional = additional ?? _additional;
-            IReadOnlyList<NegativeTrustAnchorInfo> residual = GetResponseOnlyNegativeTrustAnchorsForRetainedSections(retainedAnswer, retainedAuthority, retainedAdditional);
-
-            DnsDatagram clone = Clone(answer, authority, additional);
-            foreach (NegativeTrustAnchorInfo anchor in residual)
-                clone.AddAppliedNegativeTrustAnchor(anchor);
-            return clone;
-        }
-
-        internal void ClearAuthenticData()
-        {
-            _AD = 0;
-        }
-
-        internal bool HasAnswerOrAuthorityNegativeTrustAnchor
-        {
-            get
-            {
-                foreach (DnsResourceRecord record in _answer)
-                    if (record.AppliedNegativeTrustAnchor is not null)
-                        return true;
-                foreach (DnsResourceRecord record in _authority)
-                    if (record.AppliedNegativeTrustAnchor is not null)
-                        return true;
-                return false;
-            }
-        }
-
-
-        internal void AddAppliedNegativeTrustAnchor(NegativeTrustAnchorInfo anchor)
-        {
-            if (_responseOnlyNegativeTrustAnchors is not null)
-            {
-                for (int i = 0; i < _responseOnlyNegativeTrustAnchors.Count; i++)
-                {
-                    NegativeTrustAnchorInfo existing = _responseOnlyNegativeTrustAnchors[i];
-                    if (existing.Name.Equals(anchor.Name, StringComparison.OrdinalIgnoreCase))
-                    {
-                        NegativeTrustAnchorInfo merged = existing.MergeMostRestrictive(anchor);
-                        if (!ReferenceEquals(merged, existing))
-                        {
-                            NegativeTrustAnchorInfo[] updated = new NegativeTrustAnchorInfo[_responseOnlyNegativeTrustAnchors.Count];
-                            for (int j = 0; j < updated.Length; j++)
-                                updated[j] = j == i ? merged : _responseOnlyNegativeTrustAnchors[j];
-                            _responseOnlyNegativeTrustAnchors = Array.AsReadOnly(updated);
-                        }
-                        _AD = 0;
-                        return;
-                    }
-                }
-            }
-
-            int count = _responseOnlyNegativeTrustAnchors?.Count ?? 0;
-            NegativeTrustAnchorInfo[] anchors = new NegativeTrustAnchorInfo[count + 1];
-            for (int i = 0; i < count; i++)
-                anchors[i] = _responseOnlyNegativeTrustAnchors[i];
-            anchors[count] = anchor;
-            _responseOnlyNegativeTrustAnchors = Array.AsReadOnly(anchors);
-            _AD = 0;
-        }
-
-        internal void AddAppliedNegativeTrustAnchorsFrom(DnsDatagram datagram)
-        {
-            if (datagram is null)
-                return;
-
-            foreach (NegativeTrustAnchorInfo anchor in datagram.AppliedNegativeTrustAnchors)
-                AddAppliedNegativeTrustAnchor(anchor);
-        }
-
-        /// <summary>
-        /// Emits EDE INFO-CODE 33 (Negative Trust Anchor) for the anchors this response's
-        /// <see cref="AppliedNegativeTrustAnchors"/> provenance carries.
-        /// </summary>
-        /// <param name="extraTextMode">
-        /// How much detail to disclose. Defaults to
-        /// <see cref="NegativeTrustAnchorExtraTextMode.PlainText"/> - a fixed, non-empty sentence
-        /// disclosing nothing beyond the fact that an anchor applied.
-        /// </param>
-        /// <remarks>
-        /// <para>
-        /// The library never calls this on its own. Whether an EDE 33 diagnostic reaches a client
-        /// is a presentation decision belonging to the consuming application, which owns the
-        /// operator-facing setting for it (deviation D3). The library's responsibility is to
-        /// preserve accurate provenance via <see cref="AppliedNegativeTrustAnchors"/> whether or
-        /// not this is ever called.
-        /// </para>
-        ///
-        /// <para>
-        /// <b>The caller must also decide whether this query was subject to validation.</b>
-        /// Provenance is restored on cache hits unconditionally, so a response served to a
-        /// non-validating client from an entry a validating client populated still carries it.
-        /// Emitting for that client would assert that validation was suspended for a query where
-        /// validation was never going to happen. The reference implementation needed a dedicated
-        /// fix for exactly this; because emission here is application-owned, the library cannot
-        /// make the call. Gate on the server's DNSSEC mode and, in a process-style mode, on the
-        /// client having set AD or DO.
-        /// </para>
-        ///
-        /// <para>
-        /// Emission is idempotent, and
-        /// <see cref="AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData)"/> will not add an
-        /// option already present in the response's own EDNS options, so a diagnostic forwarded
-        /// from upstream is not duplicated. With <see cref="NegativeTrustAnchorExtraTextMode.None"/>
-        /// or <see cref="NegativeTrustAnchorExtraTextMode.PlainText"/>, several applied anchors
-        /// collapse to a single option, because every anchor produces identical EXTRA-TEXT under
-        /// either mode and <see cref="AddDnsClientExtendedError(EDnsExtendedDnsErrorOptionData)"/>
-        /// dedups on INFO-CODE and EXTRA-TEXT together - which the draft permits. With
-        /// <see cref="NegativeTrustAnchorExtraTextMode.Structured"/> each anchor's EXTRA-TEXT
-        /// differs, so each yields a distinct option, satisfying the draft's requirement that
-        /// EXTRA-TEXT be populated whenever multiple instances appear.
-        /// </para>
-        /// </remarks>
-        public void AddNegativeTrustAnchorExtendedDnsErrors(NegativeTrustAnchorExtraTextMode extraTextMode = NegativeTrustAnchorExtraTextMode.PlainText)
-        {
-            foreach (NegativeTrustAnchorInfo anchor in AppliedNegativeTrustAnchors)
-                AddDnsClientExtendedError(EDnsExtendedDnsErrorCode.NegativeTrustAnchor, GetNegativeTrustAnchorExtraText(anchor, extraTextMode));
-        }
-
-        //Fixed, anchor-agnostic sentence for NegativeTrustAnchorExtraTextMode.PlainText - deviation
-        //D6. Modeled on Cloudflare's field-proven EDE 33 rollout
-        //(https://blog.cloudflare.com/dnssec-nta-ede-33/), which settled on a static, non-empty,
-        //human-readable sentence rather than empty EXTRA-TEXT; wording is this implementation's own.
-        private const string NegativeTrustAnchorPlainTextExtra = "DNSSEC validation has been suspended for this answer by a Negative Trust Anchor; see RFC 7646.";
-
-        private static string GetNegativeTrustAnchorExtraText(NegativeTrustAnchorInfo anchor, NegativeTrustAnchorExtraTextMode extraTextMode)
-        {
-            if (extraTextMode == NegativeTrustAnchorExtraTextMode.PlainText)
-                return NegativeTrustAnchorPlainTextExtra;
-
-            //Also catches any future mode this method doesn't recognise yet - failing toward
-            //None's zero-length text is the safe default, not Structured's per-anchor disclosure.
-            if (extraTextMode != NegativeTrustAnchorExtraTextMode.Structured)
-                return null; //zero-length EXTRA-TEXT, which RFC 8914 section 2 permits
-
-            //The draft describes "d" as fully-qualified A-label form with no trailing
-            //period, which has no representation for the root zone - stripping the period
-            //leaves the empty string. Render the root as "." so a consumer sees a usable
-            //domain name rather than an empty field (deviation D6).
-            string domainName = (anchor.Name.Length == 0) ? "." : anchor.Name;
-
-            //The timestamp must be RFC 3339, which is Gregorian by definition. A bare
-            //ToString(format) resolves against CurrentCulture, whose calendar may not be:
-            //under th-TH this emits year 2569 (Buddhist), under ar-SA a Hijri date. The
-            //result stays syntactically valid, so nothing downstream detects it - it just
-            //silently means the wrong instant. Format against the invariant culture, and
-            //quote the literal T/Z rather than relying on pass-through of unrecognised
-            //format specifiers.
-            //The name is escaped rather than interpolated. Anchors reaching this method
-            //through the resolver are canonical ASCII domain names, which contain nothing
-            //JSON would object to - but this method and CloneWithResponseAnnotations are
-            //both public, and together they let an application put an arbitrary name here.
-            //Concatenating it produced malformed JSON for a name containing a quote, a
-            //backslash or a control character, silently, in a field that goes out on the
-            //wire.
-            return "{\"d\":\"" + JsonEncodedText.Encode(domainName) + "\",\"t\":\"" + anchor.ExpiresOnUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\"}";
-        }
-
         internal void SetShadowEDnsClientSubnetOption(EDnsClientSubnetOptionData shadowECSOption)
         {
             _shadowECSOption = shadowECSOption;
@@ -893,18 +664,6 @@ namespace TechnitiumLibrary.Net.Dns
         #endregion
 
         #region public
-
-        /// <summary>Clones this datagram with the specified response-only resolver annotations.</summary>
-        public DnsDatagram CloneWithResponseAnnotations(IReadOnlyList<NegativeTrustAnchorInfo> appliedNegativeTrustAnchors)
-        {
-            DnsDatagram datagram = Clone();
-            datagram._responseOnlyNegativeTrustAnchors = null;
-            if (appliedNegativeTrustAnchors is not null)
-                foreach (NegativeTrustAnchorInfo anchor in appliedNegativeTrustAnchors)
-                    if (anchor is not null)
-                        datagram.AddAppliedNegativeTrustAnchor(anchor);
-            return datagram;
-        }
 
         public DnsDatagram Clone(IReadOnlyList<DnsResourceRecord> answer = null, IReadOnlyList<DnsResourceRecord> authority = null, IReadOnlyList<DnsResourceRecord> additional = null)
         {
@@ -928,10 +687,7 @@ namespace TechnitiumLibrary.Net.Dns
             else
                 datagram._edns = DnsDatagramEdns.ReadOPTFrom(additional, _RCODE);
 
-            datagram._dnsClientExtendedErrors = CloneExtendedErrorsList();
-            datagram._responseOnlyNegativeTrustAnchors = _responseOnlyNegativeTrustAnchors;
-            if (datagram.HasAnswerOrAuthorityNegativeTrustAnchor || (datagram.ResponseOnlyNegativeTrustAnchors.Count > 0))
-                datagram._AD = 0;
+            datagram._dnsClientExtendedErrors = _dnsClientExtendedErrors;
             datagram._shadowHideECSOption = _shadowHideECSOption;
             datagram._shadowECSOption = _shadowECSOption;
 
@@ -1019,72 +775,6 @@ namespace TechnitiumLibrary.Net.Dns
             }
 
             newAdditional.Add(DnsDatagramEdns.GetOPTFor(_edns.UdpPayloadSize, _edns.ExtendedRCODE, _edns.Version, _edns.Flags, options));
-
-            return Clone(null, null, newAdditional);
-        }
-
-        /// <summary>
-        /// Returns a clone whose OPT record carries this response's generated extended DNS errors
-        /// as EDNS options, so they reach the wire.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <see cref="DnsClientExtendedErrors"/> is a staging list, not part of the message: only
-        /// <c>EDNS.Options</c> is serialized. An application that generates an error - via
-        /// <see cref="AddNegativeTrustAnchorExtendedDnsErrors"/>, say - must fold it into the OPT
-        /// before sending, and a response that already has an OPT cannot simply be handed the
-        /// options at construction time. Without a primitive for that, each response path has to
-        /// hand-roll the merge, and a path that forgets silently drops the diagnostic while still
-        /// looking correct at every call site.
-        /// </para>
-        ///
-        /// <para>
-        /// Options already present in the OPT are not duplicated, so this is safe to apply to a
-        /// response whose errors were partly merged elsewhere, and safe to apply twice.
-        /// </para>
-        /// </remarks>
-        public DnsDatagram CloneWithDnsClientExtendedErrorsInEDns()
-        {
-            if ((_edns is null) || (_dnsClientExtendedErrors is null) || (_dnsClientExtendedErrors.Count == 0))
-                return this;
-
-            List<EDnsOption> newOptions = new List<EDnsOption>(_edns.Options.Count + _dnsClientExtendedErrors.Count);
-            newOptions.AddRange(_edns.Options);
-
-            bool added = false;
-
-            foreach (EDnsExtendedDnsErrorOptionData dnsError in _dnsClientExtendedErrors)
-            {
-                bool alreadyPresent = false;
-
-                foreach (EDnsOption option in _edns.Options)
-                {
-                    if ((option.Code == EDnsOptionCode.EXTENDED_DNS_ERROR) && dnsError.Equals(option.Data))
-                    {
-                        alreadyPresent = true;
-                        break;
-                    }
-                }
-
-                if (alreadyPresent)
-                    continue;
-
-                newOptions.Add(new EDnsOption(EDnsOptionCode.EXTENDED_DNS_ERROR, dnsError));
-                added = true;
-            }
-
-            if (!added)
-                return this;
-
-            List<DnsResourceRecord> newAdditional = new List<DnsResourceRecord>(_additional.Count);
-
-            foreach (DnsResourceRecord record in _additional)
-            {
-                if (record.Type != DnsResourceRecordType.OPT)
-                    newAdditional.Add(record);
-            }
-
-            newAdditional.Add(DnsDatagramEdns.GetOPTFor(_edns.UdpPayloadSize, _edns.ExtendedRCODE, _edns.Version, _edns.Flags, newOptions));
 
             return Clone(null, null, newAdditional);
         }
@@ -2492,31 +2182,6 @@ namespace TechnitiumLibrary.Net.Dns
                     return Array.Empty<EDnsExtendedDnsErrorOptionData>();
 
                 return _dnsClientExtendedErrors;
-            }
-        }
-
-        /// <summary>Gets provenance that applies to the response even when no retained RRset carries it.</summary>
-        public IReadOnlyList<NegativeTrustAnchorInfo> ResponseOnlyNegativeTrustAnchors
-        { get { return _responseOnlyNegativeTrustAnchors ?? Array.Empty<NegativeTrustAnchorInfo>(); } }
-
-        /// <summary>Gets resolver-local negative trust anchors applied while producing this response.</summary>
-        public IReadOnlyList<NegativeTrustAnchorInfo> AppliedNegativeTrustAnchors
-        {
-            get
-            {
-                List<NegativeTrustAnchorInfo> anchors = null;
-
-                if (_responseOnlyNegativeTrustAnchors is not null)
-                    foreach (NegativeTrustAnchorInfo anchor in _responseOnlyNegativeTrustAnchors)
-                        NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref anchors, anchor);
-                foreach (DnsResourceRecord record in _answer)
-                    NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref anchors, record.AppliedNegativeTrustAnchor);
-                foreach (DnsResourceRecord record in _authority)
-                    NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref anchors, record.AppliedNegativeTrustAnchor);
-                foreach (DnsResourceRecord record in _additional)
-                    NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref anchors, record.AppliedNegativeTrustAnchor);
-
-                return anchors ?? (IReadOnlyList<NegativeTrustAnchorInfo>)Array.Empty<NegativeTrustAnchorInfo>();
             }
         }
 

@@ -21,12 +21,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
-using TechnitiumLibrary.Net.Dns.Dnssec;
 using TechnitiumLibrary.Net.Dns.EDnsOptions;
 using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
@@ -84,15 +81,6 @@ namespace TechnitiumLibrary.Net.Dns
 
         #region protected
 
-        /// <summary>
-        /// Stores resolver cache records using the cache implementation's native indexing,
-        /// persistence, expiration, and invalidation model.
-        /// </summary>
-        /// <remarks>
-        /// Derived implementations must retain special cache records. They are routed through this
-        /// extension point so ECS variants, persistence, cache maintenance, and flushing remain
-        /// owned by the cache implementation.
-        /// </remarks>
         protected virtual void CacheRecords(IReadOnlyList<DnsResourceRecord> resourceRecords, NetworkAddress eDnsClientSubnet, DnsDatagramMetadata responseMetadata)
         {
             if (resourceRecords.Count == 1)
@@ -102,7 +90,12 @@ namespace TechnitiumLibrary.Net.Dns
                 if (resourceRecord.Type == DnsResourceRecordType.DNAME)
                     return; //DnsCache does not support DNAME
 
-                SetCacheEntryRecords(resourceRecord.Name.ToLowerInvariant(), 1, resourceRecords);
+                DnsCacheEntry entry = _cache.GetOrAdd(resourceRecord.Name.ToLowerInvariant(), delegate (string key)
+                {
+                    return new DnsCacheEntry(1);
+                });
+
+                entry.SetRecords(resourceRecords);
             }
             else
             {
@@ -125,32 +118,14 @@ namespace TechnitiumLibrary.Net.Dns
                     if (foundDNAME)
                         continue; //DnsCache does not support DNAME
 
-                    string entryName = cacheEntry.Key.ToLowerInvariant();
+                    DnsCacheEntry entry = _cache.GetOrAdd(cacheEntry.Key.ToLowerInvariant(), delegate (string key)
+                    {
+                        return new DnsCacheEntry(cacheEntry.Value.Count);
+                    });
 
                     foreach (KeyValuePair<DnsResourceRecordType, List<DnsResourceRecord>> cacheTypeEntry in cacheEntry.Value)
-                        SetCacheEntryRecords(entryName, cacheEntry.Value.Count, cacheTypeEntry.Value);
+                        entry.SetRecords(cacheTypeEntry.Value);
                 }
-            }
-        }
-
-        //Writes an RRset into the cache entry for a name, retrying if the entry that was obtained
-        //had already been claimed for removal by a concurrent cleanup pass. Without the retry the
-        //records would be written into a detached entry and silently lost.
-        private void SetCacheEntryRecords(string name, int capacity, IReadOnlyList<DnsResourceRecord> records)
-        {
-            while (true)
-            {
-                DnsCacheEntry entry = _cache.GetOrAdd(name, delegate (string key)
-                {
-                    return new DnsCacheEntry(capacity);
-                });
-
-                if (entry.SetRecords(records))
-                    return;
-
-                //Drop the orphan so the next GetOrAdd creates a live entry. Removing by key and
-                //value together ensures a replacement entry added by another writer is not deleted.
-                _cache.TryRemove(new KeyValuePair<string, DnsCacheEntry>(name, entry));
             }
         }
 
@@ -355,7 +330,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                 foreach (DnsResourceRecord glueRecord in glueRecords)
                 {
-                    if (!glueRecord.IsStale && ((glueRecord.AppliedNegativeTrustAnchor is null) || (glueRecord.AppliedNegativeTrustAnchor.ExpiresOnUtc > DateTimeOffset.UtcNow)))
+                    if (!glueRecord.IsStale)
                     {
                         added = true;
                         additionalRecords.Add(glueRecord);
@@ -376,92 +351,6 @@ namespace TechnitiumLibrary.Net.Dns
                 if ((glueAAAAs.Count > 0) && (glueAAAAs[0].Type == DnsResourceRecordType.AAAA))
                     additionalRecords.AddRange(glueAAAAs);
             }
-        }
-
-        /// <summary>
-        /// Reconstructs a cached special response while enforcing DNSSEC provenance,
-        /// negative-trust-anchor expiry, and AD-bit semantics. Derived cache implementations should
-        /// use this helper for special cache records instead of duplicating reconstruction logic.
-        /// </summary>
-        /// <returns>The reconstructed response, or null when a cached negative trust anchor has expired or a retained record is stale.</returns>
-        protected static DnsDatagram GetSpecialCachedResponse(DnsDatagram request, DnsSpecialCacheRecordData specialRecord)
-        {
-            if (DnssecCachePolicy.HasExpiredNegativeTrustAnchor(specialRecord))
-                return null;
-
-            if (request.DnssecOk)
-            {
-                foreach (DnsResourceRecord originalAuthority in specialRecord.OriginalAuthority)
-                    if (originalAuthority.DnssecStatus == DnssecStatus.Disabled)
-                        return null;
-
-                IReadOnlyList<DnsResourceRecord> answer = request.CheckingDisabled ? specialRecord.OriginalAnswer : specialRecord.Answer;
-                IReadOnlyList<DnsResourceRecord> authority = request.CheckingDisabled ? specialRecord.OriginalAuthority : specialRecord.Authority;
-                IReadOnlyList<DnsResourceRecord> additional = request.CheckingDisabled ? specialRecord.OriginalAdditional : null;
-                foreach (IReadOnlyList<DnsResourceRecord> section in new[] { answer, authority, additional })
-                    foreach (DnsResourceRecord record in section ?? Array.Empty<DnsResourceRecord>())
-                        if (record.IsStale)
-                            return null;
-                IReadOnlyList<NegativeTrustAnchorInfo> anchors = GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, answer, authority, additional);
-                DnsDatagram response = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, DnssecCachePolicy.CanSetAuthenticData(answer, authority), request.CheckingDisabled, request.CheckingDisabled ? specialRecord.OriginalRCODE : specialRecord.RCODE, request.Question, answer, authority, additional, request.EDNS.UdpPayloadSize, EDnsHeaderFlags.DNSSEC_OK, specialRecord.EDnsOptions);
-                return DnssecCachePolicy.RestoreNegativeTrustAnchorAnnotations(response, anchors);
-            }
-
-            DnsDatagram noDnssecResponse = request.CheckingDisabled ?
-                new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, false, true, specialRecord.OriginalRCODE, request.Question, specialRecord.OriginalNoDnssecAnswer, specialRecord.OriginalNoDnssecAuthority, specialRecord.OriginalAdditional, request.EDNS is null ? ushort.MinValue : request.EDNS.UdpPayloadSize, EDnsHeaderFlags.None, specialRecord.EDnsOptions) :
-                new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, false, false, specialRecord.RCODE, request.Question, specialRecord.NoDnssecAnswer, specialRecord.NoDnssecAuthority, null, request.EDNS is null ? ushort.MinValue : request.EDNS.UdpPayloadSize, EDnsHeaderFlags.None, specialRecord.EDnsOptions);
-            foreach (IReadOnlyList<DnsResourceRecord> section in new[] { noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional })
-                foreach (DnsResourceRecord record in section ?? Array.Empty<DnsResourceRecord>())
-                    if (record.IsStale)
-                        return null;
-            return DnssecCachePolicy.RestoreNegativeTrustAnchorAnnotations(noDnssecResponse, GetResponseOnlyNegativeTrustAnchorsForRetainedSections(specialRecord, noDnssecResponse.Answer, noDnssecResponse.Authority, noDnssecResponse.Additional));
-        }
-
-        private static IReadOnlyList<NegativeTrustAnchorInfo> GetResponseOnlyNegativeTrustAnchorsForRetainedSections(DnsSpecialCacheRecordData specialRecord, params IReadOnlyList<DnsResourceRecord>[] retainedSections)
-        {
-            List<NegativeTrustAnchorInfo> responseOnlyAnchors = null;
-
-            void Add(NegativeTrustAnchorInfo anchor)
-            {
-                NegativeTrustAnchorInfoExtensions.AddOrMergeMostRestrictive(ref responseOnlyAnchors, anchor);
-            }
-
-            foreach (NegativeTrustAnchorInfo anchor in specialRecord.AppliedNegativeTrustAnchors)
-                Add(anchor);
-
-            //Discarded additional-only provenance does not affect AD and is not promoted to
-            //response-only provenance. Retained additional records continue to carry it directly.
-            foreach (IReadOnlyList<DnsResourceRecord> originalSection in new[] { specialRecord.OriginalAnswer, specialRecord.OriginalAuthority })
-            {
-                foreach (DnsResourceRecord originalRecord in originalSection)
-                {
-                    NegativeTrustAnchorInfo anchor = originalRecord.GetDnssecCacheMetadata().AppliedNegativeTrustAnchor;
-                    if (anchor is null)
-                        continue;
-
-                    bool retained = false;
-                    for (int retainedSectionIndex = 0; retainedSectionIndex < Math.Min(2, retainedSections.Length); retainedSectionIndex++)
-                    {
-                        IReadOnlyList<DnsResourceRecord> retainedSection = retainedSections[retainedSectionIndex];
-                        foreach (DnsResourceRecord retainedRecord in retainedSection ?? Array.Empty<DnsResourceRecord>())
-                        {
-                            NegativeTrustAnchorInfo retainedAnchor = retainedRecord.GetDnssecCacheMetadata().AppliedNegativeTrustAnchor;
-                            if (retainedAnchor.RepresentsDependency(anchor))
-                            {
-                                retained = true;
-                                break;
-                            }
-                        }
-                        if (retained)
-                            break;
-                    }
-
-                    if (!retained)
-                        Add(anchor);
-                }
-            }
-
-            return (IReadOnlyList<NegativeTrustAnchorInfo>)responseOnlyAnchors ?? Array.Empty<NegativeTrustAnchorInfo>();
         }
 
         #endregion
@@ -494,16 +383,43 @@ namespace TechnitiumLibrary.Net.Dns
                 IReadOnlyList<DnsResourceRecord> answers = entry.QueryRecords(qtype, false);
                 if (answers.Count > 0)
                 {
-
                     DnsResourceRecord firstRR = answers[0];
 
                     if (firstRR.RDATA is DnsSpecialCacheRecordData dnsSpecialCacheRecord)
                     {
-                        DnsDatagram specialCachedResponse = GetSpecialCachedResponse(request, dnsSpecialCacheRecord);
-                        if (specialCachedResponse is not null)
-                            return Task.FromResult(specialCachedResponse);
+                        if (request.DnssecOk)
+                        {
+                            foreach (DnsResourceRecord originalAuthority in dnsSpecialCacheRecord.OriginalAuthority)
+                            {
+                                if (originalAuthority.DnssecStatus == DnssecStatus.Disabled)
+                                    goto beforeFindClosestNameServers; //dont return answer with disabled status since DO flag is set
+                            }
 
-                        goto beforeFindClosestNameServers;
+                            bool authenticData;
+
+                            switch (dnsSpecialCacheRecord.Type)
+                            {
+                                case DnsSpecialCacheRecordType.NegativeCache:
+                                    authenticData = true;
+                                    break;
+
+                                default:
+                                    authenticData = false;
+                                    break;
+                            }
+
+                            if (request.CheckingDisabled)
+                                return Task.FromResult(new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, authenticData, true, dnsSpecialCacheRecord.OriginalRCODE, request.Question, dnsSpecialCacheRecord.OriginalAnswer, dnsSpecialCacheRecord.OriginalAuthority, dnsSpecialCacheRecord.OriginalAdditional, request.EDNS.UdpPayloadSize, EDnsHeaderFlags.DNSSEC_OK, dnsSpecialCacheRecord.EDnsOptions));
+                            else
+                                return Task.FromResult(new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, authenticData, false, dnsSpecialCacheRecord.RCODE, request.Question, dnsSpecialCacheRecord.Answer, dnsSpecialCacheRecord.Authority, null, request.EDNS.UdpPayloadSize, EDnsHeaderFlags.DNSSEC_OK, dnsSpecialCacheRecord.EDnsOptions));
+                        }
+                        else
+                        {
+                            if (request.CheckingDisabled)
+                                return Task.FromResult(new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, false, true, dnsSpecialCacheRecord.OriginalRCODE, request.Question, dnsSpecialCacheRecord.OriginalNoDnssecAnswer, dnsSpecialCacheRecord.OriginalNoDnssecAuthority, dnsSpecialCacheRecord.OriginalAdditional, request.EDNS is null ? ushort.MinValue : request.EDNS.UdpPayloadSize, EDnsHeaderFlags.None, dnsSpecialCacheRecord.EDnsOptions));
+                            else
+                                return Task.FromResult(new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, false, false, dnsSpecialCacheRecord.RCODE, request.Question, dnsSpecialCacheRecord.NoDnssecAnswer, dnsSpecialCacheRecord.NoDnssecAuthority, null, request.EDNS is null ? ushort.MinValue : request.EDNS.UdpPayloadSize, EDnsHeaderFlags.None, dnsSpecialCacheRecord.EDnsOptions));
+                        }
                     }
 
                     DnsResourceRecord lastRR = answers[answers.Count - 1];
@@ -583,11 +499,7 @@ namespace TechnitiumLibrary.Net.Dns
                             break;
                     }
 
-                    if (DnssecCachePolicy.HasExpiredNegativeTrustAnchor(answers, authority))
-                        goto beforeFindClosestNameServers;
-
-                    DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, DnssecCachePolicy.CanSetAuthenticData(answers, authority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, answers, authority, additional);
-                    return Task.FromResult(cachedResponse);
+                    return Task.FromResult(new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, answers[0].DnssecStatus == DnssecStatus.Secure, request.CheckingDisabled, DnsResponseCode.NoError, request.Question, answers, authority, additional));
                 }
             }
 
@@ -612,15 +524,9 @@ namespace TechnitiumLibrary.Net.Dns
                 IReadOnlyList<DnsResourceRecord> closestAuthority = GetClosestReferralNameServers(domain, request.DnssecOk);
                 if (closestAuthority is not null)
                 {
-
                     IReadOnlyList<DnsResourceRecord> additionalRecords = GetAdditionalRecords(closestAuthority);
 
-
-                    if (DnssecCachePolicy.HasExpiredNegativeTrustAnchor(closestAuthority))
-                        return Task.FromResult<DnsDatagram>(null);
-
-                    DnsDatagram cachedResponse = new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, DnssecCachePolicy.CanSetAuthenticData(null, closestAuthority), request.CheckingDisabled, DnsResponseCode.NoError, request.Question, null, closestAuthority, additionalRecords);
-                    return Task.FromResult(cachedResponse);
+                    return Task.FromResult(new DnsDatagram(request.Identifier, true, DnsOpcode.StandardQuery, false, false, request.RecursionDesired, true, closestAuthority[0].DnssecStatus == DnssecStatus.Secure, request.CheckingDisabled, DnsResponseCode.NoError, request.Question, null, closestAuthority, additionalRecords));
                 }
             }
 
@@ -714,22 +620,6 @@ namespace TechnitiumLibrary.Net.Dns
 
                     return;
             }
-
-            //Response-only provenance means a negative trust anchor demoted this resolution but no
-            //retained record sits under it - a CNAME chain that started inside an anchored zone and
-            //ended in a properly signed one, say. Ordinary RRset caching has nowhere to put that: the
-            //final records are genuinely Secure, so stamping them with the anchor would misreport
-            //them, while caching them bare would drop the anchor's expiry and let them outlive the
-            //policy that permitted the resolution.
-            //
-            //An earlier revision added a composite DnsSpecialCacheRecordType.PositiveCache entry to
-            //hold response and provenance together. It was removed: nothing consumed it - Technitium
-            //DNS Server overrides CacheRecords and QueryAsync wholesale and never constructs or reads
-            //the type - so it was a bespoke cache representation carrying real complexity for no
-            //reader. Declining to cache costs a repeat upstream query for a narrow case and cannot
-            //serve under-provenanced data, which is the safer trade at this size.
-            if ((response.Answer.Count > 0) && (response.ResponseOnlyNegativeTrustAnchors.Count > 0))
-                return;
 
             //attach RRSIG to records
             {
@@ -1072,7 +962,7 @@ namespace TechnitiumLibrary.Net.Dns
                                         if (authority.Name.Equals(zoneCut, StringComparison.OrdinalIgnoreCase))
                                         {
                                             //empty response with authority name servers that match the zone cut; dont cache authority section with NS records
-                                            DnsResourceRecord record = new DnsResourceRecord(question.Name, question.Type, question.Class, _negativeRecordTtl, new DnsSpecialCacheRecordData(DnsSpecialCacheRecordType.NegativeCache, response.RCODE, [question], Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), response.EDNS, response.DnsClientExtendedErrors, response.GetResponseOnlyNegativeTrustAnchorsForRetainedSections(Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>())));
+                                            DnsResourceRecord record = new DnsResourceRecord(question.Name, question.Type, question.Class, _negativeRecordTtl, new DnsSpecialCacheRecordData(DnsSpecialCacheRecordType.NegativeCache, response.RCODE, [question], Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), Array.Empty<DnsResourceRecord>(), response.EDNS, response.DnsClientExtendedErrors));
                                             record.SetExpiry(_minimumRecordTtl, _maximumRecordTtl, _serveStaleTtl, _serveStaleAnswerTtl);
 
                                             InternalCacheRecords(new DnsResourceRecord[] { record }, eDnsClientSubnet, response.Metadata);
@@ -1216,12 +1106,8 @@ namespace TechnitiumLibrary.Net.Dns
             {
                 entry.Value.RemoveExpiredRecords();
 
-                //Claim the entry under its own write lock before detaching it, and remove only this
-                //exact instance. Checking IsEmpty and then removing by key alone would let a writer
-                //repopulate the entry in between - losing that write - or, if the writer had already
-                //replaced the orphan with a fresh entry, would delete the replacement instead.
-                if (entry.Value.TryMarkRemovedIfEmpty())
-                    _cache.TryRemove(entry); //remove empty entry
+                if (entry.Value.IsEmpty)
+                    _cache.TryRemove(entry.Key, out _); //remove empty entry
             }
         }
 
@@ -1304,7 +1190,6 @@ namespace TechnitiumLibrary.Net.Dns
             readonly IReadOnlyList<DnsResourceRecord> _additional;
 
             readonly List<EDnsOption> _ednsOptions;
-            IReadOnlyList<NegativeTrustAnchorInfo> _appliedNegativeTrustAnchors;
 
             readonly IReadOnlyList<DnsResourceRecord> _noDnssecAnswer;
             readonly IReadOnlyList<DnsResourceRecord> _noDnssecAuthority;
@@ -1314,34 +1199,16 @@ namespace TechnitiumLibrary.Net.Dns
             #region constructor
 
             public DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsDatagram response)
-                : this(type, response.RCODE, response.Question, response.Answer, response.Authority, response.Additional, response.EDNS, response.DnsClientExtendedErrors, response.ResponseOnlyNegativeTrustAnchors)
+                : this(type, response.RCODE, response.Question, response.Answer, response.Authority, response.Additional, response.EDNS, response.DnsClientExtendedErrors)
             { }
 
             public DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsQuestionRecord> question, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, DnsDatagramEdns edns, IReadOnlyList<EDnsExtendedDnsErrorOptionData> dnsClientExtendedErrors)
-                : this(type, rcode, question, answer, authority, additional, edns, dnsClientExtendedErrors, null)
-            { }
-
-            public DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsQuestionRecord> question, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, DnsDatagramEdns edns, IReadOnlyList<EDnsExtendedDnsErrorOptionData> dnsClientExtendedErrors, IReadOnlyList<NegativeTrustAnchorInfo> appliedNegativeTrustAnchors)
             {
                 _type = type;
                 _rcode = rcode;
                 _answer = answer;
                 _authority = authority;
                 _additional = additional;
-                if ((appliedNegativeTrustAnchors is not null) && (appliedNegativeTrustAnchors.Count > 0))
-                {
-                    Dictionary<string, NegativeTrustAnchorInfo> anchors = new Dictionary<string, NegativeTrustAnchorInfo>(StringComparer.OrdinalIgnoreCase);
-                    foreach (NegativeTrustAnchorInfo anchor in appliedNegativeTrustAnchors)
-                    {
-                        if (anchor is null)
-                            continue;
-                        if (anchors.TryGetValue(anchor.Name, out NegativeTrustAnchorInfo existing))
-                            anchors[anchor.Name] = existing.MergeMostRestrictive(anchor);
-                        else
-                            anchors.Add(anchor.Name, anchor);
-                    }
-                    _appliedNegativeTrustAnchors = Array.AsReadOnly(anchors.Values.OrderBy(anchor => anchor.Name, StringComparer.OrdinalIgnoreCase).ToArray());
-                }
 
                 //prepare EDNS options
                 {
@@ -1421,7 +1288,7 @@ namespace TechnitiumLibrary.Net.Dns
                 }
             }
 
-            private DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, List<EDnsOption> ednsOptions, IReadOnlyList<NegativeTrustAnchorInfo> appliedNegativeTrustAnchors)
+            private DnsSpecialCacheRecordData(DnsSpecialCacheRecordType type, DnsResponseCode rcode, IReadOnlyList<DnsResourceRecord> answer, IReadOnlyList<DnsResourceRecord> authority, IReadOnlyList<DnsResourceRecord> additional, List<EDnsOption> ednsOptions)
             {
                 _type = type;
                 _rcode = rcode;
@@ -1429,7 +1296,6 @@ namespace TechnitiumLibrary.Net.Dns
                 _authority = authority;
                 _additional = additional;
                 _ednsOptions = ednsOptions;
-                _appliedNegativeTrustAnchors = appliedNegativeTrustAnchors;
 
                 //get answer and authority section with no dnssec records
                 _noDnssecAnswer = FilterDnssecAnswerRecords(_answer);
@@ -1447,10 +1313,6 @@ namespace TechnitiumLibrary.Net.Dns
                 {
                     case 1:
                     case 2:
-                    case 3:
-                    case 4:
-                    case 5:
-                    case 6:
                         DnsSpecialCacheRecordType type = (DnsSpecialCacheRecordType)bR.ReadByte();
                         DnsResponseCode rcode = (DnsResponseCode)bR.ReadUInt16();
                         IReadOnlyList<DnsResourceRecord> answer = ReadCacheRecordsFrom(bR, readTagInfo);
@@ -1469,34 +1331,7 @@ namespace TechnitiumLibrary.Net.Dns
                         if (version == 1)
                             _ = ReadCacheRecordsFrom(bR, readTagInfo); //read obsolete field
 
-                        NegativeTrustAnchorInfo[] appliedNegativeTrustAnchors = null;
-                        if (version >= 3)
-                        {
-                            int anchorCount = bR.ReadByte();
-                            if (anchorCount > 0)
-                            {
-                                appliedNegativeTrustAnchors = new NegativeTrustAnchorInfo[anchorCount];
-                                for (int i = 0; i < anchorCount; i++)
-                                    appliedNegativeTrustAnchors[i] = NegativeTrustAnchorInfoExtensions.ReadCacheEncodingFrom(bR);
-                            }
-                        }
-
-                        //Versions 4 to 6 additionally carried a DNSSEC policy-generation stamp used
-                        //to reject entries produced under a superseded trust policy. That mechanism
-                        //was removed - see deviation D5 on INegativeTrustAnchorProvider - so the
-                        //fields are read and discarded to stay loadable for anyone who ran those
-                        //revisions.
-                        if ((version >= 4) && bR.ReadBoolean())
-                        {
-                            bR.ReadInt64(); //policy generation
-                            bR.ReadInt64(); //policy capture time
-                            if (version >= 5)
-                                bR.ReadBytes(16); //policy scope id
-                            if (version >= 6)
-                                bR.ReadBytes(16); //policy revision id
-                        }
-
-                        return new DnsSpecialCacheRecordData(type, rcode, answer, authority, additional, ednsOptions, appliedNegativeTrustAnchors is null ? null : Array.AsReadOnly(appliedNegativeTrustAnchors));
+                        return new DnsSpecialCacheRecordData(type, rcode, answer, authority, additional, ednsOptions);
 
                     default:
                         throw new InvalidDataException("DnsCache.DnsSpecialCacheRecordData format version not supported.");
@@ -1629,7 +1464,7 @@ namespace TechnitiumLibrary.Net.Dns
 
             public void WriteCacheRecordTo(BinaryWriter bW, Action writeTagInfo)
             {
-                bW.Write((byte)3); //version: 3 adds applied negative trust anchors to version 2
+                bW.Write((byte)2); //version
 
                 bW.Write((byte)_type);
                 bW.Write((ushort)_rcode);
@@ -1652,14 +1487,6 @@ namespace TechnitiumLibrary.Net.Dns
                     for (int i = 0; i < count; i++)
                         _ednsOptions[i].WriteTo(bW.BaseStream);
                 }
-
-                int anchorCount = _appliedNegativeTrustAnchors?.Count ?? 0;
-                if (anchorCount > byte.MaxValue)
-                    anchorCount = byte.MaxValue;
-                bW.Write(Convert.ToByte(anchorCount));
-                for (int i = 0; i < anchorCount; i++)
-                    _appliedNegativeTrustAnchors[i].WriteCacheEncodingTo(bW);
-
             }
 
             public void CopyExtendedDnsErrorsFrom(DnsSpecialCacheRecordData other)
@@ -1699,24 +1526,6 @@ namespace TechnitiumLibrary.Net.Dns
                     if (!_additional.Equals(other._additional))
                         return false;
 
-                    int anchorCount = _appliedNegativeTrustAnchors?.Count ?? 0;
-                    if (anchorCount != (other._appliedNegativeTrustAnchors?.Count ?? 0))
-                        return false;
-                    foreach (NegativeTrustAnchorInfo anchor in _appliedNegativeTrustAnchors ?? Array.Empty<NegativeTrustAnchorInfo>())
-                    {
-                        bool found = false;
-                        foreach (NegativeTrustAnchorInfo otherAnchor in other._appliedNegativeTrustAnchors)
-                        {
-                            if (anchor.Name.Equals(otherAnchor.Name, StringComparison.OrdinalIgnoreCase) && (anchor.ExpiresOnUtc == otherAnchor.ExpiresOnUtc))
-                            {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found)
-                            return false;
-                    }
-
                     return true;
                 }
 
@@ -1725,18 +1534,7 @@ namespace TechnitiumLibrary.Net.Dns
 
             public override int GetHashCode()
             {
-                HashCode hash = new HashCode();
-                hash.Add(_type);
-                hash.Add(_rcode);
-                hash.Add(_answer.GetArrayHashCode());
-                hash.Add(_authority.GetArrayHashCode());
-                hash.Add(_additional.GetArrayHashCode());
-                int anchorsHash = 0;
-                if (_appliedNegativeTrustAnchors is not null)
-                    foreach (NegativeTrustAnchorInfo anchor in _appliedNegativeTrustAnchors)
-                        anchorsHash ^= HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(anchor.Name), anchor.ExpiresOnUtc);
-                hash.Add(anchorsHash);
-                return hash.ToHashCode();
+                return HashCode.Combine(_type, _rcode, _answer.GetArrayHashCode(), _authority.GetArrayHashCode(), _additional.GetArrayHashCode());
             }
 
             public override string ToString()
@@ -1903,9 +1701,6 @@ namespace TechnitiumLibrary.Net.Dns
             public IReadOnlyList<EDnsOption> EDnsOptions
             { get { return _ednsOptions; } }
 
-            public IReadOnlyList<NegativeTrustAnchorInfo> AppliedNegativeTrustAnchors
-            { get { return _appliedNegativeTrustAnchors ?? Array.Empty<NegativeTrustAnchorInfo>(); } }
-
             public override int UncompressedLength
             { get { throw new InvalidOperationException(); } }
 
@@ -1917,26 +1712,6 @@ namespace TechnitiumLibrary.Net.Dns
             #region variables
 
             readonly ConcurrentDictionary<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> _entries;
-
-            //SetRecords maintains cross-key invariants - a special cache record for NS evicts a
-            //stale CHILD_NS entry, and the final assignment lands on a third key - across several
-            //independent ConcurrentDictionary operations. Each operation is atomic on its own; the
-            //sequence is not, so two writers on the same entry can interleave their eviction and
-            //assignment steps and leave the entry in a state neither intended. RemoveExpiredRecords
-            //walks the same keys. This lock serializes writers against each other so the invariants
-            //hold once a write completes; reads stay lock-free, since a single-key lookup is already
-            //atomic and does not need a consistent cross-key snapshot.
-            //System.Threading.Lock rather than a plain object: a dedicated mutex type, thread-owned
-            //rather than reentrant-by-object-identity, and the compiler recognizes it in a lock
-            //statement and emits Lock.EnterScope() instead of Monitor.Enter/Exit - cheaper, and not
-            //vulnerable to an unrelated lock (this) elsewhere in the process ever aliasing it.
-            readonly Lock _writeLock = new Lock();
-
-            //Set under _writeLock by the cleanup pass once it has decided this entry is empty and
-            //is about to detach it from the owning cache dictionary. A writer that reaches an
-            //entry already marked this way is holding a reference the cache is discarding, so it
-            //must not write into it - the records would be silently dropped along with the entry.
-            bool _removed;
 
             #endregion
 
@@ -1995,12 +1770,6 @@ namespace TechnitiumLibrary.Net.Dns
                     if (record.IsStale)
                         return []; //RR Set is stale
 
-                    if ((record.AppliedNegativeTrustAnchor is not null) && (record.AppliedNegativeTrustAnchor.ExpiresOnUtc <= DateTimeOffset.UtcNow))
-                        return []; //policy used to accept this RRSet has expired
-
-                    if ((record.RDATA is DnsSpecialCacheRecordData specialRecord) && DnssecCachePolicy.HasExpiredNegativeTrustAnchor(specialRecord))
-                        return []; //policy used to accept this special response has expired
-
                     if (skipSpecialCacheRecord && (record.RDATA is DnsSpecialCacheRecordData))
                         return []; //RR Set is special cache record
                 }
@@ -2024,43 +1793,11 @@ namespace TechnitiumLibrary.Net.Dns
 
             #region public
 
-            /// <returns><see langword="false"/> when this entry has already been detached from the
-            /// owning cache and the caller must retry against a freshly obtained entry.</returns>
-            public bool SetRecords(IReadOnlyList<DnsResourceRecord> records)
+            public void SetRecords(IReadOnlyList<DnsResourceRecord> records)
             {
                 if (records.Count == 0)
-                    return true;
+                    return;
 
-                lock (_writeLock)
-                {
-                    if (_removed)
-                        return false;
-
-                    SetRecordsLocked(records);
-                    return true;
-                }
-            }
-
-            /// <summary>
-            /// Atomically confirms this entry is empty and claims it for removal from the owning
-            /// cache. Deciding emptiness and publishing that decision must happen under the same
-            /// lock writers use, otherwise a write landing between the two would be discarded
-            /// along with the entry.
-            /// </summary>
-            public bool TryMarkRemovedIfEmpty()
-            {
-                lock (_writeLock)
-                {
-                    if (!_entries.IsEmpty)
-                        return false;
-
-                    _removed = true;
-                    return true;
-                }
-            }
-
-            private void SetRecordsLocked(IReadOnlyList<DnsResourceRecord> records)
-            {
                 DnsResourceRecord firstRecord = records[0];
                 DnsResourceRecordType type = firstRecord.Type;
 
@@ -2205,13 +1942,10 @@ namespace TechnitiumLibrary.Net.Dns
 
             public void RemoveExpiredRecords()
             {
-                lock (_writeLock)
+                foreach (KeyValuePair<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> entry in _entries)
                 {
-                    foreach (KeyValuePair<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>> entry in _entries)
-                    {
-                        if (DnsResourceRecord.IsRRSetStale(entry.Value) || DnssecCachePolicy.HasExpiredNegativeTrustAnchor(entry.Value))
-                            _entries.TryRemove(entry.Key, out _); //RR Set or accepting NTA is expired
-                    }
+                    if (DnsResourceRecord.IsRRSetStale(entry.Value))
+                        _entries.TryRemove(entry.Key, out _); //RR Set is expired; remove entry
                 }
             }
 
