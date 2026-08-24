@@ -78,12 +78,12 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
                     _data = new EDnsExpireOptionData(s);
                     break;
 
-                case EDnsOptionCode.EXTENDED_DNS_ERROR:
-                    _data = new EDnsExtendedDnsErrorOptionData(s);
-                    break;
-
                 case EDnsOptionCode.COOKIE:
                     _data = new EDnsCookieOptionData(s);
+                    break;
+
+                case EDnsOptionCode.EXTENDED_DNS_ERROR:
+                    _data = new EDnsExtendedDnsErrorOptionData(s);
                     break;
 
                 default:
