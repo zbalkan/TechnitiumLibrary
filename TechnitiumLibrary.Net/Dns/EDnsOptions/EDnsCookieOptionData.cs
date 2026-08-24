@@ -1,6 +1,6 @@
 ﻿/*
 Technitium Library
-Copyright(C) 2026  Shreyas Zare(shreyas @technitium.com)
+Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         public const int SERVER_COOKIE_MAX_LENGTH = 32;
         public const int SERVER_COOKIE_MIN_LENGTH = 8;
         byte[] _clientCookie;
-        byte[] _serverCookie; // null means absent (client-cookie-only) 
+        byte[] _serverCookie; //null means absent (client-cookie-only)
 
         #endregion
 
@@ -113,6 +113,9 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
             if (other is null)
                 return false;
 
+            if (ReferenceEquals(this, other))
+                return true;
+
             if (!_clientCookie.AsSpan().SequenceEqual(other._clientCookie))
                 return false;
 
@@ -164,9 +167,13 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         #endregion
 
         #region properties
+
         public ReadOnlySpan<byte> ClientCookie => _clientCookie;
+
         public bool HasServerCookie => _serverCookie is not null;
+
         public ReadOnlySpan<byte> ServerCookie => _serverCookie is null ? ReadOnlySpan<byte>.Empty : _serverCookie;
+
         public override int UncompressedLength => CLIENT_COOKIE_LENGTH + (_serverCookie?.Length ?? 0);
 
         #endregion
