@@ -39,6 +39,7 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         public const int SERVER_COOKIE_MIN_LENGTH = 8;
         byte[] _clientCookie;
         byte[] _serverCookie; //null means absent (client-cookie-only)
+        byte[] _malformedData; //preserved wire data for server-side RFC 7873 FORMERR handling
 
         #endregion
 
@@ -73,15 +74,18 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
 
         protected override void ReadOptionData(Stream s)
         {
-            // _length is OPTION-LENGTH (bytes of option data).
-            if (_length < CLIENT_COOKIE_LENGTH)
-                throw new InvalidDataException($"Invalid COOKIE option length: {_length} bytes");
-
+            // RFC 7873 §5.2.2 requires the server to return FORMERR for a malformed
+            // COOKIE length. Preserve and consume the malformed payload so that the
+            // complete DNS datagram reaches the server's COOKIE classifier instead of
+            // aborting EDNS parsing and surfacing as a transport exception.
             int serverLen = _length - CLIENT_COOKIE_LENGTH;
-
-            // Valid serverLen: 0 OR 8..32.
-            if (serverLen != 0 && (serverLen < SERVER_COOKIE_MIN_LENGTH || serverLen > SERVER_COOKIE_MAX_LENGTH))
-                throw new InvalidDataException($"Invalid server cookie length: {serverLen} bytes. Valid lengths are exactly 0 bytes, or between {SERVER_COOKIE_MIN_LENGTH} and {SERVER_COOKIE_MAX_LENGTH} bytes.");
+            if (_length < CLIENT_COOKIE_LENGTH ||
+                (serverLen != 0 && (serverLen < SERVER_COOKIE_MIN_LENGTH || serverLen > SERVER_COOKIE_MAX_LENGTH)))
+            {
+                _malformedData = new byte[_length];
+                s.ReadExactly(_malformedData);
+                return;
+            }
 
             _clientCookie = new byte[CLIENT_COOKIE_LENGTH];
             s.ReadExactly(_clientCookie);
@@ -98,6 +102,12 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
 
         protected override void WriteOptionData(Stream s)
         {
+            if (_malformedData is not null)
+            {
+                s.Write(_malformedData);
+                return;
+            }
+
             s.Write(_clientCookie);
 
             if (_serverCookie is not null)
@@ -115,6 +125,9 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
 
             if (ReferenceEquals(this, other))
                 return true;
+
+            if (_malformedData is not null || other._malformedData is not null)
+                return _malformedData is not null && other._malformedData is not null && _malformedData.AsSpan().SequenceEqual(other._malformedData);
 
             if (!_clientCookie.AsSpan().SequenceEqual(other._clientCookie))
                 return false;
@@ -134,6 +147,13 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         {
             HashCode hash = new();
 
+            if (_malformedData is not null)
+            {
+                foreach (byte b in _malformedData)
+                    hash.Add(b);
+                return hash.ToHashCode();
+            }
+
             foreach (byte b in _clientCookie)
                 hash.Add(b);
 
@@ -148,6 +168,13 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         {
             writer.WriteStartObject();
 
+            if (_malformedData is not null)
+            {
+                writer.WriteString("MalformedData", Convert.ToHexString(_malformedData));
+                writer.WriteEndObject();
+                return;
+            }
+
             writer.WriteString(nameof(ClientCookie), Convert.ToHexString(_clientCookie));
 
             if (_serverCookie is not null)
@@ -158,6 +185,9 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
 
         public override string ToString()
         {
+            if (_malformedData is not null)
+                return $"COOKIE malformed length={_malformedData.Length}";
+
             if (_serverCookie is null)
                 return $"COOKIE client={Convert.ToHexString(_clientCookie)}";
 
@@ -168,13 +198,15 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
 
         #region properties
 
-        public ReadOnlySpan<byte> ClientCookie => _clientCookie;
+        public bool IsMalformed => _malformedData is not null;
+
+        public ReadOnlySpan<byte> ClientCookie => _clientCookie is null ? ReadOnlySpan<byte>.Empty : _clientCookie;
 
         public bool HasServerCookie => _serverCookie is not null;
 
         public ReadOnlySpan<byte> ServerCookie => _serverCookie is null ? ReadOnlySpan<byte>.Empty : _serverCookie;
 
-        public override int UncompressedLength => CLIENT_COOKIE_LENGTH + (_serverCookie?.Length ?? 0);
+        public override int UncompressedLength => _malformedData?.Length ?? (CLIENT_COOKIE_LENGTH + (_serverCookie?.Length ?? 0));
 
         #endregion
     }
