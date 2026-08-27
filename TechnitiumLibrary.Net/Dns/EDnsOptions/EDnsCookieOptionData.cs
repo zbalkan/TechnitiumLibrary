@@ -129,16 +129,10 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
             if (_malformedData is not null || other._malformedData is not null)
                 return _malformedData is not null && other._malformedData is not null && _malformedData.AsSpan().SequenceEqual(other._malformedData);
 
-            if (!_clientCookie.AsSpan().SequenceEqual(other._clientCookie))
-                return false;
-
-            if (_serverCookie is null && other._serverCookie is null)
-                return true;
-
-            if (_serverCookie is null || other._serverCookie is null)
-                return false;
-
-            return _serverCookie.AsSpan().SequenceEqual(other._serverCookie);
+            // A server cookie is either absent or 8-32 bytes - never a zero-length array -
+            // so mapping null to an empty span decides the absent cases correctly too.
+            return _clientCookie.AsSpan().SequenceEqual(other._clientCookie) &&
+                _serverCookie.AsSpan().SequenceEqual(other._serverCookie);
         }
 
         public override bool Equals(object obj) => Equals(obj as EDnsCookieOptionData);
@@ -147,19 +141,19 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
         {
             HashCode hash = new();
 
+            // AddBytes keeps the byte order significant. CollectionExtensions.GetArrayHashCode
+            // would read better here but XORs its elements, which collides heavily on the
+            // short, near-sequential byte runs cookies are made of.
             if (_malformedData is not null)
             {
-                foreach (byte b in _malformedData)
-                    hash.Add(b);
+                hash.AddBytes(_malformedData);
                 return hash.ToHashCode();
             }
 
-            foreach (byte b in _clientCookie)
-                hash.Add(b);
+            hash.AddBytes(_clientCookie);
 
-            if (_serverCookie is not null)
-                foreach (byte b in _serverCookie)
-                    hash.Add(b);
+            // A null server cookie converts to an empty span, which contributes nothing.
+            hash.AddBytes(_serverCookie);
 
             return hash.ToHashCode();
         }
@@ -188,10 +182,9 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
             if (_malformedData is not null)
                 return $"COOKIE malformed length={_malformedData.Length}";
 
-            if (_serverCookie is null)
-                return $"COOKIE client={Convert.ToHexString(_clientCookie)}";
+            string cookie = $"COOKIE client={Convert.ToHexString(_clientCookie)}";
 
-            return $"COOKIE client={Convert.ToHexString(_clientCookie)} server={Convert.ToHexString(_serverCookie)}";
+            return _serverCookie is null ? cookie : $"{cookie} server={Convert.ToHexString(_serverCookie)}";
         }
 
         #endregion
@@ -200,11 +193,11 @@ namespace TechnitiumLibrary.Net.Dns.EDnsOptions
 
         public bool IsMalformed => _malformedData is not null;
 
-        public ReadOnlySpan<byte> ClientCookie => _clientCookie is null ? ReadOnlySpan<byte>.Empty : _clientCookie;
+        public ReadOnlySpan<byte> ClientCookie => _clientCookie;
 
         public bool HasServerCookie => _serverCookie is not null;
 
-        public ReadOnlySpan<byte> ServerCookie => _serverCookie is null ? ReadOnlySpan<byte>.Empty : _serverCookie;
+        public ReadOnlySpan<byte> ServerCookie => _serverCookie;
 
         public override int UncompressedLength => _malformedData?.Length ?? (CLIENT_COOKIE_LENGTH + (_serverCookie?.Length ?? 0));
 
