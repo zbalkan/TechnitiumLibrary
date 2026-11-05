@@ -57,20 +57,31 @@ jobs:
         if: always()
         shell: bash
         run: |
-          trx="$(find TestResults -name '*.trx' 2>/dev/null | head -1)"
+          # Guard each pipeline with || true: the step runs with -e -o pipefail,
+          # and find (no TestResults) or grep (no match) would otherwise abort it
+          # before the fallback and the default values can apply.
+          trx="$(find TestResults -name '*.trx' 2>/dev/null | head -1 || true)"
           if [ -z "$trx" ]; then
-            echo "No TRX file was produced." >> "$GITHUB_STEP_SUMMARY"
+            echo "No TRX file was produced (the build or test step did not run)." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          counters="$(grep -o '<Counters[^>]*/>' "$trx" | head -1)"
-          field() { echo "$counters" | grep -o "$1=\"[0-9]*\"" | grep -o '[0-9]*' | head -1; }
-          total="$(field total)"
-          passed="$(field passed)"
-          failed="$(field failed)"
+          counters="$(grep -o '<Counters[^>]*/>' "$trx" | head -1 || true)"
+          field() {
+            local name="$1"
+            echo "$counters" | grep -o "$name=\"[0-9]*\"" | grep -o '[0-9]*' | head -1 || true
+          }
+          total="$(field total)";   total="${total:-0}"
+          passed="$(field passed)"; passed="${passed:-0}"
+          failed="$(field failed)"; failed="${failed:-0}"
+          # total - passed counts every non-passing outcome (failed, error, timeout,
+          # aborted, inconclusive), so a host error or timeout is not shown as a pass.
+          notpassed=$(( total - passed ))
           {
             echo "### DNS parser tests"
             echo ""
-            echo "| Total | Passed | Failed |"
-            echo "|------:|-------:|-------:|"
-            echo "| ${total:-?} | ${passed:-?} | ${failed:-?} |"
+            echo "| Total | Passed | Failed | Not passed |"
+            echo "|------:|-------:|-------:|-----------:|"
+            echo "| ${total} | ${passed} | ${failed} | ${notpassed} |"
+            echo ""
+            echo "_Not passed = total − passed, covering failures, errors, timeouts and aborts._"
           } >> "$GITHUB_STEP_SUMMARY"
