@@ -105,6 +105,90 @@ namespace TechnitiumLibrary.Net.Tests
             return ms.ToArray();
         }
 
+        private static void U32(MemoryStream ms, uint v)
+        {
+            ms.WriteByte((byte)(v >> 24));
+            ms.WriteByte((byte)(v >> 16));
+            ms.WriteByte((byte)(v >> 8));
+            ms.WriteByte((byte)v);
+        }
+
+        // A single-label uncompressed name followed by the root terminator.
+        private static void WriteName(MemoryStream ms, string label)
+        {
+            if (label != null)
+            {
+                ms.WriteByte((byte)label.Length);
+                foreach (char c in label)
+                    ms.WriteByte((byte)c);
+            }
+
+            ms.WriteByte(0);
+        }
+
+        private static void WriteShortString(MemoryStream ms, string value)
+        {
+            ms.WriteByte((byte)value.Length);
+            foreach (char c in value)
+                ms.WriteByte((byte)c);
+        }
+
+        // MX RDATA with an uncompressed exchange name.
+        public static byte[] MxRdata(ushort preference, string label)
+        {
+            MemoryStream ms = new MemoryStream();
+            U16(ms, preference);
+            WriteName(ms, label);
+            return ms.ToArray();
+        }
+
+        // MX RDATA whose exchange is a compression pointer to the question name at
+        // offset 12. Exercises a name that advances the stream by two wire bytes.
+        public static byte[] MxRdataCompressed(ushort preference)
+        {
+            MemoryStream ms = new MemoryStream();
+            U16(ms, preference);
+            ms.WriteByte(0xC0);
+            ms.WriteByte(0x0C);
+            return ms.ToArray();
+        }
+
+        // SOA RDATA: two uncompressed names then the five 32-bit fields.
+        public static byte[] SoaRdata(string primaryLabel, string responsibleLabel, uint serial, uint refresh, uint retry, uint expire, uint minimum)
+        {
+            MemoryStream ms = new MemoryStream();
+            WriteName(ms, primaryLabel);
+            WriteName(ms, responsibleLabel);
+            U32(ms, serial);
+            U32(ms, refresh);
+            U32(ms, retry);
+            U32(ms, expire);
+            U32(ms, minimum);
+            return ms.ToArray();
+        }
+
+        // TXT RDATA: one character-string (length byte then ASCII bytes).
+        public static byte[] TxtRdata(string text)
+        {
+            MemoryStream ms = new MemoryStream();
+            WriteShortString(ms, text);
+            return ms.ToArray();
+        }
+
+        // NAPTR RDATA: order, preference, three character-strings, then an
+        // uncompressed replacement name. NAPTR prebuffers RDATA via ReadExactly.
+        public static byte[] NaptrRdata(ushort order, ushort preference, string flags, string services, string regexp, string replacementLabel)
+        {
+            MemoryStream ms = new MemoryStream();
+            U16(ms, order);
+            U16(ms, preference);
+            WriteShortString(ms, flags);
+            WriteShortString(ms, services);
+            WriteShortString(ms, regexp);
+            WriteName(ms, replacementLabel);
+            return ms.ToArray();
+        }
+
         public static DnsDatagram Parse(byte[] wire)
         {
             return DnsDatagram.ReadFrom(new MemoryStream(wire));

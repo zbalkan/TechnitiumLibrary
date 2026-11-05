@@ -21,13 +21,19 @@ failure mode.
 
 `MalformedRdataRejectionTests` — the two fixed defects, now asserted as rejections:
 
-- **Empty RDATA (`RDLENGTH == 0`) on a name-bearing type.** SRV, MX, NS, CNAME and PTR
-  used to be accepted with a null target, which then faulted `NormalizeName` (cache
-  path) and `UncompressedLength` (sizing path) with a `NullReferenceException`. Such a
-  record is now rejected into `ParsingException`.
+- **Empty RDATA (`RDLENGTH == 0`) on a name-bearing type.** SRV, MX, NS, CNAME, PTR, SOA
+  and DNAME used to be accepted with a null target, which then faulted `NormalizeName`
+  (cache path) and `UncompressedLength` (sizing path) with a `NullReferenceException`;
+  NAPTR reached the same null state by a different route. Such a record is now rejected
+  into `ParsingException`.
 - **`RDLENGTH` that disagrees with a structured type's real length.** The length is now
-  enforced, so an inflated `RDLENGTH` can no longer shift the parse of the records that
-  follow.
+  enforced in both directions, so neither an inflated nor an undersized `RDLENGTH` can
+  shift the parse of the records that follow.
+
+`WellFormedRecordParsingTests` — regression cover for the reconciliation, which runs for
+every record type. A compressed name, a multi-name record (SOA), a length-driven record
+(TXT), a prebuffered record (NAPTR) and a multi-record message all still parse, so the
+strict `consumed == RDLENGTH` check does not reject valid traffic.
 
 ## The fix
 

@@ -53,14 +53,32 @@ namespace TechnitiumLibrary.Net.Tests
         [DataRow(DnsResourceRecordType.NS)]
         [DataRow(DnsResourceRecordType.CNAME)]
         [DataRow(DnsResourceRecordType.PTR)]
+        [DataRow(DnsResourceRecordType.SOA)]
+        [DataRow(DnsResourceRecordType.DNAME)]
+        [DataRow(DnsResourceRecordType.NAPTR)]
         public void EmptyRdataNameBearingRecord_IsRejected(DnsResourceRecordType type)
         {
             // Without rejection the parsed record carries a null name that faults on the
             // cache-insertion path, which an attacker-controlled answer can reach for the
-            // name being resolved.
+            // name being resolved. The streaming types over-read their fixed structure and
+            // trip the length check; NAPTR prebuffers an empty RDATA and throws on the
+            // short inner read. Either way the record must not survive parsing.
             DnsDatagram dg = DnsWire.Parse(DnsWire.Response(1, DnsWire.Record((int)type, 0, null)));
 
             Assert.IsNotNull(dg.ParsingException, "Empty-RDATA " + type + " must be rejected.");
+            Assert.AreEqual(0, dg.Answer.Count);
+        }
+
+        [TestMethod]
+        public void UnderClaimedRdlen_IsRejected()
+        {
+            // SRV whose real structure is 9 bytes but whose RDLENGTH claims only 2. The
+            // parser reads the full structure, so consumed exceeds RDLENGTH and the record
+            // is rejected rather than leaving the following bytes misaligned.
+            byte[] srv = DnsWire.SrvRdata(10, 20, 5060, "a");
+            DnsDatagram dg = DnsWire.Parse(DnsWire.Response(1, DnsWire.Record((int)DnsResourceRecordType.SRV, 2, srv)));
+
+            Assert.IsNotNull(dg.ParsingException, "An RDLENGTH smaller than the record's structure must be rejected.");
             Assert.AreEqual(0, dg.Answer.Count);
         }
 
@@ -81,6 +99,7 @@ namespace TechnitiumLibrary.Net.Tests
             DnsDatagram dg = DnsWire.Parse(wire);
 
             Assert.IsNotNull(dg.ParsingException, "An RDLENGTH that disagrees with the structure must be rejected.");
+            Assert.AreEqual(0, dg.Answer.Count, "The following record must not be parsed from a shifted offset.");
         }
 
         [TestMethod]
