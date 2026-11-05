@@ -32,18 +32,7 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release TechnitiumLibrary.Net.Tests/TechnitiumLibrary.Net.Tests.csproj
 
-      # Gate: malformed-RDATA containment guards must pass.
-      - name: Test (gate)
+      - name: Test
         run: >
           dotnet test --no-build --configuration Release
           TechnitiumLibrary.Net.Tests/TechnitiumLibrary.Net.Tests.csproj
-          --filter "TestCategory!=KnownBug"
-
-      # Known-bug reproductions. These fail until the parser is fixed, so the step is
-      # allowed to fail without breaking the build; it documents the open defects.
-      - name: Test (known bugs, non-blocking)
-        continue-on-error: true
-        run: >
-          dotnet test --no-build --configuration Release
-          TechnitiumLibrary.Net.Tests/TechnitiumLibrary.Net.Tests.csproj
-          --filter "TestCategory=KnownBug"
