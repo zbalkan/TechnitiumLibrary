@@ -1,0 +1,49 @@
+name: DNS parser tests
+
+on:
+  push:
+    branches: [ "**" ]
+    paths:
+      - "TechnitiumLibrary.Net/Dns/**"
+      - "TechnitiumLibrary.Net.Tests/**"
+      - ".github/workflows/dns-parser-tests.yml"
+  pull_request:
+    paths:
+      - "TechnitiumLibrary.Net/Dns/**"
+      - "TechnitiumLibrary.Net.Tests/**"
+      - ".github/workflows/dns-parser-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore TechnitiumLibrary.Net.Tests/TechnitiumLibrary.Net.Tests.csproj
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release TechnitiumLibrary.Net.Tests/TechnitiumLibrary.Net.Tests.csproj
+
+      # Gate: malformed-RDATA containment guards must pass.
+      - name: Test (gate)
+        run: >
+          dotnet test --no-build --configuration Release
+          TechnitiumLibrary.Net.Tests/TechnitiumLibrary.Net.Tests.csproj
+          --filter "TestCategory!=KnownBug"
+
+      # Known-bug reproductions. These fail until the parser is fixed, so the step is
+      # allowed to fail without breaking the build; it documents the open defects.
+      - name: Test (known bugs, non-blocking)
+        continue-on-error: true
+        run: >
+          dotnet test --no-build --configuration Release
+          TechnitiumLibrary.Net.Tests/TechnitiumLibrary.Net.Tests.csproj
+          --filter "TestCategory=KnownBug"
