@@ -4,16 +4,20 @@ Parser robustness tests for malformed DNS resource-record data, prompted by a re
 of dnsmasq [CVE-2026-5172](https://www.kb.cert.org/vuls/id/471747) (a declared record
 length driving an unchecked read past the record, causing a heap out-of-bounds read).
 The equivalent C question does not reproduce here, because the parser is managed code
-over bounds-checked streams and `DnsDatagram.ReadFrom` records any parse failure in
-`ParsingException` rather than propagating it. Two logic-level relatives did surface,
-and both are fixed in `DnsResourceRecordData` by reconciling the bytes consumed against
-`RDLENGTH`.
+over bounds-checked streams and `DnsDatagram.ReadFrom` catches failures raised while
+parsing the question and resource records, recording them in `ParsingException` rather
+than propagating them; the fixed-size header is read before that handler, so a truncated
+header still throws. Two logic-level relatives did surface, and both are fixed in
+`DnsResourceRecordData` by reconciling the bytes consumed against `RDLENGTH`.
 
 ## Test groups
 
-`MalformedRecordParsingTests` — containment guards. A negative or oversized length is
-turned into a contained parse exception, never an out-of-bounds read. These guard
-against a regression toward the C failure mode.
+`MalformedRecordParsingTests` — containment guards. `RDLENGTH` is a 16-bit unsigned
+field, so it is never itself negative; an undersized value drives a negative
+record-specific read length (for example SSHFP computing `RDLENGTH - 2`), while an
+oversized value would read past the datagram. Both become a contained parse exception
+rather than an out-of-bounds read, which guards against a regression toward the C
+failure mode.
 
 `MalformedRdataRejectionTests` — the two fixed defects, now asserted as rejections:
 

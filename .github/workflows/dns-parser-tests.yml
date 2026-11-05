@@ -4,12 +4,16 @@ on:
   push:
     branches: [ "**" ]
     paths:
-      - "TechnitiumLibrary.Net/Dns/**"
+      - "TechnitiumLibrary/**"
+      - "TechnitiumLibrary.IO/**"
+      - "TechnitiumLibrary.Net/**"
       - "TechnitiumLibrary.Net.Tests/**"
       - ".github/workflows/dns-parser-tests.yml"
   pull_request:
     paths:
-      - "TechnitiumLibrary.Net/Dns/**"
+      - "TechnitiumLibrary/**"
+      - "TechnitiumLibrary.IO/**"
+      - "TechnitiumLibrary.Net/**"
       - "TechnitiumLibrary.Net.Tests/**"
       - ".github/workflows/dns-parser-tests.yml"
   workflow_dispatch:
