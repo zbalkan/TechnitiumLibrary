@@ -40,3 +40,37 @@ jobs:
         run: >
           dotnet test --no-build --configuration Release
           TechnitiumLibrary.Net.Tests/TechnitiumLibrary.Net.Tests.csproj
+          --results-directory "${{ github.workspace }}/TestResults"
+          --logger "trx;LogFileName=dns-parser-tests.trx"
+          --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dns-parser-test-results
+          path: TestResults/**
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Summarise results
+        if: always()
+        shell: bash
+        run: |
+          trx="$(find TestResults -name '*.trx' 2>/dev/null | head -1)"
+          if [ -z "$trx" ]; then
+            echo "No TRX file was produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          counters="$(grep -o '<Counters[^>]*/>' "$trx" | head -1)"
+          field() { echo "$counters" | grep -o "$1=\"[0-9]*\"" | grep -o '[0-9]*' | head -1; }
+          total="$(field total)"
+          passed="$(field passed)"
+          failed="$(field failed)"
+          {
+            echo "### DNS parser tests"
+            echo ""
+            echo "| Total | Passed | Failed |"
+            echo "|------:|-------:|-------:|"
+            echo "| ${total:-?} | ${passed:-?} | ${failed:-?} |"
+          } >> "$GITHUB_STEP_SUMMARY"
