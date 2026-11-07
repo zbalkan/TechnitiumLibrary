@@ -328,3 +328,16 @@ class ExpandedFuzzingTests(unittest.TestCase):
         self.assertIn('"--replay-target"', program)
         for target in ("name", "rdata", "dnssec", "edns", "serialization"):
             self.assertIn(f'"{target}"', specialized)
+
+
+class ResourceBudgetSourceTests(unittest.TestCase):
+    def test_both_fuzzing_paths_are_capped_during_input_read(self):
+        program = (ROOT / "DnsParserFuzz" / "Program.cs").read_text()
+        specialized = (ROOT / "DnsParserFuzz" / "SpecializedTargets.cs").read_text()
+        cap = (ROOT / "DnsParserFuzz" / "InputBudget.cs").read_text()
+        self.assertIn("InputBudget.ReadCapped(input)", program)
+        self.assertIn("InputBudget.ReadCapped(input)", specialized)
+        self.assertNotIn("input.CopyTo(buffer)", program)
+        self.assertNotIn("input.CopyTo(bytes)", specialized)
+        self.assertIn("collected.Length + length > MaxBytes", cap)
+        self.assertIn("--test-resource-bounds", program)

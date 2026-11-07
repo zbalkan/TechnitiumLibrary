@@ -28,7 +28,7 @@ concurrency:
 jobs:
   parser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 270
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || (github.event_name == 'schedule' && 160) || 270 }}
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +49,9 @@ jobs:
 
       - name: Build DNS fuzzing harness
         run: dotnet publish fuzzing/coverage/DnsParserFuzz/DnsParserFuzz.csproj -c Release -o "${RUNNER_TEMP}/parser-fuzz"
+
+      - name: Assert bounded mutation input handling
+        run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --test-resource-bounds
 
       - name: Validate campaign duration
         run: |

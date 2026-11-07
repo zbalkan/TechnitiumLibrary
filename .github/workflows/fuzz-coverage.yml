@@ -28,7 +28,7 @@ permissions:
 jobs:
   parser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 270
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || (github.event_name == 'schedule' && 160) || 270 }}
     env:
       CAMPAIGN_MINUTES: ${{ github.event_name == 'pull_request' && '3' || (github.event_name == 'schedule' && (github.event.schedule == '23 2 * * 0' && '120' || '30')) || inputs.duration_minutes || '30' }}
     steps:
@@ -48,6 +48,9 @@ jobs:
 
       - name: Test DNS parser fuzzing oracle
         run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --test-oracle
+
+      - name: Assert bounded mutation input handling
+        run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --test-resource-bounds
 
       - name: Generate seed corpus and replay on uninstrumented parser
         run: |
