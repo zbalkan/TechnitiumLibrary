@@ -341,3 +341,98 @@ class ResourceBudgetSourceTests(unittest.TestCase):
         self.assertNotIn("input.CopyTo(bytes)", specialized)
         self.assertIn("collected.Length + length > MaxBytes", cap)
         self.assertIn("--test-resource-bounds", program)
+
+
+class ReproducerEvidenceTests(unittest.TestCase):
+
+    def test_signature_ignores_build_paths_and_stack_line_numbers(self):
+        import triage
+        linux = (
+            "Unhandled exception. System.InvalidOperationException: round-trip failure\n"
+            "   at DnsParserFuzz.SemanticOracle.AssertRoundTrip(DnsDatagram d)"
+            " in /home/runner/work/Project/SemanticOracle.cs:line 43\n"
+        )
+        windows = (
+            "Unhandled exception. System.InvalidOperationException: round-trip failure\n"
+            "   at DnsParserFuzz.SemanticOracle.AssertRoundTrip(DnsDatagram d)"
+            " in C:\\checkout\\src\\SemanticOracle.cs:line 123\n"
+        )
+        self.assertEqual(triage.signature(linux, "reproduced_exception"),
+                         triage.signature(windows, "reproduced_exception"))
+
+    def test_reproducible_failure_creates_verifiable_bundle(self):
+        import json
+        import reproduce
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            crashes = root / "default" / "crashes"
+            crashes.mkdir(parents=True)
+            (crashes / "id:000001").write_bytes(b"small")
+            (crashes / "id:000002").write_bytes(b"larger")
+            runner = root / "runner.py"
+            runner.write_text(
+                "import sys\n"
+                "print('Unhandled exception. System.InvalidOperationException: test failure')\n"
+                "print('  at DnsParserFuzz.SemanticOracle.AssertRoundTrip()')\n"
+                "sys.exit(7)\n")
+            output = root / "evidence"
+            command = [sys.executable, str(runner)]
+            report = triage.triage(root, output, command, timeout=2,
+                                   target="serialization")
+            self.assertEqual(report["outcomes"]["reproduced_exception"], 2)
+            self.assertEqual(len(report["reproducers"]), 1)
+            bundle = output / report["reproducers"][0]["bundle"]
+            metadata = json.loads((bundle / "metadata.json").read_text())
+            self.assertEqual(metadata["candidate_count"], 2)
+            self.assertEqual(metadata["classification"], "reproduced_exception")
+            self.assertEqual(metadata["target"], "serialization")
+            self.assertEqual((bundle / "input.bin").read_bytes(), b"small")
+            self.assertIn("AssertRoundTrip", (bundle / "replay-output.txt").read_text())
+            self.assertTrue(reproduce.reproduce(bundle, command))
+
+    def test_reproducer_detects_corrupted_or_nonreproducing_input(self):
+        import reproduce
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            crashes = root / "default" / "crashes"
+            crashes.mkdir(parents=True)
+            (crashes / "id:000001").write_bytes(b"failure")
+            runner = root / "runner.py"
+            runner.write_text(
+                "import sys\n"
+                "print('Unhandled exception. System.InvalidOperationException: synthetic')\n"
+                "sys.exit(7)\n")
+            output = root / "evidence"
+            report = triage.triage(root, output, [sys.executable, str(runner)], 2)
+            bundle = output / report["reproducers"][0]["bundle"]
+            self.assertFalse(reproduce.reproduce(bundle, [sys.executable, "-c", "pass"]))
+            (bundle / "input.bin").write_bytes(b"tampered")
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                reproduce.reproduce(bundle, [sys.executable, str(runner)])
+
+    def test_no_reproducer_is_generated_when_clean_replay_succeeds(self):
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            crashes = root / "default" / "crashes"
+            crashes.mkdir(parents=True)
+            (crashes / "id:000001").write_bytes(b"expected")
+            result = triage.triage(root, root / "evidence",
+                                   [sys.executable, "-c", "pass"], timeout=2)
+            self.assertEqual(result["reproducers"], [])
+            self.assertEqual(result["confirmed_defects"], 0)
+
+    def test_environment_fingerprint_is_persisted(self):
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fingerprint = root / "environment"
+            fingerprint.write_text("runtime: .NET 10\n")
+            report = triage.triage(root / "missing", root / "out",
+                                   [sys.executable], timeout=2,
+                                   environment_file=fingerprint)
+            self.assertEqual(report["environment"], "environment.txt")
+            self.assertEqual((root / "out" / "environment.txt").read_text(),
+                             "runtime: .NET 10\n")
