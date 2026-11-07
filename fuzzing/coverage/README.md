@@ -85,8 +85,23 @@ fuzzing/coverage/regressions` after triage. It rejects empty inputs,
 oversized DNS messages, and hash collisions. Files are binary and
 deduplicated by content. Add the resulting file to the PR only after review.
 
-For manual corpus minimization, the workflow's `workflow_dispatch` run
-uses `afl-cmin` on the generated seeds and discovered queue after fuzzing.
-The minimized result is an **artifact**, not automatically committed to the
-regression directory. A separate triage step can use `afl-tmin` on a
-confirmed crash input; never treat a minimized coverage sample as a bug.
+## Corpus compaction and minimization limitations
+
+The SharpFuzz out-of-process harness produces meaningful AFL++ feedback
+during fuzzing, but the separate AFL++ coverage-minimization tools have
+not worked with it. With `AFL_NO_FORKSRV=1`, `afl-cmin` was
+prohibitively slow. A bounded `afl-showmap` experiment measured zero
+usable edges after 75 seconds; a forkserver-enabled experiment also
+measured zero edges from 88 inputs. Neither result demonstrates that
+the DNS inputs have no coverage.
+
+The optional CI corpus snapshot uses `corpus.py snapshot` to preserve
+**every byte-distinct input** from generated seeds and the AFL++ queue,
+naming them by SHA-256 and recording provenance in `manifest.json`.
+This removes exact duplicates without discarding any unique input.
+It deliberately sets `coverage_minimized: false`: content
+deduplication is not coverage minimization. This artifact is not
+automatically promoted into the reviewed regression corpus.
+
+Proper edge-guided minimization remains deferred until an
+instrumentation-compatible coverage measurement path is established.

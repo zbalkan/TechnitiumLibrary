@@ -109,57 +109,43 @@ class CorpusPromotionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 corpus.verify(destination)
 
-class MinimizationTests(unittest.TestCase):
-    def test_greedy_cover_preserves_edges(self):
-        import minimize
-        with tempfile.TemporaryDirectory() as directory:
-            paths = [Path(directory) / f"sample-{n}" for n in range(3)]
-            for n, path in enumerate(paths):
-                path.write_bytes(bytes([n+1]))
-            edges = {paths[0]: frozenset((1, 2)),
-                     paths[1]: frozenset((2, 3)),
-                     paths[2]: frozenset((1, 2, 3))}
-            result = minimize.minimize(paths, Path(directory) / "out",
-                                       lambda path, limit: edges[path], 5)
-            self.assertEqual(result["selected_count"], 1)
-            self.assertEqual(result["measured_edges"], 3)
-            self.assertEqual(result["status"], "complete")
-
-    def test_budget_retains_partial_result(self):
-        import minimize
-        with tempfile.TemporaryDirectory() as directory:
-            paths = [Path(directory) / name for name in ("one", "two")]
-            for path in paths:
-                path.write_bytes(b"x")
-            ticks = iter((0, 0, 2, 2, 2))
-            with mock.patch.object(minimize.time, "monotonic", side_effect=lambda: next(ticks)):
-                result = minimize.minimize(paths, Path(directory) / "out",
-                                           lambda path, limit: frozenset((7,)), 1)
-            self.assertEqual(result["status"], "partial")
-            self.assertEqual(result["remaining_count"], 1)
-            self.assertEqual(len(list((Path(directory) / "out").glob("*.bin"))), 1)
-
-    def test_edge_map_validation(self):
-        import minimize
-        with tempfile.TemporaryDirectory() as directory:
-            file = Path(directory) / "map"
-            file.write_text("000001:1\n000008:3\n")
-            self.assertEqual(minimize.read_coverage(file), frozenset((1, 8)))
-            file.write_text("invalid")
-            with self.assertRaises(ValueError):
-                minimize.read_coverage(file)
-
-    def test_queue_sampling_is_bounded(self):
-        import minimize
+class CorpusSnapshotTests(unittest.TestCase):
+    def test_snapshot_preserves_distinct_payloads(self):
+        import corpus
         with tempfile.TemporaryDirectory() as directory:
             seeds = Path(directory) / "seeds"
             queue = Path(directory) / "queue"
+            out = Path(directory) / "snapshot"
             seeds.mkdir()
             queue.mkdir()
-            for i in range(4):
-                (seeds / f"seed-{i}").write_bytes(b"x")
-            for i in range(100):
-                (queue / f"id:{i:06d}").write_bytes(b"x")
-            selected = minimize.candidates(seeds, queue, 10)
-            self.assertEqual(len(selected), 14)
-            self.assertEqual(sum(path.parent == seeds for path in selected), 4)
+            (seeds / "alpha").write_bytes(b"first")
+            (seeds / "beta").write_bytes(b"second")
+            (queue / "id:000001").write_bytes(b"first")
+            (queue / "id:000002").write_bytes(b"third")
+            report = corpus.snapshot(seeds, queue, out)
+            self.assertEqual(report["input_count"], 4)
+            self.assertEqual(report["distinct_inputs"], 3)
+            self.assertEqual(report["duplicates"], 1)
+            self.assertFalse(report["coverage_minimized"])
+            self.assertEqual(len(list(out.glob("*.bin"))), 3)
+            self.assertTrue((out / "manifest.json").exists())
+
+    def test_snapshot_keeps_empty_mutation(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            seeds = Path(directory) / "seeds"
+            seeds.mkdir()
+            (seeds / "empty").write_bytes(b"")
+            report = corpus.snapshot(seeds, Path(directory) / "missing",
+                                     Path(directory) / "snapshot")
+            self.assertEqual(report["distinct_inputs"], 1)
+
+    def test_snapshot_rejects_oversized_input(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            seeds = Path(directory) / "seeds"
+            seeds.mkdir()
+            (seeds / "oversized").write_bytes(b"x" * 65536)
+            with self.assertRaises(ValueError):
+                corpus.snapshot(seeds, Path(directory) / "missing",
+                                Path(directory) / "snapshot")
