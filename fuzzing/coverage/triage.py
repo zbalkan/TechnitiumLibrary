@@ -119,8 +119,12 @@ def write_reproducers(cases: list[dict], destination: Path, target: str,
         }
         (folder / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
         (folder / "replay-output.txt").write_text(case["output"], encoding="utf-8")
-        command = ("dotnet DnsParserFuzz.dll --replay-target " + target + " input.bin"
-                   if target != "datagram" else "dotnet DnsParserFuzz.dll --replay input.bin")
+        # Build output belongs under the caller's home, never shared /tmp.
+        # A revision-specific directory also prevents cross-build contamination.
+        build_dir = f"$HOME/.dns-fuzz-repro-{source_commit[:12]}"
+        assembly = f'{build_dir}/DnsParserFuzz.dll'
+        command = (f'dotnet "{assembly}" --replay-target {target} input.bin'
+                   if target != "datagram" else f'dotnet "{assembly}" --replay input.bin')
         readme = (
             "# DNS parser fuzzing reproducer\n\n"
             "This folder contains an **unmodified AFL++ input** that reproduced "
@@ -132,14 +136,16 @@ def write_reproducers(cases: list[dict], destination: Path, target: str,
             f"Expected classification: `{case['classification']}`\n\n"
             f"Expected exit code: `{case['exit_code']}`\n\n"
             f"Provisional signature: `{sig}`\n\n"
-            "Build the uninstrumented harness from the recorded source revision "
-            "using `dotnet publish fuzzing/coverage/DnsParserFuzz/DnsParserFuzz.csproj "
-            "-c Release -o /tmp/dns-clean`.\n\n"
-            "From this folder, replay the exact input using the clean assembly:\n\n"
-            f"`{command.replace('DnsParserFuzz.dll', '/tmp/dns-clean/DnsParserFuzz.dll')}`\n\n"
+            "From the recorded source revision, create a private build directory "
+            "inside your home directory and publish the uninstrumented harness:\n\n"
+            f"`install -d -m 700 \"{build_dir}\"`\n\n"
+            f"`dotnet publish fuzzing/coverage/DnsParserFuzz/DnsParserFuzz.csproj "
+            f"-c Release -o \"{build_dir}\"`\n\n"
+            "From this reproducer folder, replay the original input:\n\n"
+            f"`{command}`\n\n"
             "For a strict automated outcome check, from the repository root use:\n\n"
             f"`python3 fuzzing/coverage/reproduce.py --bundle <this-folder> "
-            "-- dotnet /tmp/dns-clean/DnsParserFuzz.dll`\n\n"
+            f"-- dotnet \"{assembly}\"`\n\n"
             "The verifier checks input SHA-256, classification, process exit code "
             "and normalized stack signature. A zero exit from the verifier means "
             "the **expected bug was reproduced**.\n"
