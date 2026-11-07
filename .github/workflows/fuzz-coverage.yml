@@ -46,6 +46,9 @@ jobs:
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay "$seed"
           done
 
+      - name: Validate semantic oracle on reviewed DNS corpus
+        run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --verify-seeds "${RUNNER_TEMP}/parser-seeds"
+
       - name: Preserve uninstrumented harness for crash replay
         run: cp -a "${RUNNER_TEMP}/parser-fuzz" "${RUNNER_TEMP}/parser-clean"
 

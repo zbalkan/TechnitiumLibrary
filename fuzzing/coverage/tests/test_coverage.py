@@ -39,4 +39,15 @@ class CorpusTests(unittest.TestCase):
         self.assertNotIn("ExpectedStoredParseFailure", program)
         self.assertIn("catch (EndOfStreamException)", program)
         self.assertIn("ParseDatagram(() => throw new InvalidOperationException", program)
+        self.assertIn("SemanticOracle.AssertWireHeaderMatches", program)
+        self.assertIn("--verify-seeds", program)
         self.assertNotIn("catch (Exception) { }", program)
+
+    def test_semantic_oracle_corpus_expectations_exist(self):
+        program = (ROOT / "DnsParserFuzz" / "Program.cs").read_text()
+        for name in ("query-a", "response-soa", "response-ede",
+                     "short-header", "compression-loop", "rr-truncated"):
+            self.assertIn(f'"{name}"', program)
+        source = (ROOT / "DnsParserFuzz" / "SemanticOracle.cs").read_text()
+        self.assertIn("AssertWireHeaderMatches", source)
+        self.assertIn("AssertRoundTrip", source)

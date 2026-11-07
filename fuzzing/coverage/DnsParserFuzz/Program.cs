@@ -7,6 +7,12 @@ if (args.Length == 1 && args[0] == "--test-oracle")
     return;
 }
 
+if (args.Length == 2 && args[0] == "--verify-seeds")
+{
+    VerifySeeds(args[1]);
+    return;
+}
+
 if (args.Length == 2 && args[0] == "--replay")
 {
     using FileStream input = File.OpenRead(args[1]);
@@ -16,7 +22,7 @@ if (args.Length == 2 && args[0] == "--replay")
 
 if (args.Length != 0)
 {
-    await Console.Error.WriteLineAsync("Usage: DnsParserFuzz [--replay input-file | --test-oracle]");
+    await Console.Error.WriteLineAsync("Usage: DnsParserFuzz [--replay input-file | --test-oracle | --verify-seeds directory]");
     Environment.ExitCode = 2;
     return;
 }
@@ -32,10 +38,10 @@ static void Parse(Stream input)
         return;
 
     buffer.Position = 0;
-    ParseDatagram(() => DnsDatagram.ReadFrom(buffer));
+    ParseDatagram(() => DnsDatagram.ReadFrom(buffer), buffer);
 }
 
-static void ParseDatagram(Func<DnsDatagram> reader)
+static void ParseDatagram(Func<DnsDatagram> reader, Stream? wire = null)
 {
     try
     {
@@ -43,7 +49,8 @@ static void ParseDatagram(Func<DnsDatagram> reader)
         // ReadFrom deliberately catches RR/EDNS parsing errors and returns
         // them in ParsingException. A rejected message is a normal outcome;
         // rethrowing that stored error invents a crash absent in production.
-        _ = datagram.ParsingException;
+        if (wire is not null && datagram.ParsingException is null)
+            SemanticOracle.AssertWireHeaderMatches(datagram, wire);
     }
     catch (EndOfStreamException)
     {
@@ -99,4 +106,45 @@ static void TestOracle()
     }
 
     throw new InvalidOperationException("Parser oracle hid an escaping exception.");
+}
+
+static void VerifySeeds(string directory)
+{
+    // Fixed, reviewed expectations: only input shapes with well-defined
+    // semantics are asserted here. AFL's mutated corpus is not assumed valid.
+    HashSet<string> valid = [
+        "query-a", "query-aaaa", "query-dnskey", "query-txt",
+        "response-a", "response-aaaa", "response-cname",
+        "response-txt", "response-mx", "response-soa",
+        "query-edns", "response-ede", "nxdomain"
+    ];
+    HashSet<string> rejected = ["short-header", "compression-loop", "rr-truncated"];
+    foreach (string name in valid.Concat(rejected))
+    {
+        string path = Path.Combine(directory, name);
+        byte[] raw = File.ReadAllBytes(path);
+        if (rejected.Contains(name))
+        {
+            using MemoryStream invalid = new(raw, writable: false);
+            bool failed = false;
+            try
+            {
+                failed = DnsDatagram.ReadFrom(invalid).ParsingException is not null;
+            }
+            catch (EndOfStreamException)
+            {
+                failed = true;
+            }
+            if (!failed)
+                throw new InvalidOperationException($"Malformed seed accepted: {name}");
+            continue;
+        }
+        using MemoryStream input = new(raw, writable: false);
+        DnsDatagram parsed = DnsDatagram.ReadFrom(input);
+        if (parsed.ParsingException is not null)
+            throw new InvalidOperationException($"Valid seed rejected: {name}", parsed.ParsingException);
+        SemanticOracle.AssertWireHeaderMatches(parsed, input);
+        SemanticOracle.AssertRoundTrip(parsed);
+    }
+    Console.WriteLine($"Seed oracle passed: {valid.Count} valid, {rejected.Count} rejected.");
 }
