@@ -105,3 +105,30 @@ automatically promoted into the reviewed regression corpus.
 
 Proper edge-guided minimization remains deferred until an
 instrumentation-compatible coverage measurement path is established.
+
+## Phase 3: finding evidence, classification, and replay
+
+`triage.py` replays AFL++ crash and hang candidates against the saved
+**uninstrumented** parser harness. Each replay records its SHA-256 input
+hash, byte count, original AFL filename, process exit status, bounded
+diagnostic output, provisional signature, and classification in
+`triage/report.json`. Identical payloads share one evidence binary.
+Signature clusters are investigative hints, not proof of a shared root
+cause. A replay that exits successfully is **not reproducible** as a
+process failure, even if the fuzzer originally labeled it a crash.
+A stored `DnsDatagram.ParsingException` remains normal rejection.
+
+Classification distinguishes non-reproducible candidates, escaping
+exceptions, timeouts, abnormal process exits, runner errors, and
+oversized inputs. No candidate is automatically confirmed or promoted
+into `regressions/`. Triage imposes a per-candidate timeout, a
+100-candidate maximum, and a 32 KiB diagnostic-output cap.
+The structured report and replay evidence are packaged with the
+existing AFL++ CI artifact. An empty candidate set still yields a
+machine-readable report with zero confirmed defects.
+
+For confirmed fixes, first minimize the reproducer and document the
+root cause, expected behavior, and GitHub issue/PR in the review.
+Promote only the reviewed binary with `corpus.py promote`. The PR's
+regression-replay workflow exercises all stored inputs using the
+uninstrumented parser; a process crash or timeout will fail that step.

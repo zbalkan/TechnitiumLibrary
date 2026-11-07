@@ -140,6 +140,39 @@ class CorpusSnapshotTests(unittest.TestCase):
                                      Path(directory) / "snapshot")
             self.assertEqual(report["distinct_inputs"], 1)
 
+    def test_snapshot_detects_modified_content_addressed_input(self):
+        import hashlib
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            seeds = root / "seeds"
+            output = root / "snapshot"
+            seeds.mkdir()
+            output.mkdir()
+            (seeds / "case").write_bytes(b"expected")
+            digest = hashlib.sha256(b"expected").hexdigest()
+            (output / f"{digest}.bin").write_bytes(b"tampered")
+            with self.assertRaisesRegex(ValueError, "collision"):
+                corpus.snapshot(seeds, root / "missing", output)
+
+    def test_snapshot_deterministically_records_queue_provenance(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            seeds = root / "seeds"
+            queue = root / "queue"
+            seeds.mkdir()
+            queue.mkdir()
+            (seeds / "alpha").write_bytes(b"same")
+            (queue / "id:000002").write_bytes(b"other")
+            (queue / "id:000001").write_bytes(b"same")
+            report = corpus.snapshot(seeds, queue, root / "snapshot")
+            self.assertEqual(report["input_count"], 3)
+            self.assertEqual(report["duplicates"], 1)
+            self.assertEqual([(e["source"], e["name"]) for e in report["entries"]],
+                             [("seed", "alpha"), ("queue", "id:000001"),
+                              ("queue", "id:000002")])
+
     def test_snapshot_rejects_oversized_input(self):
         import corpus
         with tempfile.TemporaryDirectory() as directory:
@@ -149,3 +182,71 @@ class CorpusSnapshotTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 corpus.snapshot(seeds, Path(directory) / "missing",
                                 Path(directory) / "snapshot")
+
+
+class FindingTriageTests(unittest.TestCase):
+    def test_empty_findings_emit_report_not_a_fake_crash(self):
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            report = triage.triage(Path(directory) / "missing", Path(directory) / "evidence",
+                                   [sys.executable], timeout=2)
+            self.assertEqual(report["candidate_count"], 0)
+            self.assertEqual(report["confirmed_defects"], 0)
+            self.assertEqual(len(report["cases"]), 0)
+            self.assertTrue((Path(directory) / "evidence" / "report.json").is_file())
+
+    def test_classifies_success_and_unhandled_exception_without_promotion(self):
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            crash = root / "default" / "crashes"
+            crash.mkdir(parents=True)
+            (crash / "id:000001").write_bytes(b"normal")
+            (crash / "id:000002").write_bytes(b"failure")
+            runner = root / "runner.py"
+            runner.write_text(
+                "import pathlib,sys\n"
+                "data=pathlib.Path(sys.argv[2]).read_bytes()\n"
+                "if data==b'failure':\n"
+                "  raise RuntimeError('synthetic unhandled failure')\n")
+            report = triage.triage(root, root / "evidence",
+                                   [sys.executable, str(runner)], timeout=2)
+            outcomes = report["outcomes"]
+            self.assertEqual(report["candidate_count"], 2)
+            self.assertEqual(outcomes["non_reproducible"], 1)
+            self.assertEqual(outcomes["abnormal_exit"], 1)
+            self.assertEqual(report["confirmed_defects"], 0)
+            self.assertEqual(len(list((root / "evidence").glob("*.bin"))), 2)
+            self.assertNotIn("confirmed", report["cases"][0]["classification"])
+
+    def test_deduplicates_same_payload_and_groups_provisional_signature(self):
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for kind in ("crashes", "hangs"):
+                folder = root / "default" / kind
+                folder.mkdir(parents=True)
+                (folder / "id:000001").write_bytes(b"same")
+            runner = root / "runner.py"
+            runner.write_text("import sys\nsys.exit(3)\n")
+            report = triage.triage(root, root / "evidence",
+                                   [sys.executable, str(runner)], timeout=2)
+            self.assertEqual(len(report["cases"]), 2)
+            self.assertEqual(len(report["clusters"]), 1)
+            self.assertEqual(len(list((root / "evidence").glob("*.bin"))), 1)
+
+    def test_timeout_and_candidate_limit_are_explicit(self):
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            folder = root / "default" / "hangs"
+            folder.mkdir(parents=True)
+            for i in range(2):
+                (folder / f"id:{i:06d}").write_bytes(bytes([i]))
+            with self.assertRaises(ValueError):
+                triage.candidates(root, max_candidates=1)
+            runner = root / "runner.py"
+            runner.write_text("import time\ntime.sleep(5)\n")
+            result = triage.replay(folder / "id:000000",
+                                   [sys.executable, str(runner)], timeout=0.05)
+            self.assertEqual(result["classification"], "reproduced_timeout")
