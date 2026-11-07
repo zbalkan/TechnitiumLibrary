@@ -65,6 +65,12 @@ jobs:
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay-target "${{ matrix.target }}" "$seed"
           done
 
+      - name: Benchmark clean specialized parser (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          first_seed="$(find "${RUNNER_TEMP}/focused-seeds" -type f | sort | head -n 1)"
+          python3 fuzzing/coverage/benchmark_modes.py --target "${{ matrix.target }}" --input "$first_seed" --output "${RUNNER_TEMP}/benchmark-modes.json" -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
+
       - name: Reuse verified corpus from earlier successful campaign
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -119,6 +125,14 @@ jobs:
         run: |
           if [ -f "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll" ]; then
             python3 fuzzing/coverage/triage.py --findings "${RUNNER_TEMP}/findings" --output "${RUNNER_TEMP}/findings/triage" --timeout 5 --target "${{ matrix.target }}" -- dotnet "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll"
+          fi
+
+      - name: Include benchmark evidence
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/benchmark-modes.json" ] && [ -d "${RUNNER_TEMP}/findings" ]; then
+            mkdir -p "${RUNNER_TEMP}/findings/triage"
+            cp "${RUNNER_TEMP}/benchmark-modes.json" "${RUNNER_TEMP}/findings/triage/benchmark-modes.json"
           fi
 
       - name: Package evidence

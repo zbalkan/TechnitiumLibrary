@@ -82,6 +82,11 @@ jobs:
         run: |
           "${RUNNER_TEMP}/dns-venv/bin/python" fuzzing/coverage/differential.py --seeds "${RUNNER_TEMP}/parser-seeds" --output "${RUNNER_TEMP}/differential.json" --max-cases 100 -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
 
+      - name: Benchmark clean parser overhead (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python3 fuzzing/coverage/benchmark_modes.py --target datagram --input "${RUNNER_TEMP}/parser-seeds/query-a" --output "${RUNNER_TEMP}/benchmark-modes.json" -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
+
       - name: Restore successful prior corpus
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -149,6 +154,14 @@ jobs:
         run: |
           if [ -f "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll" ]; then
             python3 fuzzing/coverage/triage.py --findings "${RUNNER_TEMP}/parser-findings" --output "${RUNNER_TEMP}/parser-findings/triage" --timeout 5 -- dotnet "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll"
+          fi
+
+      - name: Include benchmark evidence in AFL++ artifact
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/benchmark-modes.json" ] && [ -d "${RUNNER_TEMP}/parser-findings" ]; then
+            mkdir -p "${RUNNER_TEMP}/parser-findings/triage"
+            cp "${RUNNER_TEMP}/benchmark-modes.json" "${RUNNER_TEMP}/parser-findings/triage/benchmark-modes.json"
           fi
 
       - name: Include differential evidence in AFL++ artifact
