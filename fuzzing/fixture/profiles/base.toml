@@ -1,0 +1,118 @@
+# Base fuzzing profile: locally authoritative DNS with blocking-path coverage.
+#
+# Values under [settings] use the shape that /api/settings/get returns, so
+# verify.py can diff them directly. provision.py serialises them into the
+# form that /api/settings/set expects (lists -> comma-separated, tables ->
+# pipe-separated, empty clearable lists -> "false").
+#
+# Out of scope for this phase, and therefore switched off here: DNS apps,
+# the HTTP API as a target, DoT, DoH, DoQ, plain DNS-over-HTTP and PROXY.
+
+[meta]
+name = "base"
+
+[settings]
+dnsServerDomain = "ns1.fuzz.test"
+
+# --- Listeners: plain DNS only ---------------------------------------------
+dnsServerLocalEndPoints = ["0.0.0.0:53"]
+enableDnsOverUdpProxy = false
+enableDnsOverTcpProxy = false
+enableDnsOverHttp = false
+enableDnsOverHttpUnixSocket = false
+enableDnsOverHttpsUnixSocket = false
+enableDnsOverTls = false
+enableDnsOverHttps = false
+enableDnsOverQuic = false
+enableEDnsClientSubnetSourceAddress = false
+dnsReverseProxyNetworkACL = []
+
+# --- Web service: setup channel only, unreachable from the fuzzer network ---
+webServiceLocalAddresses = ["127.0.0.1"]
+webServiceEnableTls = false
+webServiceEnableHttp3 = false
+
+# --- No outbound traffic ---------------------------------------------------
+dnsServerEnableCheckForUpdate = false
+dnsAppsEnableAutomaticUpdate = false
+# Technitium applies blocked zones in the recursive path, after checking RD
+# and the client's recursion permission. Permit only the setup sidecar and
+# fuzzer subnet. CI uses an --internal Docker network to deny all egress.
+recursion = "UseSpecifiedNetworkACL"
+recursionNetworkACL = ["127.0.0.1", "${ENV:FIXTURE_FUZZER_NET}"]
+# The special-use .test handler otherwise returns NXDOMAIN before the
+# recursive blocking handler, creating a false-positive smoke check.
+locallyServedDnsZones = false
+forwarders = []
+blockListUrls = []
+zoneTransferAllowedNetworks = []
+notifyAllowedNetworks = []
+
+# --- Rate limiting removed so it cannot mask or fake failures --------------
+qpmPrefixLimitsIPv4 = []
+qpmPrefixLimitsIPv6 = []
+qpmLimitBypassList = []
+
+# --- Request handling ------------------------------------------------------
+udpPayloadSize = 1232
+# Short TCP timeouts keep slow-client test cases from stalling a run.
+tcpReceiveTimeout = 2000
+tcpSendTimeout = 2000
+listenBacklog = 100
+
+# --- Cache: no persistence, no background refresh --------------------------
+saveCache = false
+enableCachePrefetch = false
+
+# --- Blocking: local entries only (see [blocked]) --------------------------
+enableBlocking = true
+allowTxtBlockingReport = true
+blockingType = "NxDomain"
+
+# --- TSIG: lets signed requests reach signature verification ---------------
+tsigKeys = [
+  { keyName = "fuzz-key", sharedSecret = "${ENV:FIXTURE_TSIG_SECRET}", algorithmName = "hmac-sha256" },
+]
+
+# --- Logging: the failure signal for the network fuzzer --------------------
+enableLogging = true
+loggingType = "File"
+logFolder = "logs"
+# Full stack traces are needed to tell a bug from an expected parse error.
+noStackTrace = false
+ignoreResolverLogs = true
+logQueries = false
+useLocalTime = false
+enableInMemoryStats = true
+
+# Accepted by settings/set but not echoed by settings/get under the same key,
+# so provision.py sends them and verify.py does not compare them.
+[settings_write_only]
+proxyType = "None"
+
+[blocked]
+domains = ["blocked.fuzz.test", "ads.fuzz.test"]
+
+# Zone options are applied after import and signing. notify=None stops
+# outbound NOTIFY messages; transfers and updates are closed in the base.
+[[zones]]
+name = "plain.test"
+file = "../zones/plain.test.zone"
+options = { queryAccess = "Allow", zoneTransfer = "Deny", notify = "None", update = "Deny" }
+
+[[zones]]
+name = "nsec.test"
+file = "../zones/nsec.test.zone"
+sign = { algorithm = "ECDSA", curve = "P256", nxProof = "NSEC", dnsKeyTtl = 3600, zskRolloverDays = 0 }
+options = { queryAccess = "Allow", zoneTransfer = "Deny", notify = "None", update = "Deny" }
+
+[[zones]]
+name = "nsec3.test"
+file = "../zones/nsec3.test.zone"
+sign = { algorithm = "EDDSA", curve = "ED25519", nxProof = "NSEC3", iterations = 0, saltLength = 0, dnsKeyTtl = 3600, zskRolloverDays = 0 }
+options = { queryAccess = "Allow", zoneTransfer = "Deny", notify = "None", update = "Deny" }
+
+[[zones]]
+name = "2.0.192.in-addr.arpa"
+file = "../zones/2.0.192.in-addr.arpa.zone"
+options = { queryAccess = "Allow", zoneTransfer = "Deny", notify = "None", update = "Deny" }

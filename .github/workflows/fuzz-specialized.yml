@@ -1,0 +1,167 @@
+name: Specialized DNS parser fuzzing
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: "Duration per target (1–240 minutes)"
+        required: true
+        type: number
+        default: 30
+  schedule:
+    - cron: "17 2 * * 1-6"
+    - cron: "23 2 * * 0"
+  pull_request:
+    paths:
+      - "fuzzing/coverage/**"
+      - "TechnitiumLibrary.Net/Dns/**"
+      - ".github/workflows/fuzz-specialized.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  parser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || (github.event_name == 'schedule' && 160) || 270 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [name, rdata, edns, dnssec, serialization]
+    env:
+      CAMPAIGN_MINUTES: ${{ github.event_name == 'pull_request' && '3' || (github.event_name == 'schedule' && (github.event.schedule == '23 2 * * 0' && '120' || '30')) || format('{0}', inputs.duration_minutes) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test focused seed generators
+        run: python3 -m unittest discover -s fuzzing/coverage/tests -v
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build DNS fuzzing harness
+        run: dotnet publish fuzzing/coverage/DnsParserFuzz/DnsParserFuzz.csproj -c Release -o "${RUNNER_TEMP}/parser-fuzz"
+
+      - name: Assert bounded mutation input handling
+        run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --test-resource-bounds
+
+      - name: Validate campaign duration
+        run: |
+          case "${CAMPAIGN_MINUTES}" in
+            ''|*[!0-9]*) exit 2 ;;
+            *) ;;
+          esac
+          test "${CAMPAIGN_MINUTES}" -ge 1
+          test "${CAMPAIGN_MINUTES}" -le 240
+
+      - name: Generate and replay focused corpus
+        run: |
+          python3 fuzzing/coverage/generate_target_seeds.py --target "${{ matrix.target }}" --output "${RUNNER_TEMP}/focused-seeds"
+          for seed in "${RUNNER_TEMP}"/focused-seeds/*; do
+            dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay-target "${{ matrix.target }}" "$seed"
+          done
+
+      - name: Benchmark clean specialized parser (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          first_seed="$(find "${RUNNER_TEMP}/focused-seeds" -type f | sort | head -n 1)"
+          python3 fuzzing/coverage/benchmark_modes.py --target "${{ matrix.target }}" --input "$first_seed" --output "${RUNNER_TEMP}/benchmark-modes.json" -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
+
+      - name: Reuse verified corpus from earlier successful campaign
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CORPUS_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          python3 fuzzing/coverage/restore_corpus.py --repository "${{ github.repository }}" --branch "${CORPUS_BRANCH}" --workflow fuzz-specialized.yml --target "${{ matrix.target }}" --output "${RUNNER_TEMP}/focused-seeds" --limit 150
+
+      - name: Preserve clean parser
+        run: cp -a "${RUNNER_TEMP}/parser-fuzz" "${RUNNER_TEMP}/parser-clean"
+
+      - name: Install AFL++ and SharpFuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y afl++
+          dotnet tool install --global SharpFuzz.CommandLine --version 2.3.0
+
+      - name: Instrument DNS parser
+        run: "${HOME}/.dotnet/tools/sharpfuzz \"${RUNNER_TEMP}/parser-fuzz/TechnitiumLibrary.Net.dll\""
+
+      - name: Run focused AFL++ campaign
+        env:
+          AFL_NO_UI: "1"
+          AFL_SKIP_CPUFREQ: "1"
+          AFL_SKIP_BIN_CHECK: "1"
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+        run: |
+          afl-fuzz -V "$((CAMPAIGN_MINUTES * 60))" -i "${RUNNER_TEMP}/focused-seeds" -o "${RUNNER_TEMP}/findings" -m none -t 5000+ -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --target "${{ matrix.target }}"
+
+      - name: Write campaign metrics
+        if: always()
+        run: |
+          python3 fuzzing/coverage/campaign_metrics.py --findings "${RUNNER_TEMP}/findings" --target "${{ matrix.target }}" --minutes "${CAMPAIGN_MINUTES}" --output "${RUNNER_TEMP}/findings/campaign-metrics.json"
+
+      - name: Archive this run's distinct corpus
+        if: always()
+        run: |
+          if [ -d "${RUNNER_TEMP}/focused-seeds" ]; then
+            python3 fuzzing/coverage/corpus.py snapshot --seeds "${RUNNER_TEMP}/focused-seeds" --queue "${RUNNER_TEMP}/findings/default/queue" --destination "${RUNNER_TEMP}/corpus-snapshot"
+          fi
+
+      - name: Upload reusable corpus snapshot
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dns-${{ matrix.target }}-corpus-${{ github.run_id }}
+          path: ${{ runner.temp }}/corpus-snapshot/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Replay candidate findings with clean harness
+        if: always()
+        run: |
+          ulimit -c 0
+          if [ -f "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll" ]; then
+            dotnet --info > "${RUNNER_TEMP}/fuzz-environment.txt"
+            uname -a >> "${RUNNER_TEMP}/fuzz-environment.txt"
+            git rev-parse HEAD >> "${RUNNER_TEMP}/fuzz-environment.txt"
+            (cd "${RUNNER_TEMP}/parser-clean" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum) >> "${RUNNER_TEMP}/fuzz-environment.txt"
+            python3 fuzzing/coverage/triage.py --findings "${RUNNER_TEMP}/findings" --output "${RUNNER_TEMP}/findings/triage" --timeout 5 --target "${{ matrix.target }}" --environment-file "${RUNNER_TEMP}/fuzz-environment.txt" -- dotnet "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll"
+          fi
+
+      - name: Include benchmark evidence
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/benchmark-modes.json" ] && [ -d "${RUNNER_TEMP}/findings" ]; then
+            mkdir -p "${RUNNER_TEMP}/findings/triage"
+            cp "${RUNNER_TEMP}/benchmark-modes.json" "${RUNNER_TEMP}/findings/triage/benchmark-modes.json"
+          fi
+
+      - name: Package evidence
+        if: always()
+        run: |
+          if [ -d "${RUNNER_TEMP}/findings" ]; then
+            tar -czf "${RUNNER_TEMP}/dns-${{ matrix.target }}-results.tar.gz" -C "${RUNNER_TEMP}/findings" .
+          fi
+
+      - name: Upload focused campaign evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dns-${{ matrix.target }}-afl-${{ github.run_id }}
+          path: ${{ runner.temp }}/dns-${{ matrix.target }}-results.tar.gz
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail on saved parser crashes
+        run: |
+          crash_count="$(find "${RUNNER_TEMP}/findings/default/crashes" -type f -name 'id:*' | wc -l)"
+          echo "Focused ${{ matrix.target }}: ${crash_count} crash candidates"
+          test "${crash_count}" -eq 0

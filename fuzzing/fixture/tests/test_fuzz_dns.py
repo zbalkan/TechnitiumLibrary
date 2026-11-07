@@ -1,0 +1,140 @@
+"""DNS fuzzing corpus and failure-oracle regression tests."""
+import hashlib
+import json
+import struct
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+import fuzz_dns
+import tdns
+
+class CorpusTests(unittest.TestCase):
+    def test_reproducible(self):
+        samples = fuzz_dns.corpus(19, 50)
+        payloads = b"".join(struct.pack("!H", len(data)) + data for _, data in samples)
+        self.assertEqual(
+            hashlib.sha256(payloads).hexdigest(),
+            "d312f929d2a7b7197480a4f97cdb160221dc19118129a69b6ed9c2b8631fc45b",
+        )
+    def test_seed_changes_mutations(self):
+        self.assertNotEqual(fuzz_dns.corpus(19, 50), fuzz_dns.corpus(20, 50))
+    def test_count_and_bounds(self):
+        for count in (1, 6, 7, 30):
+            data = fuzz_dns.corpus(1, count)
+            self.assertEqual(len(data), count)
+            self.assertTrue(all(len(p) <= 4096 for _, p in data))
+    def test_malformed_seeds(self):
+        data = dict(fuzz_dns.corpus(1, 8))
+        self.assertEqual(data["empty"], b"")
+        self.assertEqual(len(data["short"]), 11)
+        self.assertIn("compression-loop", data)
+    def test_invalid_count(self):
+        with self.assertRaises(ValueError):
+            fuzz_dns.corpus(1, 0)
+
+class CampaignTests(unittest.TestCase):
+    def test_drops_are_not_failures(self):
+        with mock.patch.object(fuzz_dns, "probe", return_value=None), \
+             mock.patch.object(fuzz_dns, "send", return_value="timeout"):
+            report = fuzz_dns.run("127.0.0.1", 53, 1, 4, 2, 0.01)
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["packets_sent"], 8)
+        self.assertEqual(report["outcomes"]["udp:timeout"], 4)
+        self.assertEqual(report["outcomes"]["tcp:timeout"], 4)
+    def test_health_failure_records_trigger(self):
+        with mock.patch.object(fuzz_dns, "probe", side_effect=[None, "offline"]), \
+             mock.patch.object(fuzz_dns, "send", return_value="timeout"):
+            report = fuzz_dns.run("127.0.0.1", 53, 1, 4, 1, 0.01)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["failure"]["phase"], "health")
+        self.assertEqual(report["failure"]["case"], "empty")
+        self.assertEqual(report["failure"]["packet_hex"], "")
+    def test_final_health_failure_retains_last_packet(self):
+        with mock.patch.object(fuzz_dns, "probe", side_effect=[None, "offline"]), \
+             mock.patch.object(fuzz_dns, "send", return_value="timeout"):
+            report = fuzz_dns.run("127.0.0.1", 53, 1, 4, 10, 0.01)
+        self.assertEqual(report["failure"]["phase"], "final")
+        self.assertEqual(report["failure"]["case"], "oversized-label")
+        self.assertEqual(report["failure"]["packet_hex"],
+                         dict(fuzz_dns.corpus(1, 4))["oversized-label"].hex())
+
+    def test_socket_failures_are_attempts_not_packets(self):
+        with mock.patch.object(fuzz_dns, "probe", return_value=None), \
+             mock.patch.object(fuzz_dns, "send", side_effect=OSError("connect")):
+            report = fuzz_dns.run("127.0.0.1", 53, 1, 2, 3, 0.01)
+        self.assertEqual(report["attempts"], 4)
+        self.assertEqual(report["packets_sent"], 0)
+
+    def test_probes_reject_non_soa_replies(self):
+        response = tdns.DnsReply(txid=1, aa=True, rcode=0,
+                                 ancount=1, answer_types=(1,))
+        with mock.patch.object(tdns, "query_udp", return_value=response):
+            self.assertIn("unexpected SOA", fuzz_dns.probe("127.0.0.1", 53))
+
+    def test_initial_failure_stops(self):
+        with mock.patch.object(fuzz_dns, "probe", return_value="offline"):
+            report = fuzz_dns.run("127.0.0.1", 53, 1, 4, 1, 0.01)
+        self.assertEqual(report["packets_sent"], 0)
+        self.assertEqual(report["status"], "failed")
+    def test_cli_writes_evidence_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.json"
+            with mock.patch.object(fuzz_dns, "probe", return_value="offline"):
+                rc = fuzz_dns.main(["--output", str(path)])
+            self.assertEqual(rc, 1)
+            self.assertEqual(json.loads(path.read_text())["failure"]["reason"], "offline")
+
+
+class StatefulTcpTests(unittest.TestCase):
+    def test_frame_prefix_and_maximum_payload(self):
+        import stateful_tcp
+        self.assertEqual(stateful_tcp.frame(b"test"), b"\x00\x04test")
+        self.assertEqual(stateful_tcp.frame(b"x" * 65535)[:2], b"\xff\xff")
+        with self.assertRaises(ValueError):
+            stateful_tcp.frame(b"x" * 65536)
+
+    def test_scenarios_have_bounded_recovery_checks(self):
+        import stateful_tcp
+        with mock.patch.object(fuzz_dns, "probe", return_value=None) as health, \
+             mock.patch.object(stateful_tcp, "_exercise", side_effect=[
+                 "response", "second-response", "second-response",
+                 "incomplete-sent", "incomplete-sent", "incomplete-sent"]):
+            result = stateful_tcp.run("127.0.0.1", 53)
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(len(result["scenarios"]), len(stateful_tcp.SCENARIOS))
+        self.assertEqual(health.call_count, len(stateful_tcp.SCENARIOS) + 1)
+
+    def test_fragmented_frame_failure_is_actionable(self):
+        import stateful_tcp
+        with mock.patch.object(fuzz_dns, "probe", return_value=None), \
+             mock.patch.object(stateful_tcp, "_exercise", return_value="closed"):
+            result = stateful_tcp.run("127.0.0.1", 53)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure"]["phase"], "fragmented")
+
+    def test_server_health_failure_records_triggering_scenario(self):
+        import stateful_tcp
+        with mock.patch.object(fuzz_dns, "probe", side_effect=[None, "offline"]), \
+             mock.patch.object(stateful_tcp, "_exercise", return_value="response"):
+            result = stateful_tcp.run("127.0.0.1", 53)
+        self.assertEqual(result["failure"]["phase"], "recovery")
+        self.assertEqual(result["failure"]["scenario"], "fragmented")
+
+    def test_reuse_and_pipeline_failures_are_not_silently_accepted(self):
+        import stateful_tcp
+        for scenario in ("sequential", "pipelined"):
+            with self.subTest(scenario=scenario):
+                outcomes = {"fragmented": "response",
+                            "sequential": "second-response",
+                            "pipelined": "second-response"}
+                outcomes[scenario] = "second-closed"
+                with mock.patch.object(fuzz_dns, "probe", return_value=None), \
+                     mock.patch.object(stateful_tcp, "_exercise",
+                                       side_effect=lambda host, port, mode, timeout, query:
+                                       outcomes.get(mode, "incomplete-sent")):
+                    report = stateful_tcp.run("127.0.0.1", 53)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["failure"]["phase"], scenario)
+                self.assertEqual(report["failure"]["scenario"], scenario)
+                self.assertEqual(report["failure"]["reason"], "second-closed")
