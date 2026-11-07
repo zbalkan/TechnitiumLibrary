@@ -13,7 +13,9 @@ permissions:
 jobs:
   parser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 270
+    env:
+      CAMPAIGN_MINUTES: ${{ github.event_name == 'pull_request' && '3' || (github.event_name == 'schedule' && (github.event.schedule == '23 2 * * 0' && '120' || '30')) || inputs.duration_minutes || '30' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,6 +66,17 @@ jobs:
       - name: Instrument managed parser
         run: "${HOME}/.dotnet/tools/sharpfuzz \"${RUNNER_TEMP}/parser-fuzz/TechnitiumLibrary.Net.dll\""
 
+      - name: Validate campaign duration
+        run: |
+          case "${CAMPAIGN_MINUTES}" in
+            ''|*[!0-9]*) echo "Duration must be a positive integer"; exit 2 ;;
+          esac
+          if [ "${CAMPAIGN_MINUTES}" -lt 1 ] || [ "${CAMPAIGN_MINUTES}" -gt 240 ]; then
+            echo "Duration outside 1–240-minute campaign range"
+            exit 2
+          fi
+          echo "Campaign duration: ${CAMPAIGN_MINUTES} minutes"
+
       - name: Coverage-guided AFL++ campaign
         env:
           AFL_NO_UI: "1"
@@ -71,7 +84,7 @@ jobs:
           AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
           AFL_SKIP_BIN_CHECK: "1"
         run: |
-          afl-fuzz -V 30 -i "${RUNNER_TEMP}/parser-seeds" \
+          afl-fuzz -V "$((CAMPAIGN_MINUTES * 60))" -i "${RUNNER_TEMP}/parser-seeds" \
             -o "${RUNNER_TEMP}/parser-findings" -m none -t 5000+ -- \
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
 
