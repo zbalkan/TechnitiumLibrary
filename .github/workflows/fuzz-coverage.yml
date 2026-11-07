@@ -49,6 +49,9 @@ jobs:
       - name: Validate semantic oracle on reviewed DNS corpus
         run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --verify-seeds "${RUNNER_TEMP}/parser-seeds"
 
+      - name: Verify content-addressed regression corpus
+        run: python3 fuzzing/coverage/corpus.py verify --directory fuzzing/coverage/regressions
+
       - name: Replay reviewed regression corpus
         run: |
           for sample in fuzzing/coverage/regressions/*.bin; do

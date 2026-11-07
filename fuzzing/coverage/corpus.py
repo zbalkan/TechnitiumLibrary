@@ -24,14 +24,32 @@ def promote(source: Path, destination: Path) -> Path:
     return target
 
 
+def verify(directory: Path) -> int:
+    """Check regression content addresses before using the saved corpus."""
+    count = 0
+    for path in sorted(directory.glob("*.bin")):
+        payload = path.read_bytes()
+        if not 0 < len(payload) <= MAX_DNS_BYTES:
+            raise ValueError(f"{path}: invalid DNS input size")
+        if path.stem != hashlib.sha256(payload).hexdigest():
+            raise ValueError(f"{path}: filename does not match SHA-256")
+        count += 1
+    return count
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     command = parser.add_subparsers(dest="command", required=True)
     add = command.add_parser("promote")
     add.add_argument("--source", type=Path, required=True)
     add.add_argument("--destination", type=Path, required=True)
+    check = command.add_parser("verify")
+    check.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
-    print(promote(args.source, args.destination))
+    if args.command == "promote":
+        print(promote(args.source, args.destination))
+    else:
+        print(f"Verified {verify(args.directory)} reviewed regression inputs")
 
 
 if __name__ == "__main__":

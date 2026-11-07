@@ -96,3 +96,15 @@ class CorpusPromotionTests(unittest.TestCase):
                 source.write_bytes(content)
                 with self.assertRaises(ValueError):
                     corpus.promote(source, destination)
+
+    def test_verify_rejects_tampered_regression_file(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "sample"
+            source.write_bytes(b"baseline")
+            destination = Path(tmp) / "regressions"
+            sample = corpus.promote(source, destination)
+            self.assertEqual(corpus.verify(destination), 1)
+            sample.write_bytes(b"modified")
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                corpus.verify(destination)
