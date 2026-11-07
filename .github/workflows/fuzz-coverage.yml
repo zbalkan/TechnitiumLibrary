@@ -1,0 +1,130 @@
+name: DNS parser coverage-guided fuzzing
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  parser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test corpus generator
+        run: python3 -m unittest discover -s fuzzing/coverage/tests -v
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build coverage-guided harness
+        run: dotnet publish fuzzing/coverage/DnsParserFuzz/DnsParserFuzz.csproj -c Release -o "${RUNNER_TEMP}/parser-fuzz"
+
+      - name: Test DNS parser fuzzing oracle
+        run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --test-oracle
+
+      - name: Generate seed corpus and replay on uninstrumented parser
+        run: |
+          python3 fuzzing/coverage/generate_seeds.py --output "${RUNNER_TEMP}/parser-seeds"
+          for seed in "${RUNNER_TEMP}"/parser-seeds/*; do
+            dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay "$seed"
+          done
+
+      - name: Validate semantic oracle on reviewed DNS corpus
+        run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --verify-seeds "${RUNNER_TEMP}/parser-seeds"
+
+      - name: Verify content-addressed regression corpus
+        run: python3 fuzzing/coverage/corpus.py verify --directory fuzzing/coverage/regressions
+
+      - name: Replay reviewed regression corpus
+        run: |
+          for sample in fuzzing/coverage/regressions/*.bin; do
+            [ -f "$sample" ] || continue
+            dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay "$sample"
+          done
+
+      - name: Preserve uninstrumented harness for crash replay
+        run: cp -a "${RUNNER_TEMP}/parser-fuzz" "${RUNNER_TEMP}/parser-clean"
+
+      - name: Install AFL++ and SharpFuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y afl++
+          dotnet tool install --global SharpFuzz.CommandLine --version 2.3.0
+
+      - name: Instrument managed parser
+        run: "${HOME}/.dotnet/tools/sharpfuzz \"${RUNNER_TEMP}/parser-fuzz/TechnitiumLibrary.Net.dll\""
+
+      - name: Coverage-guided AFL++ campaign
+        env:
+          AFL_NO_UI: "1"
+          AFL_SKIP_CPUFREQ: "1"
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+          AFL_SKIP_BIN_CHECK: "1"
+        run: |
+          afl-fuzz -V 30 -i "${RUNNER_TEMP}/parser-seeds" \
+            -o "${RUNNER_TEMP}/parser-findings" -m none -t 5000+ -- \
+            dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
+
+      # AFL++ queue entries are coverage-discovered. This snapshot removes
+      # byte-identical duplicates only; it makes no coverage-minimization claim.
+      - name: Snapshot discovered corpus (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python3 fuzzing/coverage/corpus.py snapshot --seeds "${RUNNER_TEMP}/parser-seeds" --queue "${RUNNER_TEMP}/parser-findings/default/queue" --destination "${RUNNER_TEMP}/parser-snapshot"
+
+      - name: Package corpus snapshot
+        if: always() && (github.event_name == 'workflow_dispatch')
+        run: |
+          if [ -d "${RUNNER_TEMP}/parser-snapshot" ]; then
+            tar -czf "${RUNNER_TEMP}/parser-snapshot.tar.gz" -C "${RUNNER_TEMP}/parser-snapshot" .
+          fi
+
+      - name: Upload corpus snapshot
+        if: always() && (github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dns-parser-corpus-snapshot-${{ github.run_id }}
+          path: ${{ runner.temp }}/parser-snapshot.tar.gz
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Triage AFL++ findings using clean parser
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll" ]; then
+            python3 fuzzing/coverage/triage.py --findings "${RUNNER_TEMP}/parser-findings" --output "${RUNNER_TEMP}/parser-findings/triage" --timeout 5 -- dotnet "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll"
+          fi
+
+      # AFL filenames use colons, which upload-artifact rejects. Tar preserves
+      # the exact bytes/names for downstream triage.
+      - name: Package AFL++ evidence
+        if: always()
+        run: |
+          if [ -d "${RUNNER_TEMP}/parser-findings" ]; then
+            tar -czf "${RUNNER_TEMP}/parser-afl-results.tar.gz" -C "${RUNNER_TEMP}/parser-findings" .
+          fi
+
+      - name: Upload AFL++ evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dns-parser-afl-${{ github.run_id }}
+          path: ${{ runner.temp }}/parser-afl-results.tar.gz
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Fail on saved parser crashes
+        run: |
+          crash_count="$(find "${RUNNER_TEMP}/parser-findings/default/crashes" -type f -name 'id:*' | wc -l)"
+          echo "AFL++ saved ${crash_count} crash candidates."
+          test "${crash_count}" -eq 0
