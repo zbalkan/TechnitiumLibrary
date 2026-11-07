@@ -44,7 +44,7 @@ def main() -> None:
         parser.error("clean harness command required after --")
     try:
         ok = reproduce(args.bundle, command)
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, KeyError) as exc:
         parser.exit(2, f"Reproducer error: {exc}\n")
     sys.exit(0 if ok else 1)
 

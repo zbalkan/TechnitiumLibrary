@@ -4,58 +4,8 @@ using System.Diagnostics;
 using DnsParserFuzz;
 using TechnitiumLibrary.Net.Dns;
 
-if (args.Length == 2 && args[0] == "--target" && SpecializedTargets.Exists(args[1]))
-{
-    string target = args[1];
-    Fuzzer.OutOfProcess.Run(input => SpecializedTargets.Run(target, input));
+if (TryHandleFuzzCommand(args) || TryHandleUtilityCommand(args))
     return;
-}
-
-if (args.Length == 3 && args[0] == "--replay-target" && SpecializedTargets.Exists(args[1]))
-{
-    using FileStream input = File.OpenRead(args[2]);
-    SpecializedTargets.Run(args[1], input);
-    return;
-}
-
-if (args.Length == 1 && args[0] == "--test-oracle")
-{
-    TestOracle();
-    return;
-}
-
-if (args.Length == 1 && args[0] == "--test-resource-bounds")
-{
-    TestResourceBounds();
-    return;
-}
-
-if (args.Length == 4 && args[0] == "--benchmark" &&
-    (args[1] == "datagram" || SpecializedTargets.Exists(args[1])) &&
-    int.TryParse(args[3], out int iterations) && iterations > 0 && iterations <= 1000000)
-{
-    Benchmark(args[1], args[2], iterations);
-    return;
-}
-
-if (args.Length == 2 && args[0] == "--inspect")
-{
-    Inspect(args[1]);
-    return;
-}
-
-if (args.Length == 2 && args[0] == "--verify-seeds")
-{
-    VerifySeeds(args[1]);
-    return;
-}
-
-if (args.Length == 2 && args[0] == "--replay")
-{
-    using FileStream input = File.OpenRead(args[1]);
-    Parse(input);
-    return;
-}
 
 if (args.Length != 0)
 {
@@ -65,6 +15,81 @@ if (args.Length != 0)
 }
 
 Fuzzer.OutOfProcess.Run(Parse);
+
+static bool TryHandleFuzzCommand(string[] arguments)
+{
+    if (arguments.Length == 2 && arguments[0] == "--target" &&
+        SpecializedTargets.Exists(arguments[1]))
+    {
+        string target = arguments[1];
+        Fuzzer.OutOfProcess.Run(input => SpecializedTargets.Run(target, input));
+        return true;
+    }
+
+    if (arguments.Length == 3 && arguments[0] == "--replay-target" &&
+        SpecializedTargets.Exists(arguments[1]))
+    {
+        using FileStream input = File.OpenRead(arguments[2]);
+        SpecializedTargets.Run(arguments[1], input);
+        return true;
+    }
+
+    if (arguments.Length == 2 && arguments[0] == "--replay")
+    {
+        using FileStream input = File.OpenRead(arguments[1]);
+        Parse(input);
+        return true;
+    }
+
+    return false;
+}
+
+static bool TryHandleUtilityCommand(string[] arguments)
+{
+    if (arguments.Length == 1 && arguments[0] == "--test-oracle")
+    {
+        TestOracle();
+        return true;
+    }
+
+    if (arguments.Length == 1 && arguments[0] == "--test-resource-bounds")
+    {
+        TestResourceBounds();
+        return true;
+    }
+
+    if (TryHandleBenchmark(arguments))
+        return true;
+
+    if (arguments.Length == 2 && arguments[0] == "--inspect")
+    {
+        Inspect(arguments[1]);
+        return true;
+    }
+
+    if (arguments.Length == 2 && arguments[0] == "--verify-seeds")
+    {
+        VerifySeeds(arguments[1]);
+        return true;
+    }
+
+    return false;
+}
+
+static bool TryHandleBenchmark(string[] arguments)
+{
+    if (arguments.Length != 4 || arguments[0] != "--benchmark")
+        return false;
+
+    if (arguments[1] != "datagram" && !SpecializedTargets.Exists(arguments[1]))
+        return false;
+
+    if (!int.TryParse(arguments[3], out int iterations) || iterations < 1 || iterations > 1000000)
+        return false;
+
+    Benchmark(arguments[1], arguments[2], iterations);
+    return true;
+}
 
 static void TestResourceBounds()
 {

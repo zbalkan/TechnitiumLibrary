@@ -113,6 +113,7 @@ jobs:
         run: |
           case "${CAMPAIGN_MINUTES}" in
             ''|*[!0-9]*) echo "Duration must be a positive integer"; exit 2 ;;
+            *) ;;
           esac
           if [ "${CAMPAIGN_MINUTES}" -lt 1 ] || [ "${CAMPAIGN_MINUTES}" -gt 240 ]; then
             echo "Duration outside 1–240-minute campaign range"
@@ -160,7 +161,7 @@ jobs:
             dotnet --info > "${RUNNER_TEMP}/fuzz-environment.txt"
             uname -a >> "${RUNNER_TEMP}/fuzz-environment.txt"
             git rev-parse HEAD >> "${RUNNER_TEMP}/fuzz-environment.txt"
-            sha256sum "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll" "${RUNNER_TEMP}/parser-clean/TechnitiumLibrary.Net.dll" >> "${RUNNER_TEMP}/fuzz-environment.txt"
+            (cd "${RUNNER_TEMP}/parser-clean" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum) >> "${RUNNER_TEMP}/fuzz-environment.txt"
             python3 fuzzing/coverage/triage.py --findings "${RUNNER_TEMP}/parser-findings" --output "${RUNNER_TEMP}/parser-findings/triage" --timeout 5 --environment-file "${RUNNER_TEMP}/fuzz-environment.txt" -- dotnet "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll"
           fi
 

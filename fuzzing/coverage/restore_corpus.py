@@ -38,7 +38,7 @@ def choose_samples(archive: bytes, limit: int) -> list[tuple[str, bytes]]:
             if info.file_size > MAX_SAMPLE or info.file_size == 0:
                 continue
             data = files.read(info)
-            if hashlib.sha256(data).hexdigest() != name[:-4]:
+            if not name.startswith(hashlib.sha256(data).hexdigest()):
                 raise ValueError(f"Corrupted content-addressed input: {name}")
             selected.append((name, data))
         return selected
