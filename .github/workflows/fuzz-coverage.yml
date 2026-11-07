@@ -155,8 +155,13 @@ jobs:
       - name: Triage AFL++ findings using clean parser
         if: always()
         run: |
+          ulimit -c 0
           if [ -f "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll" ]; then
-            python3 fuzzing/coverage/triage.py --findings "${RUNNER_TEMP}/parser-findings" --output "${RUNNER_TEMP}/parser-findings/triage" --timeout 5 -- dotnet "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll"
+            dotnet --info > "${RUNNER_TEMP}/fuzz-environment.txt"
+            uname -a >> "${RUNNER_TEMP}/fuzz-environment.txt"
+            git rev-parse HEAD >> "${RUNNER_TEMP}/fuzz-environment.txt"
+            sha256sum "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll" "${RUNNER_TEMP}/parser-clean/TechnitiumLibrary.Net.dll" >> "${RUNNER_TEMP}/fuzz-environment.txt"
+            python3 fuzzing/coverage/triage.py --findings "${RUNNER_TEMP}/parser-findings" --output "${RUNNER_TEMP}/parser-findings/triage" --timeout 5 --environment-file "${RUNNER_TEMP}/fuzz-environment.txt" -- dotnet "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll"
           fi
 
       - name: Include benchmark evidence in AFL++ artifact
@@ -191,7 +196,7 @@ jobs:
           name: dns-parser-afl-${{ github.run_id }}
           path: ${{ runner.temp }}/parser-afl-results.tar.gz
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 30
 
       - name: Fail on saved parser crashes
         run: |

@@ -180,3 +180,34 @@ The benchmark is an **estimate of potential persistent execution
 benefit**, not proof of AFL++ persistent-mode improvement. Adopting
 persistent fuzzing remains conditional on an instrumented A/B comparison
 and equivalence of the crash and semantic oracles.
+
+## Reproducible AFL++ bug evidence
+
+When clean-harness replay reproduces a crash or hang, `triage.py`
+creates one **standalone reproducer folder per provisional failure signature**
+inside the existing AFL++ evidence artifact, under
+`triage/reproducers/<signature>/`. Each folder contains the exact,
+unmodified `input.bin`, `metadata.json` (SHA-256, target, source
+revision, timeout, exit code, normalized signature, candidate hashes),
+`replay-output.txt`, and a `README.md` with the build and replay
+instructions. A separate `environment.txt` in `triage/` records
+the .NET runtime, platform, checked-out commit, and hashes of clean
+harness assemblies. These packages remain available for 30 days.
+
+Rebuild the clean harness from the recorded source revision, then run
+the verifier against a reproducer folder. The verifier checks that the
+input bytes match the recorded SHA-256 and that replay reproduces the
+expected classification, exit code, and stack signature. Its exit code
+is 0 only when the recorded failure reproduces; 1 means the observed
+behavior differs; 2 means an invalid bundle or execution error.
+
+One representative per signature is chosen by shortest input length,
+breaking ties by SHA-256, **without changing its bytes**. This is
+representative selection, not test-case minimization. All discovered
+candidate inputs and individual replay results remain in the evidence
+artifact. Provisional groups may contain multiple underlying defects.
+`confirmed_defects: 0` still means no automatic vulnerability
+classification: a reproducible oracle failure needs engineering review.
+
+The fuzzing workflows intentionally **fail when AFL++ finds crashes**.
+No production parser or oracle behavior is modified to hide findings.
