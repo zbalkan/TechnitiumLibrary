@@ -82,8 +82,8 @@ jobs:
             -o "${RUNNER_TEMP}/parser-findings" -m none -t 5000+ -- \
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
 
-      - name: Minimize AFL++ corpus (Phase 2 verification)
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' # temporary Phase 2 validation
+      - name: Minimize AFL++ corpus (manual runs)
+        if: github.event_name == 'workflow_dispatch'
         env:
           AFL_SKIP_CPUFREQ: "1"
           AFL_SKIP_BIN_CHECK: "1"
@@ -100,8 +100,8 @@ jobs:
           tar -czf "${RUNNER_TEMP}/parser-minimized.tar.gz" \
             -C "${RUNNER_TEMP}/parser-minimized" .
 
-      - name: Upload minimized coverage corpus (Phase 2 verification)
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' # temporary Phase 2 validation
+      - name: Upload minimized coverage corpus (manual runs)
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dns-parser-minimized-${{ github.run_id }}
