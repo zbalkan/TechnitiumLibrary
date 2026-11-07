@@ -84,20 +84,20 @@ jobs:
 
       # AFL++ queue entries are coverage-discovered. This snapshot removes
       # byte-identical duplicates only; it makes no coverage-minimization claim.
-      - name: Snapshot discovered corpus (Phase 2 validation)
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+      - name: Snapshot discovered corpus (manual runs)
+        if: github.event_name == 'workflow_dispatch'
         run: |
           python3 fuzzing/coverage/corpus.py snapshot --seeds "${RUNNER_TEMP}/parser-seeds" --queue "${RUNNER_TEMP}/parser-findings/default/queue" --destination "${RUNNER_TEMP}/parser-snapshot"
 
       - name: Package corpus snapshot
-        if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+        if: always() && (github.event_name == 'workflow_dispatch')
         run: |
           if [ -d "${RUNNER_TEMP}/parser-snapshot" ]; then
             tar -czf "${RUNNER_TEMP}/parser-snapshot.tar.gz" -C "${RUNNER_TEMP}/parser-snapshot" .
           fi
 
       - name: Upload corpus snapshot
-        if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+        if: always() && (github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dns-parser-corpus-snapshot-${{ github.run_id }}
