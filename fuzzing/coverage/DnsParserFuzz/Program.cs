@@ -58,14 +58,8 @@ static bool TryHandleUtilityCommand(string[] arguments)
         return true;
     }
 
-    if (arguments.Length == 4 && arguments[0] == "--benchmark" &&
-        (arguments[1] == "datagram" || SpecializedTargets.Exists(arguments[1])) &&
-        int.TryParse(arguments[3], out int iterations) &&
-        iterations > 0 && iterations <= 1000000)
-    {
-        Benchmark(arguments[1], arguments[2], iterations);
+    if (TryHandleBenchmark(arguments))
         return true;
-    }
 
     if (arguments.Length == 2 && arguments[0] == "--inspect")
     {
@@ -80,6 +74,21 @@ static bool TryHandleUtilityCommand(string[] arguments)
     }
 
     return false;
+}
+
+static bool TryHandleBenchmark(string[] arguments)
+{
+    if (arguments.Length != 4 || arguments[0] != "--benchmark")
+        return false;
+
+    if (arguments[1] != "datagram" && !SpecializedTargets.Exists(arguments[1]))
+        return false;
+
+    if (!int.TryParse(arguments[3], out int iterations) || iterations < 1 || iterations > 1000000)
+        return false;
+
+    Benchmark(arguments[1], arguments[2], iterations);
+    return true;
 }
 
 static void TestResourceBounds()
