@@ -1,4 +1,5 @@
 using SharpFuzz;
+using System.Text.Json;
 using DnsParserFuzz;
 using TechnitiumLibrary.Net.Dns;
 
@@ -22,6 +23,12 @@ if (args.Length == 1 && args[0] == "--test-oracle")
     return;
 }
 
+if (args.Length == 2 && args[0] == "--inspect")
+{
+    Inspect(args[1]);
+    return;
+}
+
 if (args.Length == 2 && args[0] == "--verify-seeds")
 {
     VerifySeeds(args[1]);
@@ -37,12 +44,43 @@ if (args.Length == 2 && args[0] == "--replay")
 
 if (args.Length != 0)
 {
-    await Console.Error.WriteLineAsync("Usage: DnsParserFuzz [--target name | --replay-target name file | --replay file | --test-oracle | --verify-seeds directory]");
+    await Console.Error.WriteLineAsync("Usage: DnsParserFuzz [--inspect file | --target name | --replay-target name file | --replay file | --test-oracle | --verify-seeds directory]");
     Environment.ExitCode = 2;
     return;
 }
 
 Fuzzer.OutOfProcess.Run(Parse);
+
+static void Inspect(string path)
+{
+    using FileStream input = File.OpenRead(path);
+    try
+    {
+        DnsDatagram parsed = DnsDatagram.ReadFrom(input);
+        if (parsed.ParsingException is not null)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { accepted = false,
+                error = "stored-parse-error" }));
+            return;
+        }
+        Console.WriteLine(JsonSerializer.Serialize(new {
+            accepted = true,
+            id = parsed.Identifier,
+            qr = parsed.IsResponse,
+            opcode = (int)parsed.OPCODE,
+            rcode = (int)parsed.RCODE,
+            questions = parsed.Question.Count,
+            answers = parsed.Answer.Count,
+            authority = parsed.Authority.Count,
+            additional = parsed.Additional.Count
+        }));
+    }
+    catch (EndOfStreamException)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new { accepted = false,
+            error = "truncated-header" }));
+    }
+}
 
 static void Parse(Stream input)
 {
