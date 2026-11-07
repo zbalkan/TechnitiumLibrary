@@ -20,9 +20,14 @@ Run `dotnet DnsParserFuzz.dll --test-oracle` against an uninstrumented build
 to verify valid parsing, stored malformed-RSA-key rejection, truncated-header
 handling, and that an injected escaping exception is not swallowed.
 
-This oracle tests process-level containment, not whether all malformed DNS
-records are rejected correctly. Semantic validation, parser-consistency
-invariants, and live-server availability remain separate test objectives.
+The bounded semantic oracle checks identifier, response bit, and section-count
+invariants for successfully parsed messages. The reviewed seed corpus has
+explicit valid/rejected expectations and valid seeds must survive a semantic
+parse–serialize–parse round-trip. These checks intentionally do not equate
+all accepted mutations with valid DNS packets; full protocol conformance,
+resource budgets, and live-server resilience are separate later phases.
+Run `dotnet DnsParserFuzz.dll --verify-seeds /tmp/tdns-parser-seeds`
+against the clean, uninstrumented harness to verify the curated corpus.
 
 ## Run on Ubuntu 24.04 with .NET 10
 
