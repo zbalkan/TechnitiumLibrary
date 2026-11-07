@@ -1,5 +1,6 @@
 using SharpFuzz;
 using System.Text.Json;
+using System.Diagnostics;
 using DnsParserFuzz;
 using TechnitiumLibrary.Net.Dns;
 
@@ -20,6 +21,14 @@ if (args.Length == 3 && args[0] == "--replay-target" && SpecializedTargets.Exist
 if (args.Length == 1 && args[0] == "--test-oracle")
 {
     TestOracle();
+    return;
+}
+
+if (args.Length == 4 && args[0] == "--benchmark" &&
+    (args[1] == "datagram" || SpecializedTargets.Exists(args[1])) &&
+    int.TryParse(args[3], out int iterations) && iterations > 0 && iterations <= 1000000)
+{
+    Benchmark(args[1], args[2], iterations);
     return;
 }
 
@@ -44,12 +53,42 @@ if (args.Length == 2 && args[0] == "--replay")
 
 if (args.Length != 0)
 {
-    await Console.Error.WriteLineAsync("Usage: DnsParserFuzz [--inspect file | --target name | --replay-target name file | --replay file | --test-oracle | --verify-seeds directory]");
+    await Console.Error.WriteLineAsync("Usage: DnsParserFuzz [--benchmark target file iterations | --inspect file | --target name | --replay-target name file | --replay file | --test-oracle | --verify-seeds directory]");
     Environment.ExitCode = 2;
     return;
 }
 
 Fuzzer.OutOfProcess.Run(Parse);
+
+static void Benchmark(string target, string path, int iterations)
+{
+    byte[] bytes = File.ReadAllBytes(path);
+    void Execute()
+    {
+        using MemoryStream input = new(bytes, writable: false);
+        if (target == "datagram")
+            Parse(input);
+        else
+            SpecializedTargets.Run(target, input);
+    }
+
+    Execute(); // Warm up JIT and first-use initialization.
+    long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+    Stopwatch stopwatch = Stopwatch.StartNew();
+    for (int iteration = 0; iteration < iterations; iteration++)
+        Execute();
+    stopwatch.Stop();
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        target,
+        mode = "in-process-clean-harness",
+        iterations,
+        elapsed_seconds = stopwatch.Elapsed.TotalSeconds,
+        operations_per_second = iterations / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.000001),
+        allocated_bytes = allocated
+    }));
+}
 
 static void Inspect(string path)
 {
