@@ -46,7 +46,7 @@ def signature(text: str, outcome: str) -> str:
     return outcome + "|" + "|".join(relevant[:5])
 
 
-def replay(path: Path, command: list[str], timeout: float) -> dict:
+def replay(path: Path, command: list[str], timeout: float, target: str | None = None) -> dict:
     if timeout <= 0:
         raise ValueError("timeout must be positive")
     payload = path.read_bytes()
@@ -57,7 +57,9 @@ def replay(path: Path, command: list[str], timeout: float) -> dict:
         result["classification"] = "oversized_input"
         return result
     try:
-        completed = subprocess.run([*command, "--replay", str(path)],
+        replay_args = (["--replay-target", target, str(path)] if target else
+                       ["--replay", str(path)])
+        completed = subprocess.run([*command, *replay_args],
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    timeout=timeout, check=False)
         result["exit_code"] = completed.returncode
@@ -83,7 +85,7 @@ def replay(path: Path, command: list[str], timeout: float) -> dict:
 
 
 def triage(findings: Path, destination: Path, command: list[str], timeout: float,
-           max_candidates: int = MAX_CANDIDATES) -> dict:
+           max_candidates: int = MAX_CANDIDATES, target: str | None = None) -> dict:
     if not command:
         raise ValueError("replay command is required")
     selected = candidates(findings, max_candidates)
@@ -91,7 +93,7 @@ def triage(findings: Path, destination: Path, command: list[str], timeout: float
     cases = []
     clusters: dict[str, list[str]] = {}
     for kind, sample in selected:
-        result = replay(sample, command, timeout)
+        result = replay(sample, command, timeout, target)
         digest = result["sha256"]
         saved = destination / f"{digest}.bin"
         payload = sample.read_bytes()
@@ -105,7 +107,8 @@ def triage(findings: Path, destination: Path, command: list[str], timeout: float
         cases.append(result)
     report = {
         "schema_version": 1,
-        "harness": "DnsParserFuzz --replay",
+        "harness": "DnsParserFuzz --replay-target" if target else "DnsParserFuzz --replay",
+        "target": target or "datagram",
         "source_commit": os.environ.get("GITHUB_SHA", "unknown"),
         "runtime": "clean-uninstrumented",
         "candidate_count": len(selected),
@@ -127,11 +130,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=5)
     parser.add_argument("--max-candidates", type=int, default=MAX_CANDIDATES)
+    parser.add_argument("--target")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command and args.command[0] == "--" else args.command
     report = triage(args.findings, args.output, command,
-                    args.timeout, args.max_candidates)
+                    args.timeout, args.max_candidates, args.target)
     print(f"Triaged {report['candidate_count']} AFL++ candidates; "
           f"automatically confirmed defects: {report['confirmed_defects']}")
 
