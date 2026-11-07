@@ -34,7 +34,7 @@ jobs:
       matrix:
         target: [name, rdata, edns, dnssec, serialization]
     env:
-      CAMPAIGN_MINUTES: ${{ github.event_name == 'pull_request' && '3' || (github.event_name == 'schedule' && (github.event.schedule == '23 2 * * 0' && '120' || '30')) || inputs.duration_minutes || '30' }}
+      CAMPAIGN_MINUTES: ${{ github.event_name == 'pull_request' && '3' || (github.event_name == 'schedule' && (github.event.schedule == '23 2 * * 0' && '120' || '30')) || format('{0}', inputs.duration_minutes) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
