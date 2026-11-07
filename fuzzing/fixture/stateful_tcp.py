@@ -97,9 +97,11 @@ def run(host: str, port: int, timeout: float = 2) -> dict:
     for scenario in SCENARIOS:
         outcome = _exercise(host, port, scenario, timeout, query)
         report["scenarios"][scenario] = outcome
-        if scenario == "fragmented" and outcome != "response":
+        expected = {"fragmented": "response", "sequential": "second-response",
+                    "pipelined": "second-response"}.get(scenario)
+        if expected is not None and outcome != expected:
             report.update(status="failed", failure={
-                "phase": "fragmented", "reason": outcome})
+                "phase": scenario, "scenario": scenario, "reason": outcome})
             return report
         health = fuzz_dns.probe(host, port)
         if health:

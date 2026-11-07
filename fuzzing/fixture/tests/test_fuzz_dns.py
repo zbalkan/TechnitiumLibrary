@@ -90,13 +90,16 @@ class StatefulTcpTests(unittest.TestCase):
     def test_frame_prefix_and_maximum_payload(self):
         import stateful_tcp
         self.assertEqual(stateful_tcp.frame(b"test"), b"\x00\x04test")
+        self.assertEqual(stateful_tcp.frame(b"x" * 65535)[:2], b"\xff\xff")
         with self.assertRaises(ValueError):
             stateful_tcp.frame(b"x" * 65536)
 
     def test_scenarios_have_bounded_recovery_checks(self):
         import stateful_tcp
         with mock.patch.object(fuzz_dns, "probe", return_value=None) as health, \
-             mock.patch.object(stateful_tcp, "_exercise", return_value="response"):
+             mock.patch.object(stateful_tcp, "_exercise", side_effect=[
+                 "response", "second-response", "second-response",
+                 "incomplete-sent", "incomplete-sent", "incomplete-sent"]):
             result = stateful_tcp.run("127.0.0.1", 53)
         self.assertEqual(result["status"], "passed")
         self.assertEqual(len(result["scenarios"]), len(stateful_tcp.SCENARIOS))
@@ -117,3 +120,21 @@ class StatefulTcpTests(unittest.TestCase):
             result = stateful_tcp.run("127.0.0.1", 53)
         self.assertEqual(result["failure"]["phase"], "recovery")
         self.assertEqual(result["failure"]["scenario"], "fragmented")
+
+    def test_reuse_and_pipeline_failures_are_not_silently_accepted(self):
+        import stateful_tcp
+        for scenario in ("sequential", "pipelined"):
+            with self.subTest(scenario=scenario):
+                outcomes = {"fragmented": "response",
+                            "sequential": "second-response",
+                            "pipelined": "second-response"}
+                outcomes[scenario] = "second-closed"
+                with mock.patch.object(fuzz_dns, "probe", return_value=None), \
+                     mock.patch.object(stateful_tcp, "_exercise",
+                                       side_effect=lambda host, port, mode, timeout, query:
+                                       outcomes.get(mode, "incomplete-sent")):
+                    report = stateful_tcp.run("127.0.0.1", 53)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["failure"]["phase"], scenario)
+                self.assertEqual(report["failure"]["scenario"], scenario)
+                self.assertEqual(report["failure"]["reason"], "second-closed")
