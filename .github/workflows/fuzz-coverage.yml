@@ -2,6 +2,20 @@ name: DNS parser coverage-guided fuzzing
 
 on:
   workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: "Duration per target (1–240 minutes)"
+        type: number
+        required: true
+        default: 30
+  schedule:
+    - cron: "17 2 * * 1-6"
+    - cron: "23 2 * * 0"
+  pull_request:
+    paths:
+      - "fuzzing/coverage/**"
+      - "TechnitiumLibrary.Net/Dns/**"
+      - ".github/workflows/fuzz-coverage.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
@@ -9,6 +23,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   parser:
@@ -37,6 +52,7 @@ jobs:
       - name: Generate seed corpus and replay on uninstrumented parser
         run: |
           python3 fuzzing/coverage/generate_seeds.py --output "${RUNNER_TEMP}/parser-seeds"
+          python3 fuzzing/coverage/generate_structured_seeds.py --output "${RUNNER_TEMP}/parser-seeds"
           for seed in "${RUNNER_TEMP}"/parser-seeds/*; do
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay "$seed"
           done
@@ -53,6 +69,13 @@ jobs:
             [ -f "$sample" ] || continue
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay "$sample"
           done
+
+      - name: Restore successful prior corpus
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CORPUS_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          python3 fuzzing/coverage/restore_corpus.py --repository "${{ github.repository }}" --branch "${CORPUS_BRANCH}" --workflow fuzz-coverage.yml --target datagram --output "${RUNNER_TEMP}/parser-seeds" --limit 150
 
       - name: Preserve uninstrumented harness for crash replay
         run: cp -a "${RUNNER_TEMP}/parser-fuzz" "${RUNNER_TEMP}/parser-clean"
@@ -88,26 +111,24 @@ jobs:
             -o "${RUNNER_TEMP}/parser-findings" -m none -t 5000+ -- \
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
 
+      - name: Write campaign metrics
+        if: always()
+        run: |
+          python3 fuzzing/coverage/campaign_metrics.py --findings "${RUNNER_TEMP}/parser-findings" --target datagram --minutes "${CAMPAIGN_MINUTES}" --output "${RUNNER_TEMP}/parser-findings/campaign-metrics.json"
+
       # AFL++ queue entries are coverage-discovered. This snapshot removes
       # byte-identical duplicates only; it makes no coverage-minimization claim.
-      - name: Snapshot discovered corpus (manual runs)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Snapshot discovered corpus
+        if: always()
         run: |
           python3 fuzzing/coverage/corpus.py snapshot --seeds "${RUNNER_TEMP}/parser-seeds" --queue "${RUNNER_TEMP}/parser-findings/default/queue" --destination "${RUNNER_TEMP}/parser-snapshot"
-
-      - name: Package corpus snapshot
-        if: always() && (github.event_name == 'workflow_dispatch')
-        run: |
-          if [ -d "${RUNNER_TEMP}/parser-snapshot" ]; then
-            tar -czf "${RUNNER_TEMP}/parser-snapshot.tar.gz" -C "${RUNNER_TEMP}/parser-snapshot" .
-          fi
 
       - name: Upload corpus snapshot
         if: always() && (github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dns-parser-corpus-snapshot-${{ github.run_id }}
-          path: ${{ runner.temp }}/parser-snapshot.tar.gz
+          name: dns-datagram-corpus-${{ github.run_id }}
+          path: ${{ runner.temp }}/parser-snapshot/
           if-no-files-found: warn
           retention-days: 7
 
