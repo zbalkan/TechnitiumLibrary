@@ -10,12 +10,10 @@ on:
     paths:
       - "fuzzing/fixture/**"
       - ".github/workflows/fuzz-fixture.yml"
-  push:
-    branches:
-      - "fuzz/**"
-    paths:
-      - "fuzzing/fixture/**"
-      - ".github/workflows/fuzz-fixture.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

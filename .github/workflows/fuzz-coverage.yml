@@ -2,17 +2,10 @@ name: DNS parser coverage-guided fuzzing
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - "fuzz/**"
-    paths:
-      - "fuzzing/coverage/**"
-      - "TechnitiumLibrary.Net/Dns/**"
-      - ".github/workflows/fuzz-coverage.yml"
-  pull_request:
-    paths:
-      - "fuzzing/coverage/**"
-      - ".github/workflows/fuzz-coverage.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
