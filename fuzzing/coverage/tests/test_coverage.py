@@ -412,6 +412,24 @@ class ReproducerEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 reproduce.reproduce(bundle, [sys.executable, str(runner)])
 
+    def test_reproducer_build_instructions_avoid_world_writable_tmp(self):
+        import triage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            crashes = root / "default" / "crashes"
+            crashes.mkdir(parents=True)
+            (crashes / "id:000001").write_bytes(b"failure")
+            runner = root / "runner.py"
+            runner.write_text("import sys\\nsys.exit(7)\\n")
+            report = triage.triage(root, root / "evidence",
+                                   [sys.executable, str(runner)], timeout=2)
+            bundle = root / "evidence" / report["reproducers"][0]["bundle"]
+            instructions = (bundle / "README.md").read_text()
+            self.assertIn("install -d -m 700", instructions)
+            self.assertIn("$HOME/.dns-fuzz-repro-", instructions)
+            self.assertNotIn("/tmp/", instructions)
+            self.assertIn("--replay input.bin", instructions)
+
     def test_no_reproducer_is_generated_when_clean_replay_succeeds(self):
         import triage
         with tempfile.TemporaryDirectory() as directory:
