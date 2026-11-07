@@ -140,6 +140,39 @@ class CorpusSnapshotTests(unittest.TestCase):
                                      Path(directory) / "snapshot")
             self.assertEqual(report["distinct_inputs"], 1)
 
+    def test_snapshot_detects_modified_content_addressed_input(self):
+        import hashlib
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            seeds = root / "seeds"
+            output = root / "snapshot"
+            seeds.mkdir()
+            output.mkdir()
+            (seeds / "case").write_bytes(b"expected")
+            digest = hashlib.sha256(b"expected").hexdigest()
+            (output / f"{digest}.bin").write_bytes(b"tampered")
+            with self.assertRaisesRegex(ValueError, "collision"):
+                corpus.snapshot(seeds, root / "missing", output)
+
+    def test_snapshot_deterministically_records_queue_provenance(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            seeds = root / "seeds"
+            queue = root / "queue"
+            seeds.mkdir()
+            queue.mkdir()
+            (seeds / "alpha").write_bytes(b"same")
+            (queue / "id:000002").write_bytes(b"other")
+            (queue / "id:000001").write_bytes(b"same")
+            report = corpus.snapshot(seeds, queue, root / "snapshot")
+            self.assertEqual(report["input_count"], 3)
+            self.assertEqual(report["duplicates"], 1)
+            self.assertEqual([(e["source"], e["name"]) for e in report["entries"]],
+                             [("seed", "alpha"), ("queue", "id:000001"),
+                              ("queue", "id:000002")])
+
     def test_snapshot_rejects_oversized_input(self):
         import corpus
         with tempfile.TemporaryDirectory() as directory:
