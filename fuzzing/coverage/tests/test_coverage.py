@@ -108,3 +108,58 @@ class CorpusPromotionTests(unittest.TestCase):
             sample.write_bytes(b"modified")
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 corpus.verify(destination)
+
+class MinimizationTests(unittest.TestCase):
+    def test_greedy_cover_preserves_edges(self):
+        import minimize
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory) / f"sample-{n}" for n in range(3)]
+            for n, path in enumerate(paths):
+                path.write_bytes(bytes([n+1]))
+            edges = {paths[0]: frozenset((1, 2)),
+                     paths[1]: frozenset((2, 3)),
+                     paths[2]: frozenset((1, 2, 3))}
+            result = minimize.minimize(paths, Path(directory) / "out",
+                                       lambda path, limit: edges[path], 5)
+            self.assertEqual(result["selected_count"], 1)
+            self.assertEqual(result["measured_edges"], 3)
+            self.assertEqual(result["status"], "complete")
+
+    def test_budget_retains_partial_result(self):
+        import minimize
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory) / name for name in ("one", "two")]
+            for path in paths:
+                path.write_bytes(b"x")
+            ticks = iter((0, 0, 2, 2, 2))
+            with mock.patch.object(minimize.time, "monotonic", side_effect=lambda: next(ticks)):
+                result = minimize.minimize(paths, Path(directory) / "out",
+                                           lambda path, limit: frozenset((7,)), 1)
+            self.assertEqual(result["status"], "partial")
+            self.assertEqual(result["remaining_count"], 1)
+            self.assertEqual(len(list((Path(directory) / "out").glob("*.bin"))), 1)
+
+    def test_edge_map_validation(self):
+        import minimize
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / "map"
+            file.write_text("000001:1\n000008:3\n")
+            self.assertEqual(minimize.read_coverage(file), frozenset((1, 8)))
+            file.write_text("invalid")
+            with self.assertRaises(ValueError):
+                minimize.read_coverage(file)
+
+    def test_queue_sampling_is_bounded(self):
+        import minimize
+        with tempfile.TemporaryDirectory() as directory:
+            seeds = Path(directory) / "seeds"
+            queue = Path(directory) / "queue"
+            seeds.mkdir()
+            queue.mkdir()
+            for i in range(4):
+                (seeds / f"seed-{i}").write_bytes(b"x")
+            for i in range(100):
+                (queue / f"id:{i:06d}").write_bytes(b"x")
+            selected = minimize.candidates(seeds, queue, 10)
+            self.assertEqual(len(selected), 14)
+            self.assertEqual(sum(path.parent == seeds for path in selected), 4)
