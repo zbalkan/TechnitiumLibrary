@@ -70,6 +70,18 @@ jobs:
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay "$sample"
           done
 
+      - name: Install independent DNS parser (binary wheel)
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/dns-venv"
+          "${RUNNER_TEMP}/dns-venv/bin/python" -m pip install --only-binary=:all: 'dnspython==2.8.0'
+
+      - name: Test differential comparator
+        run: "${RUNNER_TEMP}/dns-venv/bin/python -m unittest discover -s fuzzing/coverage/differential_tests -v"
+
+      - name: Differential comparison against dnspython
+        run: |
+          "${RUNNER_TEMP}/dns-venv/bin/python" fuzzing/coverage/differential.py --seeds "${RUNNER_TEMP}/parser-seeds" --output "${RUNNER_TEMP}/differential.json" --max-cases 100 -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
+
       - name: Restore successful prior corpus
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -137,6 +149,14 @@ jobs:
         run: |
           if [ -f "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll" ]; then
             python3 fuzzing/coverage/triage.py --findings "${RUNNER_TEMP}/parser-findings" --output "${RUNNER_TEMP}/parser-findings/triage" --timeout 5 -- dotnet "${RUNNER_TEMP}/parser-clean/DnsParserFuzz.dll"
+          fi
+
+      - name: Include differential evidence in AFL++ artifact
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/differential.json" ] && [ -d "${RUNNER_TEMP}/parser-findings" ]; then
+            mkdir -p "${RUNNER_TEMP}/parser-findings/triage"
+            cp "${RUNNER_TEMP}/differential.json" "${RUNNER_TEMP}/parser-findings/triage/differential.json"
           fi
 
       # AFL filenames use colons, which upload-artifact rejects. Tar preserves
