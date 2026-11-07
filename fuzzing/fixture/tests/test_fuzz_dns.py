@@ -84,3 +84,36 @@ class CampaignTests(unittest.TestCase):
                 rc = fuzz_dns.main(["--output", str(path)])
             self.assertEqual(rc, 1)
             self.assertEqual(json.loads(path.read_text())["failure"]["reason"], "offline")
+
+
+class StatefulTcpTests(unittest.TestCase):
+    def test_frame_prefix_and_maximum_payload(self):
+        import stateful_tcp
+        self.assertEqual(stateful_tcp.frame(b"test"), b"\x00\x04test")
+        with self.assertRaises(ValueError):
+            stateful_tcp.frame(b"x" * 65536)
+
+    def test_scenarios_have_bounded_recovery_checks(self):
+        import stateful_tcp
+        with mock.patch.object(fuzz_dns, "probe", return_value=None) as health, \
+             mock.patch.object(stateful_tcp, "_exercise", return_value="response"):
+            result = stateful_tcp.run("127.0.0.1", 53)
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(len(result["scenarios"]), len(stateful_tcp.SCENARIOS))
+        self.assertEqual(health.call_count, len(stateful_tcp.SCENARIOS) + 1)
+
+    def test_fragmented_frame_failure_is_actionable(self):
+        import stateful_tcp
+        with mock.patch.object(fuzz_dns, "probe", return_value=None), \
+             mock.patch.object(stateful_tcp, "_exercise", return_value="closed"):
+            result = stateful_tcp.run("127.0.0.1", 53)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure"]["phase"], "fragmented")
+
+    def test_server_health_failure_records_triggering_scenario(self):
+        import stateful_tcp
+        with mock.patch.object(fuzz_dns, "probe", side_effect=[None, "offline"]), \
+             mock.patch.object(stateful_tcp, "_exercise", return_value="response"):
+            result = stateful_tcp.run("127.0.0.1", 53)
+        self.assertEqual(result["failure"]["phase"], "recovery")
+        self.assertEqual(result["failure"]["scenario"], "fragmented")
