@@ -1,0 +1,135 @@
+name: BUG-02 isolated DNS Server label probe
+
+# Builds the DNS server against this branch of TechnitiumLibrary, starts it
+# in a container, provisions a fixture and uploads the backup artifact.
+# Runs a bounded deterministic network campaign; not coverage-guided.
+
+on:
+  push:
+    branches: [ "test/bug-02-label-roundtrip" ]
+    paths: [ "tests/repros/bug02/**", ".github/workflows/bug02-server.yml" ]
+  pull_request:
+    paths: [ "tests/repros/bug02/**", ".github/workflows/bug02-server.yml" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PROFILE: base.toml
+  FUZZ_SUBNET: 172.30.0.0/24
+  SERVER_IP: 172.30.0.10
+  # Pinned Python 3.12 Bookworm image; update only after explicit review.
+  PYTHON_IMAGE: python:3.12-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+
+jobs:
+  fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: TechnitiumLibrary
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: TechnitiumSoftware/DnsServer
+          ref: c11fec68b7d64b728d74028b754c94f2ef9b36b1
+          path: DnsServer
+          persist-credentials: false
+
+      - name: Test the fixture scripts
+        working-directory: TechnitiumLibrary/fuzzing/fixture
+        run: python3 -m unittest discover -s tests -t . -v
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build TechnitiumLibrary and publish the server
+        run: |
+          dotnet build TechnitiumLibrary/TechnitiumLibrary.ByteTree/TechnitiumLibrary.ByteTree.csproj -c Release
+          dotnet build TechnitiumLibrary/TechnitiumLibrary.Net/TechnitiumLibrary.Net.csproj -c Release
+          dotnet build TechnitiumLibrary/TechnitiumLibrary.Security.OTP/TechnitiumLibrary.Security.OTP.csproj -c Release
+          dotnet publish DnsServer/DnsServerApp/DnsServerApp.csproj -c Release
+
+      - name: Build the server image
+        run: docker build -t tdns-fuzz DnsServer
+
+      - name: Generate per-run secrets
+        run: |
+          admin="$(openssl rand -hex 24)"
+          tsig="$(openssl rand -base64 32)"
+          echo "::add-mask::${admin}"
+          echo "::add-mask::${tsig}"
+          printf '%s' "${admin}" > "${RUNNER_TEMP}/admin-password"
+          chmod 600 "${RUNNER_TEMP}/admin-password"
+          echo "FIXTURE_TSIG_SECRET=${tsig}" >> "${GITHUB_ENV}"
+
+      - name: Start the server
+        run: |
+          docker network create --internal --subnet "${FUZZ_SUBNET}" fuzznet
+          docker run -d --name tdns --network fuzznet --ip "${SERVER_IP}" \
+            -v "${RUNNER_TEMP}/admin-password:/run/secrets/admin-password:ro" \
+            -e DNS_SERVER_ADMIN_PASSWORD_FILE=/run/secrets/admin-password \
+            -e DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES=127.0.0.1 \
+            -e DNS_SERVER_RECURSION=Deny \
+            -e DNS_SERVER_ENABLE_BLOCKING=false \
+            tdns-fuzz
+
+      # The web service listens on 127.0.0.1 inside the server container, so
+      # the scripts run in a sidecar that shares its network namespace. The
+      # fuzzer network can reach port 53 only.
+      - name: Provision and verify
+        run: |
+          mkdir -p "${RUNNER_TEMP}/out"
+          sidecar() {
+            docker run --rm --network container:tdns \
+              -v "${GITHUB_WORKSPACE}/TechnitiumLibrary/fuzzing/fixture:/fixture:ro" \
+              -v "${RUNNER_TEMP}/admin-password:/run/secrets/admin-password:ro" \
+              -v "${RUNNER_TEMP}/out:/out" \
+              -e FIXTURE_API_PASSWORD_FILE=/run/secrets/admin-password \
+              -e FIXTURE_TSIG_SECRET \
+              -e FIXTURE_FUZZER_NET="${FUZZ_SUBNET}" \
+              -w /fixture "${PYTHON_IMAGE}" python "$@"
+          }
+          sidecar wait_ready.py --timeout 120
+          sidecar provision.py --profile "profiles/${PROFILE}" --backup /out/fixture-backup.zip
+          sidecar verify.py --profile "profiles/${PROFILE}"
+      # Fuzzer has no API credentials, host mounts or external network.
+      - name: Probe actual DNS Server with literal-period wire label
+        run: |
+          docker run --rm --network fuzznet \
+            -v "${GITHUB_WORKSPACE}/TechnitiumLibrary/fuzzing/fixture:/fixture:ro" \
+            -v "${GITHUB_WORKSPACE}/TechnitiumLibrary/tests/repros/bug02:/bug:ro" \
+            -v "${RUNNER_TEMP}/out:/out" \
+            -w /fixture "${PYTHON_IMAGE}" python /bug/server_probe.py \
+            --host "${SERVER_IP}" --output /out/bug02-server.json
+
+      - name: Server log on failure
+        if: failure()
+        run: |
+          docker logs tdns || true
+          docker exec tdns sh -c 'cat /etc/dns/logs/*.log' || true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: bug02-fixture-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/out/fixture-backup.zip
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload fuzzing evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: bug02-server-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/out/bug02-server.json
+          if-no-files-found: warn
+          retention-days: 7
