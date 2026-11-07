@@ -82,26 +82,20 @@ jobs:
             -o "${RUNNER_TEMP}/parser-findings" -m none -t 5000+ -- \
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
 
-      - name: Minimize AFL++ corpus (manual runs)
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          AFL_SKIP_CPUFREQ: "1"
-          AFL_SKIP_BIN_CHECK: "1"
-          AFL_NO_FORKSRV: "1"
+      - name: Measure and minimize corpus (Phase 2 verification)
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         run: |
-          mkdir -p "${RUNNER_TEMP}/cmin-input"
-          cp "${RUNNER_TEMP}"/parser-seeds/* "${RUNNER_TEMP}/cmin-input/"
-          for sample in "${RUNNER_TEMP}"/parser-findings/default/queue/id:*; do
-            [ -f "$sample" ] || continue
-            cp "$sample" "${RUNNER_TEMP}/cmin-input/queue-$(basename "$sample")"
-          done
-          afl-cmin -i "${RUNNER_TEMP}/cmin-input" -o "${RUNNER_TEMP}/parser-minimized" \
-            -m none -t 5000+ -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
-          tar -czf "${RUNNER_TEMP}/parser-minimized.tar.gz" \
-            -C "${RUNNER_TEMP}/parser-minimized" .
+          python3 fuzzing/coverage/minimize.py --seeds "${RUNNER_TEMP}/parser-seeds" --queue "${RUNNER_TEMP}/parser-findings/default/queue" --output "${RUNNER_TEMP}/parser-minimized" --seconds 75 --max-queue 50 -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
 
-      - name: Upload minimized coverage corpus (manual runs)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Package minimized corpus
+        if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+        run: |
+          if [ -d "${RUNNER_TEMP}/parser-minimized" ]; then
+            tar -czf "${RUNNER_TEMP}/parser-minimized.tar.gz" -C "${RUNNER_TEMP}/parser-minimized" .
+          fi
+
+      - name: Upload minimized corpus
+        if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dns-parser-minimized-${{ github.run_id }}
