@@ -344,6 +344,22 @@ class ResourceBudgetSourceTests(unittest.TestCase):
 
 
 class ReproducerEvidenceTests(unittest.TestCase):
+
+    def test_signature_ignores_build_paths_and_stack_line_numbers(self):
+        import triage
+        linux = (
+            "Unhandled exception. System.InvalidOperationException: round-trip failure\n"
+            "   at DnsParserFuzz.SemanticOracle.AssertRoundTrip(DnsDatagram d)"
+            " in /home/runner/work/Project/SemanticOracle.cs:line 43\n"
+        )
+        windows = (
+            "Unhandled exception. System.InvalidOperationException: round-trip failure\n"
+            "   at DnsParserFuzz.SemanticOracle.AssertRoundTrip(DnsDatagram d)"
+            " in C:\\checkout\\src\\SemanticOracle.cs:line 123\n"
+        )
+        self.assertEqual(triage.signature(linux, "reproduced_exception"),
+                         triage.signature(windows, "reproduced_exception"))
+
     def test_reproducible_failure_creates_verifiable_bundle(self):
         import json
         import reproduce

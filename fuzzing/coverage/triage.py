@@ -20,6 +20,7 @@ MAX_LOG_BYTES = 32768
 MAX_CANDIDATES = 100
 SIGNATURE_LINE = re.compile(r"^\s*(?:Unhandled exception\.|[A-Za-z][A-Za-z0-9_.+]*(?:Exception|Error):|at )")
 VOLATILE = re.compile(r"0x[0-9a-fA-F]+|:\s*line\s+\d+")
+STACK_SOURCE_LOCATION = re.compile(r"(?<=\)) in (?:/|[A-Za-z]:[\\/]).*$")
 CLASSIFICATIONS = ("non_reproducible", "reproduced_exception", "reproduced_timeout",
                    "abnormal_exit", "runner_error", "oversized_input")
 
@@ -39,7 +40,7 @@ def candidates(findings: Path, max_candidates: int = MAX_CANDIDATES) -> list[tup
 
 
 def signature(text: str, outcome: str) -> str:
-    relevant = [VOLATILE.sub("<variable>", line.strip())
+    relevant = [VOLATILE.sub("<variable>", STACK_SOURCE_LOCATION.sub("", line.strip()))
                 for line in text.splitlines() if SIGNATURE_LINE.match(line)]
     # Grouping by exception and first stack frames is provisional;
     # one cluster does not necessarily imply a single root cause.
