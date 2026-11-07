@@ -108,3 +108,44 @@ class CorpusPromotionTests(unittest.TestCase):
             sample.write_bytes(b"modified")
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 corpus.verify(destination)
+
+class CorpusSnapshotTests(unittest.TestCase):
+    def test_snapshot_preserves_distinct_payloads(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            seeds = Path(directory) / "seeds"
+            queue = Path(directory) / "queue"
+            out = Path(directory) / "snapshot"
+            seeds.mkdir()
+            queue.mkdir()
+            (seeds / "alpha").write_bytes(b"first")
+            (seeds / "beta").write_bytes(b"second")
+            (queue / "id:000001").write_bytes(b"first")
+            (queue / "id:000002").write_bytes(b"third")
+            report = corpus.snapshot(seeds, queue, out)
+            self.assertEqual(report["input_count"], 4)
+            self.assertEqual(report["distinct_inputs"], 3)
+            self.assertEqual(report["duplicates"], 1)
+            self.assertFalse(report["coverage_minimized"])
+            self.assertEqual(len(list(out.glob("*.bin"))), 3)
+            self.assertTrue((out / "manifest.json").exists())
+
+    def test_snapshot_keeps_empty_mutation(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            seeds = Path(directory) / "seeds"
+            seeds.mkdir()
+            (seeds / "empty").write_bytes(b"")
+            report = corpus.snapshot(seeds, Path(directory) / "missing",
+                                     Path(directory) / "snapshot")
+            self.assertEqual(report["distinct_inputs"], 1)
+
+    def test_snapshot_rejects_oversized_input(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as directory:
+            seeds = Path(directory) / "seeds"
+            seeds.mkdir()
+            (seeds / "oversized").write_bytes(b"x" * 65536)
+            with self.assertRaises(ValueError):
+                corpus.snapshot(seeds, Path(directory) / "missing",
+                                Path(directory) / "snapshot")

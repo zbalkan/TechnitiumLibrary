@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 from pathlib import Path
 
 MAX_DNS_BYTES = 65535
@@ -37,6 +38,43 @@ def verify(directory: Path) -> int:
     return count
 
 
+def snapshot(seeds: Path, queue: Path, destination: Path) -> dict:
+    """Archive byte-distinct fuzz inputs without claiming edge minimization."""
+    destination.mkdir(parents=True, exist_ok=True)
+    sources = [("seed", seeds)] + ([("queue", queue)] if queue.is_dir() else [])
+    count = 0
+    unique = set()
+    entries = []
+    for origin, folder in sources:
+        pattern = "*" if origin == "seed" else "id:*"
+        for sample in sorted(folder.glob(pattern)):
+            if not sample.is_file():
+                continue
+            payload = sample.read_bytes()
+            if len(payload) > MAX_DNS_BYTES:
+                raise ValueError(f"{sample}: oversized fuzz input")
+            count += 1
+            digest = hashlib.sha256(payload).hexdigest()
+            target = destination / f"{digest}.bin"
+            if digest not in unique:
+                if target.exists() and target.read_bytes() != payload:
+                    raise ValueError("SHA-256 collision or mismatched existing snapshot")
+                if not target.exists():
+                    target.write_bytes(payload)
+                unique.add(digest)
+            entries.append({"source": origin, "name": sample.name, "sha256": digest})
+    report = {
+        "kind": "byte-deduplicated",
+        "coverage_minimized": False,
+        "input_count": count,
+        "distinct_inputs": len(unique),
+        "duplicates": count - len(unique),
+        "entries": entries,
+    }
+    (destination / "manifest.json").write_text(json.dumps(report, indent=2) + "\n")
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     command = parser.add_subparsers(dest="command", required=True)
@@ -45,8 +83,16 @@ def main() -> None:
     add.add_argument("--destination", type=Path, required=True)
     check = command.add_parser("verify")
     check.add_argument("--directory", type=Path, required=True)
+    saved = command.add_parser("snapshot")
+    saved.add_argument("--seeds", type=Path, required=True)
+    saved.add_argument("--queue", type=Path, required=True)
+    saved.add_argument("--destination", type=Path, required=True)
     args = parser.parse_args()
-    if args.command == "promote":
+    if args.command == "snapshot":
+        info = snapshot(args.seeds, args.queue, args.destination)
+        print(f"Snapshot: {info['distinct_inputs']} distinct of {info['input_count']} "
+              "inputs (no edge minimization)")
+    elif args.command == "promote":
         print(promote(args.source, args.destination))
     else:
         print(f"Verified {verify(args.directory)} reviewed regression inputs")

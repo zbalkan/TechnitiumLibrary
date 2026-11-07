@@ -6,6 +6,7 @@ import struct
 from pathlib import Path
 
 DEFAULT_DOMAIN = "plain.test"
+NSEC_DOMAIN = "nsec.test"
 DEFAULT_POINTER = b"\xc0\x0c"
 RR_HEADER_FORMAT = "!HHIH"
 
@@ -56,7 +57,7 @@ def seeds() -> dict[str, bytes]:
 
     return {
         "query-a": header() + query,
-        "query-aaaa": header() + question("nsec.test", 28),
+        "query-aaaa": header() + question(NSEC_DOMAIN, 28),
         "query-dnskey": header() + question("nsec3.test", 48),
         "query-txt": header() + question("blocked.fuzz.test", 16),
         "response-a": header(0x8580, an=1) + query + answer_a,
@@ -71,9 +72,9 @@ def seeds() -> dict[str, bytes]:
         "short-header": b"\x12\x34\x01",
         "compression-loop": header() + pointer + struct.pack("!HH", 1, 1),
         "rr-truncated": header(0x8580, an=1) + query + answer_a[:-2],
-        "query-ds": header() + question("nsec.test", 43),
-        "query-rrsig": header() + question("nsec.test", 46),
-        "query-nsec": header() + question("nsec.test", 47),
+        "query-ds": header() + question(NSEC_DOMAIN, 43),
+        "query-rrsig": header() + question(NSEC_DOMAIN, 46),
+        "query-nsec": header() + question(NSEC_DOMAIN, 47),
         "query-nsec3": header() + question("nsec3.test", 50),
         "response-ns": header(0x8580, an=1) + question(DEFAULT_DOMAIN, 2) +
                        rr(pointer, 2, qname("ns1." + DEFAULT_DOMAIN)),
@@ -91,7 +92,7 @@ def seeds() -> dict[str, bytes]:
                           rr(pointer, 46, rrsig),
         "query-edns-ecs": header(ar=1) + query + opt_ecs,
         "query-edns-unknown": header(ar=1) + query + opt_unknown,
-        "query-two-questions": header(qd=2) + query + question("nsec.test", 28),
+        "query-two-questions": header(qd=2) + query + question(NSEC_DOMAIN, 28),
         "response-mixed-sections": header(0x8580, an=1, ns=1, ar=1) + query +
                                    answer_a + rr(pointer, 2, qname("ns1." + DEFAULT_DOMAIN)) + opt,
         "malformed-question-count": header(qd=2) + query,
