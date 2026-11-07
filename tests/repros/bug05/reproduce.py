@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deterministic clean-harness reproduction of BUG-05; no network traffic."""
 import argparse
+import base64
+import zlib
 import hashlib
 import json
 import subprocess
@@ -12,7 +14,7 @@ CASES = [
   [
     "serializer-rejects-accepted-soa",
     "2067312653bc00f017eaad2acf6be31ba574f4141ee7cfcfe967f4dc8ff828d4",
-    "12348580000100010000000005706c61696e04746573740000060001c00c0006000100ff003c003b036e733105706c61696e0474657374000a686f73746d617374657205706c37373737373737373737373737373737373737373737372a37373737373700000000000000000000004000000000000000000000000000400000000000000000000000000000000a0000000000000000",
+    "",
     [
       "DnsClientException",
       "label cannot exceed 63 bytes"
@@ -27,6 +29,8 @@ CASES = [
     ]
   ]
 ]
+# Exact original input compressed for transport; digest checked at runtime.
+CASES[0][2] = zlib.decompress(base64.b64decode("eNoTMmltYGAEQiBgLchJzMxjKUktLmFgYGNgPMADIhn+M9gwWDPnFRsiy3Nl5BeX5CYWl6QWAYXNsQMtCMWAAA4MDDh5DAxcMAYAQ8UYkQ==")).hex()
 CONTROL = bytes.fromhex("12340100000100000000000001610000010001")
 
 def invoke(dll, name, data, directory, expected=None):
