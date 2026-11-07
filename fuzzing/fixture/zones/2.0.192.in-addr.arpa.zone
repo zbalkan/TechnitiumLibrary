@@ -1,0 +1,7 @@
+; 2.0.192.in-addr.arpa - reverse zone for 192.0.2.0/24.
+$ORIGIN 2.0.192.in-addr.arpa.
+$TTL 3600
+1         IN PTR    plain.test.
+2         IN PTR    mail.plain.test.
+3         IN PTR    host.plain.test.
+10        IN PTR    nsec.test.

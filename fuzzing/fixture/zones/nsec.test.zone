@@ -1,0 +1,12 @@
+; nsec.test - signed with NSEC: RRSIG answers and NSEC denial proofs.
+; Signed by provision.py after import; keys are generated at signing time.
+$ORIGIN nsec.test.
+$TTL 3600
+@         IN A      192.0.2.10
+@         IN MX     10 mail.nsec.test.
+mail      IN A      192.0.2.11
+www       IN CNAME  mail.nsec.test.
+*.wild    IN A      192.0.2.12
+a.b.ent   IN A      192.0.2.13
+child     IN NS     ns1.child.nsec.test.
+ns1.child IN A      192.0.2.54

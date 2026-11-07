@@ -1,0 +1,12 @@
+; nsec3.test - signed with NSEC3: hashed denial and closest-encloser proofs.
+; Signed by provision.py after import; keys are generated at signing time.
+$ORIGIN nsec3.test.
+$TTL 3600
+@         IN A      192.0.2.10
+@         IN MX     10 mail.nsec3.test.
+mail      IN A      192.0.2.11
+www       IN CNAME  mail.nsec3.test.
+*.wild    IN A      192.0.2.12
+a.b.ent   IN A      192.0.2.13
+child     IN NS     ns1.child.nsec3.test.
+ns1.child IN A      192.0.2.54
