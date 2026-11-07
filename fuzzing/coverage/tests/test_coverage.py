@@ -22,6 +22,27 @@ class CorpusTests(unittest.TestCase):
         self.assertTrue(all(isinstance(data, bytes) for data in seeds.values()))
         self.assertTrue(all(0 < len(data) <= 65535 for data in seeds.values()))
 
+    def test_protocol_families_and_section_shapes(self):
+        import struct
+        corpus = generate_seeds.seeds()
+        families = ("response-ds", "response-dnskey-ed25519", "response-rrsig",
+                    "response-nsec", "response-nsec3", "query-edns-ecs",
+                    "query-edns-unknown", "response-mixed-sections",
+                    "malformed-edns-option-length", "malformed-label-64")
+        for name in families:
+            with self.subTest(name=name):
+                self.assertIn(name, corpus)
+                self.assertGreaterEqual(len(corpus[name]), 12)
+        self.assertEqual(struct.unpack("!HHHH", corpus["response-mixed-sections"][4:12]),
+                         (1, 1, 1, 1))
+        self.assertEqual(struct.unpack("!H", corpus["query-two-questions"][4:6])[0], 2)
+
+    def test_all_seed_names_are_unique_and_safe(self):
+        import re
+        corpus = generate_seeds.seeds()
+        self.assertEqual(len(corpus), len(set(corpus)))
+        self.assertTrue(all(re.fullmatch(r"[a-z0-9-]+", name) for name in corpus))
+
     def test_output_is_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "seeds"
@@ -51,3 +72,27 @@ class CorpusTests(unittest.TestCase):
         source = (ROOT / "DnsParserFuzz" / "SemanticOracle.cs").read_text()
         self.assertIn("AssertWireHeaderMatches", source)
         self.assertIn("AssertRoundTrip", source)
+
+class CorpusPromotionTests(unittest.TestCase):
+    def test_promote_is_content_addressed_and_idempotent(self):
+        import hashlib
+        import corpus
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "sample"
+            source.write_bytes(b"reviewed packet")
+            dest = Path(tmp) / "regressions"
+            first = corpus.promote(source, dest)
+            second = corpus.promote(source, dest)
+            self.assertEqual(first, second)
+            self.assertEqual(first.name, hashlib.sha256(b"reviewed packet").hexdigest() + ".bin")
+            self.assertEqual(len(list(dest.glob("*.bin"))), 1)
+
+    def test_reject_empty_and_oversized_promotions(self):
+        import corpus
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "sample"
+            destination = Path(tmp) / "regressions"
+            for content in (b"", b"x" * 65536):
+                source.write_bytes(content)
+                with self.assertRaises(ValueError):
+                    corpus.promote(source, destination)

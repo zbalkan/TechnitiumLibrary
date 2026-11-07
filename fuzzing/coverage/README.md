@@ -63,3 +63,30 @@ malformed RSA DNSKEY encodings and unsupported record formats. Production
 was therefore reverted from the fuzzing branch; the revised oracle tests
 the actual parser boundary rather than a list of acceptable exception types.
 The isolated RSA fix branch is not part of this fuzzing workflow.
+
+## Phase 2: protocol-aware corpus and promotion
+
+`generate_seeds.py` includes DNSSEC (DS, DNSKEY, RRSIG, NSEC, NSEC3),
+EDNS ECS and unknown options, multi-section messages, name boundaries,
+and malformed count/length cases. These additional inputs are **mutation
+seeds**, not an assertion that their cryptographic content or packet
+structure is accepted as valid. Only the 16 explicitly reviewed cases in
+`--verify-seeds` carry strict acceptance or rejection expectations.
+
+The `regressions/` directory is for manually reviewed replay inputs,
+named by their SHA-256 digest. Do not promote every AFL queue entry:
+interesting coverage alone does not establish a defect. Promote only a
+confirmed, minimized reproducer with a written classification. CI always
+replays these persisted inputs using the production-equivalent parser
+oracle.
+
+Run `corpus.py promote --source INPUT --destination
+fuzzing/coverage/regressions` after triage. It rejects empty inputs,
+oversized DNS messages, and hash collisions. Files are binary and
+deduplicated by content. Add the resulting file to the PR only after review.
+
+For manual corpus minimization, the workflow's `workflow_dispatch` run
+uses `afl-cmin` on the generated seeds and discovered queue after fuzzing.
+The minimized result is an **artifact**, not automatically committed to the
+regression directory. A separate triage step can use `afl-tmin` on a
+confirmed crash input; never treat a minimized coverage sample as a bug.
