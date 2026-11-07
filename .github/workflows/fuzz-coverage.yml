@@ -87,6 +87,7 @@ jobs:
         env:
           AFL_SKIP_CPUFREQ: "1"
           AFL_SKIP_BIN_CHECK: "1"
+          AFL_NO_FORKSRV: "1"
         run: |
           mkdir -p "${RUNNER_TEMP}/cmin-input"
           cp "${RUNNER_TEMP}"/parser-seeds/* "${RUNNER_TEMP}/cmin-input/"
