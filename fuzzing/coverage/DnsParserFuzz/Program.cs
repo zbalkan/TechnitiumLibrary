@@ -2,6 +2,20 @@ using SharpFuzz;
 using DnsParserFuzz;
 using TechnitiumLibrary.Net.Dns;
 
+if (args.Length == 2 && args[0] == "--target" && SpecializedTargets.Exists(args[1]))
+{
+    string target = args[1];
+    Fuzzer.OutOfProcess.Run(input => SpecializedTargets.Run(target, input));
+    return;
+}
+
+if (args.Length == 3 && args[0] == "--replay-target" && SpecializedTargets.Exists(args[1]))
+{
+    using FileStream input = File.OpenRead(args[2]);
+    SpecializedTargets.Run(args[1], input);
+    return;
+}
+
 if (args.Length == 1 && args[0] == "--test-oracle")
 {
     TestOracle();
@@ -23,7 +37,7 @@ if (args.Length == 2 && args[0] == "--replay")
 
 if (args.Length != 0)
 {
-    await Console.Error.WriteLineAsync("Usage: DnsParserFuzz [--replay input-file | --test-oracle | --verify-seeds directory]");
+    await Console.Error.WriteLineAsync("Usage: DnsParserFuzz [--target name | --replay-target name file | --replay file | --test-oracle | --verify-seeds directory]");
     Environment.ExitCode = 2;
     return;
 }
