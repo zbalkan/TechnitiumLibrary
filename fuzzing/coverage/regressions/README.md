@@ -12,3 +12,10 @@ of every stored input; the coverage CI replays all `.bin` inputs.
 A campaign-discovered input must not be committed merely because it expands
 coverage. Minimize and investigate first. In particular, an exception
 captured in `DnsDatagram.ParsingException` is not itself a process crash.
+
+A report in the AFL++ `triage/` artifact is preliminary evidence,
+not a finding that can automatically be promoted. Before committing a
+regression input, reproduce it against the clean harness, minimize it,
+identify the root cause, and record the associated issue and expected
+post-fix behavior. Successful replay means the parser did not crash;
+it does not by itself prove complete DNS semantic correctness.
