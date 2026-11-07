@@ -49,6 +49,16 @@ jobs:
       - name: Validate semantic oracle on reviewed DNS corpus
         run: dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --verify-seeds "${RUNNER_TEMP}/parser-seeds"
 
+      - name: Verify content-addressed regression corpus
+        run: python3 fuzzing/coverage/corpus.py verify --directory fuzzing/coverage/regressions
+
+      - name: Replay reviewed regression corpus
+        run: |
+          for sample in fuzzing/coverage/regressions/*.bin; do
+            [ -f "$sample" ] || continue
+            dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay "$sample"
+          done
+
       - name: Preserve uninstrumented harness for crash replay
         run: cp -a "${RUNNER_TEMP}/parser-fuzz" "${RUNNER_TEMP}/parser-clean"
 
@@ -71,6 +81,32 @@ jobs:
           afl-fuzz -V 30 -i "${RUNNER_TEMP}/parser-seeds" \
             -o "${RUNNER_TEMP}/parser-findings" -m none -t 5000+ -- \
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
+
+      - name: Minimize AFL++ corpus (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          AFL_SKIP_CPUFREQ: "1"
+          AFL_SKIP_BIN_CHECK: "1"
+        run: |
+          mkdir -p "${RUNNER_TEMP}/cmin-input"
+          cp "${RUNNER_TEMP}"/parser-seeds/* "${RUNNER_TEMP}/cmin-input/"
+          for sample in "${RUNNER_TEMP}"/parser-findings/default/queue/id:*; do
+            [ -f "$sample" ] || continue
+            cp "$sample" "${RUNNER_TEMP}/cmin-input/queue-$(basename "$sample")"
+          done
+          afl-cmin -i "${RUNNER_TEMP}/cmin-input" -o "${RUNNER_TEMP}/parser-minimized" \
+            -m none -t 5000+ -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll"
+          tar -czf "${RUNNER_TEMP}/parser-minimized.tar.gz" \
+            -C "${RUNNER_TEMP}/parser-minimized" .
+
+      - name: Upload minimized coverage corpus (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dns-parser-minimized-${{ github.run_id }}
+          path: ${{ runner.temp }}/parser-minimized.tar.gz
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Replay AFL++ crash candidates against clean parser
         if: always()
