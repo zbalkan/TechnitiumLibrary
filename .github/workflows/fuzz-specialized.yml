@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
@@ -64,6 +65,13 @@ jobs:
             dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --replay-target "${{ matrix.target }}" "$seed"
           done
 
+      - name: Reuse verified corpus from earlier successful campaign
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CORPUS_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          python3 fuzzing/coverage/restore_corpus.py --repository "${{ github.repository }}" --branch "${CORPUS_BRANCH}" --workflow fuzz-specialized.yml --target "${{ matrix.target }}" --output "${RUNNER_TEMP}/focused-seeds" --limit 150
+
       - name: Preserve clean parser
         run: cp -a "${RUNNER_TEMP}/parser-fuzz" "${RUNNER_TEMP}/parser-clean"
 
@@ -84,6 +92,22 @@ jobs:
           AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
         run: |
           afl-fuzz -V "$((CAMPAIGN_MINUTES * 60))" -i "${RUNNER_TEMP}/focused-seeds" -o "${RUNNER_TEMP}/findings" -m none -t 5000+ -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --target "${{ matrix.target }}"
+
+      - name: Archive this run's distinct corpus
+        if: always()
+        run: |
+          if [ -d "${RUNNER_TEMP}/focused-seeds" ]; then
+            python3 fuzzing/coverage/corpus.py snapshot --seeds "${RUNNER_TEMP}/focused-seeds" --queue "${RUNNER_TEMP}/findings/default/queue" --destination "${RUNNER_TEMP}/corpus-snapshot"
+          fi
+
+      - name: Upload reusable corpus snapshot
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dns-${{ matrix.target }}-corpus-${{ github.run_id }}
+          path: ${{ runner.temp }}/corpus-snapshot/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Replay candidate findings with clean harness
         if: always()
