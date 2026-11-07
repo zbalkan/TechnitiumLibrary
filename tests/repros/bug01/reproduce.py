@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deterministic clean-harness reproduction of BUG-01; no network traffic."""
 import argparse
+import base64
+import zlib
 import hashlib
 import json
 import subprocess
@@ -21,13 +23,15 @@ CASES = [
   [
     "name-overflow-variant",
     "c1633bda9ea3c4a95213d0ec7167473d841aa659f98196c2a251624908787de3",
-    "3e3e3e503e3e7878783e3e403e3e923ec53e3e3e3f101010101010101010101010101061621010101010101010101010f710103eff10000000f40103e83e46383e3e021d01010e3e0bffff0d020100dfe3010101010505050578e439010100c000f40103e83e263810103e3e3e3e3e3e3e3e3e3e3e3e3e101010003d503e3e3e3e3e3e3e3e10004010101010101010101010103e3e3e3e3e3e3e3e253e3e3e3e3e10101010616200400a101010101010101010103e3e3e8181818181813e3e3e3e3e10101000007fff1010101010f79f1005050505050578050505046ce410101010101010008f01ff80101010f70f10101010101010102e10101010101061621010101110101010101010f79f10050505050505780505050578e439010100c000f40103e83e26383ec01062003d0100003e3eb07e010101e803110000c06b0a003e021d01010effffc0010b",
+    "",
     [
       "System.IndexOutOfRangeException",
       "DeserializeDomainName"
     ]
   ]
 ]
+# Exact original input compressed for transport; digest checked at runtime.
+CASES[1][2] = zlib.decompress(base64.b64decode("eNpdkL0RgkAQhd+KJDDqUYChhsYY8CQypgVJtYCL/KnAGRuwBUu4xDoMJKAAZwzPE4QBv5kL9u7t231HMiO11mRKXngnuVI9NnmneCtFqwC8xCu5jsnBVGTM0NrRQPB4isN36GIpAlPr5rFr6+GskGRthbQzo7mdNUq3AtKgJzhVtFY42Hq9q/IrtDvDXfFrwFns8fs8aSwWnWxRk63b/B+ARuVIBCBve5ex9CLAbAPUH2CtkfADL71E0A==")).hex()
 CONTROL = bytes.fromhex("016100")
 
 def invoke(dll, name, data, directory, expected=None):
