@@ -116,32 +116,32 @@ def write_reproducers(cases: list[dict], destination: Path, target: str,
             "candidate_hashes": sorted({item["sha256"] for item in members}),
             "evidence_kind": "unmodified AFL++ candidate; not minimized",
         }
-        (folder / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\\n")
+        (folder / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
         (folder / "replay-output.txt").write_text(case["output"], encoding="utf-8")
         command = ("dotnet DnsParserFuzz.dll --replay-target " + target + " input.bin"
                    if target != "datagram" else "dotnet DnsParserFuzz.dll --replay input.bin")
         readme = (
-            "# DNS parser fuzzing reproducer\\n\\n"
+            "# DNS parser fuzzing reproducer\n\n"
             "This folder contains an **unmodified AFL++ input** that reproduced "
             "a process-level finding against the **clean, uninstrumented** harness. "
-            "It is not a confirmed vulnerability or a minimized test case.\\n\\n"
-            f"Source revision: \`{source_commit}\`\\n\\n"
-            f"Target: \`{target}\`\\n\\n"
-            f"SHA-256: \`{case['sha256']}\`\\n\\n"
-            f"Expected classification: \`{case['classification']}\`\\n\\n"
-            f"Expected exit code: \`{case['exit_code']}\`\\n\\n"
-            f"Provisional signature: \`{sig}\`\\n\\n"
+            "It is not a confirmed vulnerability or a minimized test case.\n\n"
+            f"Source revision: `{source_commit}`\n\n"
+            f"Target: `{target}`\n\n"
+            f"SHA-256: `{case['sha256']}`\n\n"
+            f"Expected classification: `{case['classification']}`\n\n"
+            f"Expected exit code: `{case['exit_code']}`\n\n"
+            f"Provisional signature: `{sig}`\n\n"
             "Build the uninstrumented harness from the recorded source revision "
-            "using \`dotnet publish fuzzing/coverage/DnsParserFuzz/DnsParserFuzz.csproj "
-            "-c Release -o /tmp/dns-clean\`.\\n\\n"
-            "From this folder, replay the exact input using the clean assembly:\\n\\n"
-            f"\`{command.replace('DnsParserFuzz.dll', '/tmp/dns-clean/DnsParserFuzz.dll')}\`\\n\\n"
-            "For a strict automated outcome check, from the repository root use:\\n\\n"
-            f"\`python3 fuzzing/coverage/reproduce.py --bundle <this-folder> "
-            "-- dotnet /tmp/dns-clean/DnsParserFuzz.dll\`\\n\\n"
+            "using `dotnet publish fuzzing/coverage/DnsParserFuzz/DnsParserFuzz.csproj "
+            "-c Release -o /tmp/dns-clean`.\n\n"
+            "From this folder, replay the exact input using the clean assembly:\n\n"
+            f"`{command.replace('DnsParserFuzz.dll', '/tmp/dns-clean/DnsParserFuzz.dll')}`\n\n"
+            "For a strict automated outcome check, from the repository root use:\n\n"
+            f"`python3 fuzzing/coverage/reproduce.py --bundle <this-folder> "
+            "-- dotnet /tmp/dns-clean/DnsParserFuzz.dll`\n\n"
             "The verifier checks input SHA-256, classification, process exit code "
             "and normalized stack signature. A zero exit from the verifier means "
-            "the **expected bug was reproduced**.\\n"
+            "the **expected bug was reproduced**.\n"
         )
         (folder / "README.md").write_text(readme, encoding="utf-8")
         result.append({"signature": sig,
