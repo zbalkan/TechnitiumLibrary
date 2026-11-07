@@ -93,6 +93,11 @@ jobs:
         run: |
           afl-fuzz -V "$((CAMPAIGN_MINUTES * 60))" -i "${RUNNER_TEMP}/focused-seeds" -o "${RUNNER_TEMP}/findings" -m none -t 5000+ -- dotnet "${RUNNER_TEMP}/parser-fuzz/DnsParserFuzz.dll" --target "${{ matrix.target }}"
 
+      - name: Write campaign metrics
+        if: always()
+        run: |
+          python3 fuzzing/coverage/campaign_metrics.py --findings "${RUNNER_TEMP}/findings" --target "${{ matrix.target }}" --minutes "${CAMPAIGN_MINUTES}" --output "${RUNNER_TEMP}/findings/campaign-metrics.json"
+
       - name: Archive this run's distinct corpus
         if: always()
         run: |

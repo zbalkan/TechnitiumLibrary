@@ -56,7 +56,7 @@ def summarize(findings: Path, target: str, planned_minutes: int) -> dict:
     report = stats(root / "fuzzer_stats")
     def numeric(key: str):
         try:
-            return float(report[key])
+            return float(report[key].rstrip("%"))
         except (KeyError, ValueError):
             return None
 

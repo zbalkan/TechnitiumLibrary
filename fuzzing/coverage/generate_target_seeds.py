@@ -6,13 +6,14 @@ import struct
 from pathlib import Path
 
 from generate_seeds import qname, seeds as datagram_seeds
+from generate_structured_seeds import structured_seeds
 
 TARGETS = ("name", "rdata", "edns", "dnssec", "serialization")
 
 
 def target_seeds(target: str) -> dict[str, bytes]:
     if target == "serialization":
-        return datagram_seeds()
+        return {**datagram_seeds(), **structured_seeds()}
     if target == "name":
         return {
             "root": b"\x00",
