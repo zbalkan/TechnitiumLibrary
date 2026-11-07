@@ -292,8 +292,9 @@ class ExpandedFuzzingTests(unittest.TestCase):
         with io.BytesIO() as archive:
             with zipfile.ZipFile(archive, "w") as zip_file:
                 zip_file.writestr(name, b"modified")
-            with self.assertRaisesRegex(ValueError, "Corrupted"):
-                restore_corpus.choose_samples(archive.getvalue(), 10)
+            damaged_archive = archive.getvalue()
+        with self.assertRaisesRegex(ValueError, "Corrupted"):
+            restore_corpus.choose_samples(damaged_archive, 10)
 
     def test_corpus_restore_requires_token(self):
         import restore_corpus

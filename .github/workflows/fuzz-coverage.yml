@@ -113,6 +113,7 @@ jobs:
         run: |
           case "${CAMPAIGN_MINUTES}" in
             ''|*[!0-9]*) echo "Duration must be a positive integer"; exit 2 ;;
+            *) ;;
           esac
           if [ "${CAMPAIGN_MINUTES}" -lt 1 ] || [ "${CAMPAIGN_MINUTES}" -gt 240 ]; then
             echo "Duration outside 1–240-minute campaign range"

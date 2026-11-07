@@ -57,6 +57,7 @@ jobs:
         run: |
           case "${CAMPAIGN_MINUTES}" in
             ''|*[!0-9]*) exit 2 ;;
+            *) ;;
           esac
           test "${CAMPAIGN_MINUTES}" -ge 1
           test "${CAMPAIGN_MINUTES}" -le 240
