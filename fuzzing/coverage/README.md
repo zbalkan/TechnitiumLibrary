@@ -132,3 +132,51 @@ root cause, expected behavior, and GitHub issue/PR in the review.
 Promote only the reviewed binary with `corpus.py promote`. The PR's
 regression-replay workflow exercises all stored inputs using the
 uninstrumented parser; a process crash or timeout will fail that step.
+
+## Expanded campaign plan
+
+Pull requests use **three minutes per AFL++ target**. Scheduled campaigns
+use 30 minutes nightly (Monday–Saturday, 02:17 UTC) and 120 minutes
+weekly (Sunday, 02:23 UTC). Schedules become operational on the default
+branch when this PR merges. Manual dispatch accepts durations from
+1 to 240 minutes. The five specialized harnesses run as independent
+matrix jobs; these are parallel campaigns, not simultaneous workers
+competing for CPUs within the same runner.
+
+`SpecializedTargets.cs` exercises DNS-name compression directly, and
+RDATA, EDNS, and DNSSEC decoding through bounded record wrappers.
+The serialization target checks parse/serialize/parse invariants.
+Malformed input stored as `DnsDatagram.ParsingException` is not treated
+as a process crash. `generate_target_seeds.py` supplies focused seeds,
+while `generate_structured_seeds.py` adds deterministic grammar-aware
+mutations of counts, lengths, labels and pointers.
+
+Both the main and specialized workflows read SHA-256-verified, bounded
+corpus artifacts from prior successful runs on the same repository,
+branch and workflow. Inputs are exploratory, never automatically
+promoted into the regression corpus. Corpus snapshots preserve exact
+input bytes and report that byte deduplication is **not** coverage
+minimization. A missing or unavailable prior artifact does not prevent
+a fresh-seed campaign.
+
+`campaign_metrics.py` extracts execution throughput, AFL++ bitmap
+coverage, stability, queue size, crash/hang counts, and measured edge
+growth from the AFL++ statistics. No bitmap figure is represented as
+source-code or branch coverage. These measurements allow comparison
+of campaigns and identification of stagnation.
+
+The live-server fixture additionally tests fragmented DNS-over-TCP
+frames, sequential and pipelined requests, incomplete frames, zero
+lengths and availability after each state transition.
+
+`differential.py` compares acceptance and common DNS-header semantics
+against dnspython using the clean parser's `--inspect` mode. Differential
+discrepancies are review leads, not automatically confirmed bugs.
+Diagnostics and input hashes are archived for triage.
+
+For manually dispatched campaigns, `benchmark_modes.py` measures clean
+parser startup overhead versus repeated calls inside one .NET process.
+The benchmark is an **estimate of potential persistent execution
+benefit**, not proof of AFL++ persistent-mode improvement. Adopting
+persistent fuzzing remains conditional on an instrumented A/B comparison
+and equivalence of the crash and semantic oracles.

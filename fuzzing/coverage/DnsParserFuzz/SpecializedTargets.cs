@@ -17,12 +17,9 @@ internal static class SpecializedTargets
 
     internal static void Run(string target, Stream input)
     {
-        using MemoryStream bytes = new();
-        input.CopyTo(bytes);
-        if (bytes.Length > ushort.MaxValue)
+        byte[]? data = InputBudget.ReadCapped(input);
+        if (data is null)
             return;
-
-        byte[] data = bytes.ToArray();
         switch (target)
         {
             case "name":
