@@ -68,8 +68,32 @@ static void TestOracle()
     ];
     using (MemoryStream valid = new(query))
     {
-        if (DnsDatagram.ReadFrom(valid).ParsingException is not null)
+        DnsDatagram parsed = DnsDatagram.ReadFrom(valid);
+        if (parsed.ParsingException is not null)
             throw new InvalidOperationException("Valid DNS query failed parser baseline.");
+        SemanticOracle.AssertWireHeaderMatches(parsed, valid);
+        SemanticOracle.AssertRoundTrip(parsed);
+
+        // Negative controls: prove the semantic oracle detects a corrupted
+        // identifier and inconsistent section counts rather than merely
+        // accepting every successfully parsed datagram.
+        foreach (int index in new[] { 0, 5 })
+        {
+            byte[] tampered = (byte[])query.Clone();
+            tampered[index] ^= 1;
+            using MemoryStream changed = new(tampered);
+            bool detected = false;
+            try
+            {
+                SemanticOracle.AssertWireHeaderMatches(parsed, changed);
+            }
+            catch (InvalidOperationException)
+            {
+                detected = true;
+            }
+            if (!detected)
+                throw new InvalidOperationException($"Semantic oracle missed header mutation at {index}.");
+        }
     }
 
     // An RSA DNSKEY with no public-key bytes triggers an internal decoding
