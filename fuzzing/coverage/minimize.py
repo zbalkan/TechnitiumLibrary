@@ -48,8 +48,7 @@ def measure_showmap(path: Path, target: list[str], seconds: float) -> frozenset[
         return None
     with tempfile.TemporaryDirectory(prefix="dns-showmap-") as temp:
         trace = Path(temp) / "trace"
-        env = {**os.environ, "AFL_NO_FORKSRV": "1", "AFL_SKIP_BIN_CHECK": "1",
-               "AFL_QUIET": "1"}
+        env = {**os.environ, "AFL_SKIP_BIN_CHECK": "1", "AFL_QUIET": "1"}
         command = ["afl-showmap", "-q", "-e", "-o", str(trace),
                    "-m", "none", "-t", "2000+", "--", *target]
         proc = subprocess.Popen(command, stdin=subprocess.PIPE,
