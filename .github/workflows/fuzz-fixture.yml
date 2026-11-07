@@ -110,6 +110,14 @@ jobs:
             --host "${SERVER_IP}" --seed 20261106 --count 80 \
             --interval 10 --output /out/fuzz-evidence.json
 
+      - name: Stateful DNS-over-TCP fuzzing
+        run: |
+          docker run --rm --network fuzznet \
+            -v "${GITHUB_WORKSPACE}/TechnitiumLibrary/fuzzing/fixture:/fixture:ro" \
+            -v "${RUNNER_TEMP}/out:/out" \
+            -w /fixture "${PYTHON_IMAGE}" python stateful_tcp.py \
+            --host "${SERVER_IP}" --timeout 2 --output /out/stateful-tcp-evidence.json
+
       - name: Server log on failure
         if: failure()
         run: |
@@ -129,6 +137,8 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: fuzz-evidence-${{ github.run_id }}
-          path: ${{ runner.temp }}/out/fuzz-evidence.json
+          path: |
+            ${{ runner.temp }}/out/fuzz-evidence.json
+            ${{ runner.temp }}/out/stateful-tcp-evidence.json
           if-no-files-found: warn
           retention-days: 7
