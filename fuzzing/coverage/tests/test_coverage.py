@@ -250,3 +250,81 @@ class FindingTriageTests(unittest.TestCase):
             result = triage.replay(folder / "id:000000",
                                    [sys.executable, str(runner)], timeout=0.05)
             self.assertEqual(result["classification"], "reproduced_timeout")
+
+
+class ExpandedFuzzingTests(unittest.TestCase):
+    def test_target_seed_families_are_repeatable(self):
+        import generate_target_seeds
+        for target in generate_target_seeds.TARGETS:
+            with self.subTest(target=target):
+                corpus = generate_target_seeds.target_seeds(target)
+                self.assertEqual(corpus, generate_target_seeds.target_seeds(target))
+                self.assertGreaterEqual(len(corpus), 7)
+                self.assertTrue(all(len(value) <= 65535 for value in corpus.values()))
+        self.assertIn("pointer-loop", generate_target_seeds.target_seeds("name"))
+        self.assertIn("ds", generate_target_seeds.target_seeds("dnssec"))
+        self.assertIn("ecs", generate_target_seeds.target_seeds("edns"))
+
+    def test_grammar_structural_variations_are_bounded(self):
+        import generate_structured_seeds
+        corpus = generate_structured_seeds.structured_seeds()
+        self.assertGreater(len(corpus), 80)
+        self.assertLessEqual(len(corpus), 256)
+        self.assertEqual(len(corpus), len(set(corpus)))
+        self.assertIn("pointer-16383", corpus)
+        self.assertIn("qdcount-65535", corpus)
+        self.assertIn("rdata-48-length-65535", corpus)
+        self.assertIn("edns-8-length-65535", corpus)
+
+    def test_corrupted_artifact_cannot_poison_restored_seeds(self):
+        import hashlib
+        import io
+        import restore_corpus
+        import zipfile
+        good = b"\x12\x34"
+        name = hashlib.sha256(good).hexdigest() + ".bin"
+        with io.BytesIO() as archive:
+            with zipfile.ZipFile(archive, "w") as zip_file:
+                zip_file.writestr(name, good)
+                zip_file.writestr("../bad.bin", b"unsafe")
+            selected = restore_corpus.choose_samples(archive.getvalue(), 10)
+        self.assertEqual(selected, [(name, good)])
+        with io.BytesIO() as archive:
+            with zipfile.ZipFile(archive, "w") as zip_file:
+                zip_file.writestr(name, b"modified")
+            with self.assertRaisesRegex(ValueError, "Corrupted"):
+                restore_corpus.choose_samples(archive.getvalue(), 10)
+
+    def test_corpus_restore_requires_token(self):
+        import restore_corpus
+        with tempfile.TemporaryDirectory() as directory:
+            result = restore_corpus.restore(
+                "zbalkan/TechnitiumLibrary", "fuzz/fixture-integration",
+                "fuzz-specialized.yml", "name", Path(directory), token="")
+            self.assertEqual(result["status"], "unavailable")
+            self.assertEqual(result["imported"], 0)
+
+    def test_campaign_metrics_parse_percentages_and_edge_growth(self):
+        import campaign_metrics
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "default"
+            root.mkdir()
+            (root / "fuzzer_stats").write_text(
+                "execs_done : 4500\nexecs_per_sec : 25.5\n"
+                "bitmap_cvg : 1.26%\nstability : 99.8%\n"
+                "saved_crashes : 0\nsaved_hangs : 0\n")
+            (root / "plot_data").write_text(
+                "# unix_time, total_edges\n10, 200\n20, 220\n")
+            report = campaign_metrics.summarize(Path(directory), "name", 3)
+            self.assertEqual(report["executions"], 4500)
+            self.assertEqual(report["bitmap_coverage_percent"], 1.26)
+            self.assertEqual(report["stability_percent"], 99.8)
+            self.assertEqual(report["coverage_series"]["edge_growth"], 20)
+
+    def test_specialized_modes_are_exposed(self):
+        program = (ROOT / "DnsParserFuzz" / "Program.cs").read_text()
+        specialized = (ROOT / "DnsParserFuzz" / "SpecializedTargets.cs").read_text()
+        self.assertIn('"--target"', program)
+        self.assertIn('"--replay-target"', program)
+        for target in ("name", "rdata", "dnssec", "edns", "serialization"):
+            self.assertIn(f'"{target}"', specialized)
