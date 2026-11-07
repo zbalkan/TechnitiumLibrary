@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using TechnitiumLibrary.Net.Dns;
 
+namespace DnsParserFuzz;
+
 // Only assert invariants guaranteed by the *successful* parser contract.
 // Do not call exceptions recorded in ParsingException process crashes.
 internal static class SemanticOracle

@@ -1,4 +1,5 @@
 using SharpFuzz;
+using DnsParserFuzz;
 using TechnitiumLibrary.Net.Dns;
 
 if (args.Length == 1 && args[0] == "--test-oracle")
@@ -134,41 +135,43 @@ static void TestOracle()
 
 static void VerifySeeds(string directory)
 {
-    // Fixed, reviewed expectations: only input shapes with well-defined
-    // semantics are asserted here. AFL's mutated corpus is not assumed valid.
-    HashSet<string> valid = [
+    // Only the reviewed input shapes have a defined acceptance contract.
+    string[] valid = [
         "query-a", "query-aaaa", "query-dnskey", "query-txt",
         "response-a", "response-aaaa", "response-cname",
         "response-txt", "response-mx", "response-soa",
         "query-edns", "response-ede", "nxdomain"
     ];
-    HashSet<string> rejected = ["short-header", "compression-loop", "rr-truncated"];
-    foreach (string name in valid.Concat(rejected))
+    string[] rejected = ["short-header", "compression-loop", "rr-truncated"];
+    foreach (string name in valid)
+        VerifyValidSeed(directory, name);
+    foreach (string name in rejected)
+        VerifyRejectedSeed(directory, name);
+    Console.WriteLine($"Seed oracle passed: {valid.Length} valid, {rejected.Length} rejected.");
+}
+
+static void VerifyValidSeed(string directory, string name)
+{
+    using MemoryStream input = new(File.ReadAllBytes(Path.Combine(directory, name)), writable: false);
+    DnsDatagram parsed = DnsDatagram.ReadFrom(input);
+    if (parsed.ParsingException is not null)
+        throw new InvalidOperationException($"Valid seed rejected: {name}", parsed.ParsingException);
+    SemanticOracle.AssertWireHeaderMatches(parsed, input);
+    SemanticOracle.AssertRoundTrip(parsed);
+}
+
+static void VerifyRejectedSeed(string directory, string name)
+{
+    using MemoryStream input = new(File.ReadAllBytes(Path.Combine(directory, name)), writable: false);
+    bool rejected;
+    try
     {
-        string path = Path.Combine(directory, name);
-        byte[] raw = File.ReadAllBytes(path);
-        if (rejected.Contains(name))
-        {
-            using MemoryStream invalid = new(raw, writable: false);
-            bool failed = false;
-            try
-            {
-                failed = DnsDatagram.ReadFrom(invalid).ParsingException is not null;
-            }
-            catch (EndOfStreamException)
-            {
-                failed = true;
-            }
-            if (!failed)
-                throw new InvalidOperationException($"Malformed seed accepted: {name}");
-            continue;
-        }
-        using MemoryStream input = new(raw, writable: false);
-        DnsDatagram parsed = DnsDatagram.ReadFrom(input);
-        if (parsed.ParsingException is not null)
-            throw new InvalidOperationException($"Valid seed rejected: {name}", parsed.ParsingException);
-        SemanticOracle.AssertWireHeaderMatches(parsed, input);
-        SemanticOracle.AssertRoundTrip(parsed);
+        rejected = DnsDatagram.ReadFrom(input).ParsingException is not null;
     }
-    Console.WriteLine($"Seed oracle passed: {valid.Count} valid, {rejected.Count} rejected.");
+    catch (EndOfStreamException)
+    {
+        rejected = true;
+    }
+    if (!rejected)
+        throw new InvalidOperationException($"Malformed seed accepted: {name}");
 }
