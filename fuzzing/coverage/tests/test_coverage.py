@@ -420,7 +420,7 @@ class ReproducerEvidenceTests(unittest.TestCase):
             crashes.mkdir(parents=True)
             (crashes / "id:000001").write_bytes(b"failure")
             runner = root / "runner.py"
-            runner.write_text("import sys\\nsys.exit(7)\\n")
+            runner.write_text("import sys\nsys.exit(7)\n")
             report = triage.triage(root, root / "evidence",
                                    [sys.executable, str(runner)], timeout=2)
             bundle = root / "evidence" / report["reproducers"][0]["bundle"]
