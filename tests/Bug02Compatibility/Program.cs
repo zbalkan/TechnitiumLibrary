@@ -50,6 +50,32 @@ Test("Zone-file parser treats escaped trailing period as label data", () =>
     Require(records.Count == 1 && records[0].Name == @"a\..example",
         "Escaped trailing period was misclassified as FQDN termination");
 });
+Test("DNS parent check ignores periods inside labels", () =>
+{
+    var checker = typeof(DnsDatagram).GetMethod("IsSubDomainName",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    Require(checker is not null, "DNS parent helper is missing");
+
+    bool IsChild(string name, string parent) =>
+        (bool)checker.Invoke(null, [name, parent])!;
+
+    Require(IsChild("host.example", "example"), "Real subdomain not recognized");
+    Require(IsChild(@"x\.y.example", "example"), "Real parent of escaped label not recognized");
+    Require(!IsChild(@"x\.example", "example"), "Literal period mistaken for parent boundary");
+    Require(!IsChild("example", "example"), "Equal names are not strict subdomains");
+    Require(!IsChild("example", ""), "Root suffix special case changed");
+});
+Test("Zone-file write and read preserve escaped owner name", () =>
+{
+    var rr = new DnsResourceRecord(@"a\.example", DnsResourceRecordType.A,
+        DnsClass.IN, 60, new DnsARecordData(System.Net.IPAddress.Parse("192.0.2.1")));
+    using StringWriter writer = new();
+    ZoneFile.WriteZoneFileToAsync(writer, "example", [rr]).GetAwaiter().GetResult();
+    using StringReader reader = new(writer.ToString());
+    var records = ZoneFile.ReadZoneFileFromAsync(reader, "example").GetAwaiter().GetResult();
+    Require(records.Count == 1 && records[0].Name == rr.Name,
+        "Export/import changed escaped DNS owner name");
+});
 Test("Encoded-domain length matches wire length", () =>
     Require(DnsDatagram.GetSerializeDomainNameLength(@"a\.b.example") == 13,
         "Wrong encoded name size"));
