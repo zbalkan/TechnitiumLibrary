@@ -275,7 +275,7 @@ namespace TechnitiumLibrary.Net.Dns
         }
 
         public ushort UncompressedLength
-        { get { return Convert.ToUInt16(_name.Length + 2 + 2 + 2); } }
+        { get { return Convert.ToUInt16(DnsDatagram.GetSerializeDomainNameLength(_name) + 2 + 2); } }
 
         #endregion
     }
