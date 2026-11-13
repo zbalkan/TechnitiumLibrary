@@ -2549,27 +2549,42 @@ namespace TechnitiumLibrary.Net.Dns
             if (domain.Length == 0)
                 return true; //domain is root zone
 
-            if (domain.Length > 255)
+            //Escaped literal periods and backslashes occupy one DNS octet each.
+            //Validate the actual wire length rather than the presentation length.
+            int wireLength = 1; //terminating root label
+            foreach (string label in DnsDatagram.SplitDomainNameLabels(domain))
             {
-                if (throwException)
-                    throw new DnsClientException("Invalid domain name [" + domain + "]: length cannot exceed 255 bytes.");
+                int labelLength = 0;
+                bool wildcard = label == "*";
 
-                return false;
-            }
+                for (int i = 0; i < label.Length; i++)
+                {
+                    int labelChar = label[i];
+                    bool escaped = (labelChar == '\\') && (i + 1 < label.Length) &&
+                        ((label[i + 1] == '.') || (label[i + 1] == '\\'));
 
-            int labelStart = 0;
-            int labelEnd;
-            int labelLength;
-            int labelChar;
-            int i;
+                    if (escaped)
+                    {
+                        labelChar = label[++i];
+                    }
+                    else if (!wildcard)
+                    {
+                        bool valid = ((labelChar >= 'a') && (labelChar <= 'z')) ||
+                            ((labelChar >= 'A') && (labelChar <= 'Z')) ||
+                            ((labelChar >= '0') && (labelChar <= '9')) ||
+                            (labelChar == '-') || (labelChar == '_') || (labelChar == '/');
 
-            do
-            {
-                labelEnd = domain.IndexOf('.', labelStart);
-                if (labelEnd < 0)
-                    labelEnd = domain.Length;
+                        if (!valid)
+                        {
+                            if (throwException)
+                                throw new DnsClientException("Invalid domain name [" + domain + "]: invalid character [" + labelChar + "] was found.");
 
-                labelLength = labelEnd - labelStart;
+                            return false;
+                        }
+                    }
+
+                    labelLength++;
+                }
 
                 if (labelLength == 0)
                 {
@@ -2587,40 +2602,15 @@ namespace TechnitiumLibrary.Net.Dns
                     return false;
                 }
 
-                if (labelLength != 1 || domain[labelStart] != '*')
+                wireLength += labelLength + 1;
+                if (wireLength > 255)
                 {
-                    for (i = labelStart; i < labelEnd; i++)
-                    {
-                        labelChar = domain[i];
+                    if (throwException)
+                        throw new DnsClientException("Invalid domain name [" + domain + "]: length cannot exceed 255 bytes.");
 
-                        if ((labelChar >= 97) && (labelChar <= 122)) //[a-z]
-                            continue;
-
-                        if ((labelChar >= 65) && (labelChar <= 90)) //[A-Z]
-                            continue;
-
-                        if ((labelChar >= 48) && (labelChar <= 57)) //[0-9]
-                            continue;
-
-                        if (labelChar == 45) //[-]
-                            continue;
-
-                        if (labelChar == 95) //[_]
-                            continue;
-
-                        if (labelChar == 47) //[/]
-                            continue;
-
-                        if (throwException)
-                            throw new DnsClientException("Invalid domain name [" + domain + "]: invalid character [" + labelChar + "] was found.");
-
-                        return false;
-                    }
+                    return false;
                 }
-
-                labelStart = labelEnd + 1;
             }
-            while (labelEnd < domain.Length);
 
             return true;
         }
