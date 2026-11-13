@@ -1,0 +1,7 @@
+[
+  {
+    "type": "TechnitiumLibrary.Net.Dns.DnsClientException",
+    "terminal_frame_regex": "TechnitiumLibrary\\.Net\\.Dns\\.DnsDatagram\\.ReadFrom\\(Stream s\\)(?: in .+)?",
+    "reason": "Expected malformed-wire rejection stored in DnsDatagram.ParsingException by ReadFrom; the server logs it before returning FORMERR. Unknown exception types, other call sites and nested exceptions remain failures."
+  }
+]
