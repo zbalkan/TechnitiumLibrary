@@ -27,6 +27,7 @@ base profile.
 | `fuzz_dns.py` | Seeded malformed DNS packet campaign, UDP/TCP liveness oracle and JSON evidence |
 | `log_oracle.py` | Detect unexpected exception records added to server logs after provisioning; write JSON evidence and fail the job |
 | `log_exception_allowlist.json` | Known parser-rejection types and terminal stack frames permitted by the server-log oracle |
+| `network_negative_control.py` | Send a deterministic compression-loop DNS packet and verify the logged exception reaches the strict oracle |
 | `tests/` | Unit and end-to-end tests against local fakes of the API and DNS listeners |
 
 ## Environment
@@ -71,9 +72,9 @@ In CI the web service listens on `127.0.0.1` inside the server container, so
 only the API-facing setup scripts run in a sidecar sharing its network
 namespace. `fuzz_dns.py` runs in a separate container on `fuzznet` without
 API credentials and reaches the server only through its DNS listener
-(see `.github/workflows/fuzz-fixture.yml`). The workflow runs on pushes to
-`fuzz/**` branches that change the fixture, on relevant pull requests, and can
-be dispatched manually using the base profile. Signed UPDATE and AXFR/IXFR
+(see `.github/workflows/fuzz-fixture.yml`). The workflow runs on relevant pull requests and manual dispatches. The
+`fuzz/fixture-negative-control` implementation branch also has a temporary
+push trigger so its live checks can run without a pull request. Signed UPDATE and AXFR/IXFR
 variants are deferred until the campaign actually exercises those operations. It validates the fixture and sends 80 deterministic malformed DNS inputs over both UDP and TCP from a container on the internal Docker network. Response timeouts and disconnects are counted, not automatically treated as server defects. A valid authoritative SOA probe checks service availability over both transports every ten inputs. JSON evidence includes the seed, outcome counts and, for a health failure, the triggering packet in hexadecimal. This is a bounded smoke campaign, not coverage-guided fuzzing or DNS protocol-conformance testing. The workflow does not restore from the backup while consistency is unresolved. The upstream checkout is pinned for reproducibility.
 
 ## Server exception oracle (Phase 1.1)
@@ -106,7 +107,33 @@ not a proof of semantic correctness, and the scanner only covers exceptions
 actually written to server logs.
 
 This is not a DNS response-semantics oracle or a definitive packet attribution
-system. Phase 1.2 will isolate triggering inputs, Phase 1.5 will introduce a
-live packet-triggered negative control, and Phase 1.6 will validate responses
-to known-good requests. The unit tests exercise the classifier; they cannot
-replace the network-path negative control.
+system. Phase 1.2 will isolate triggering inputs; Phase 1.6 will validate
+responses to known-good requests.
+
+## Live network-path negative control (Phase 1.5)
+
+Before each fuzz campaign, the fixture snapshots the server logs and sends the
+fixed malformed `compression-loop` DNS packet over UDP from its isolated fuzzer
+container. It verifies that the server responds with matching query ID and
+`FORMERR`, then polls the server logs for the pinned
+`DnsClientException` / `DnsDatagram.ReadFrom(Stream s)` record.
+
+The verifier runs the unchanged production allowlist and also runs the log
+oracle with an **intentionally empty** allowlist. The production result must
+accept this documented rejection, while the strict result must flag it as an
+unexpected exception. The verifier writes its own JSON evidence and fails if
+the packet is not processed, the log entry is missing, Docker copying fails,
+the strict oracle misses it, or production classification reports a different
+exception.
+
+Only after a successful control does the workflow take a fresh baseline for
+the normal 80-case campaign. The negative-control log entry is therefore not
+included in the production campaign's exception count. A separate send report
+records the exact packet and DNS response in hex.
+
+**Scope limitation:** this control proves the end-to-end packet-to-log-to-oracle
+path, but it uses an expected parser rejection deliberately made unexpected by
+the strict configuration. It does not demonstrate that an arbitrary unexpected
+exception is generated or caught over the network; those cases still require
+the specialized parser regression corpus or an independently validated
+network-reachable reproducer.
