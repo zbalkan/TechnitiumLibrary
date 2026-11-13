@@ -19,6 +19,16 @@ Test("DNS question uncompressed size accounts for escaping", () =>
 Test("NSEC canonical comparison ordinary names preserved", () =>
     Require(DnsNSECRecordData.CanonicalComparison("a.example", "b.example") < 0,
         "Ordinary comparison changed"));
+Test("QNAME minimization preserves escaped label boundaries", () =>
+{
+    var q = new DnsQuestionRecord(@"a\.b.com", DnsResourceRecordType.A, DnsClass.IN);
+    var binding = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    var zoneCut = typeof(DnsQuestionRecord).GetProperty("ZoneCut", binding);
+    var minimized = typeof(DnsQuestionRecord).GetProperty("MinimizedName", binding);
+    Require(zoneCut is not null && minimized is not null, "QNAME minimization accessors missing");
+    zoneCut.SetValue(q, "com");
+    Require((string?)minimized.GetValue(q) == @"a\.b.com", "QNAME minimization split escaped label");
+});
 Test("NSEC3 next closer name respects escaped separators", () =>
     Require(DnsNSEC3RecordData.GetNextCloserName(@"x.a\.b.example", "example") == @"a\.b.example",
         "NSEC3 next closer name split a single DNS label"));
