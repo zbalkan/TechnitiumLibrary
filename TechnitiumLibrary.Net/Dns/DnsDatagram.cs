@@ -424,7 +424,7 @@ namespace TechnitiumLibrary.Net.Dns
 
         //A period preceded by a backslash is label data, not a separator.
         //Escaped backslashes are also part of the label, not escape prefixes.
-        private static int FindDomainLabelSeparator(ReadOnlySpan<char> domain)
+        internal static int FindDomainLabelSeparator(ReadOnlySpan<char> domain)
         {
             for (int i = 0; i < domain.Length; i++)
             {
