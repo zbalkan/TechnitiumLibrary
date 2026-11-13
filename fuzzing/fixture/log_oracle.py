@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Detect unexpected .NET exception records added to Technitium DNS Server logs."""
+"""Classify exceptions written during a Technitium DNS Server fuzz campaign."""
 from __future__ import annotations
 
 import argparse
@@ -8,21 +8,34 @@ import re
 from pathlib import Path
 
 ENTRY = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (UTC|Local)\] ")
-EXCEPTION = re.compile(r"(?<![\w.])((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*(?:Exception|Error)):\s*(.*)")
+# Match bare Exception and System.Exception as well as concrete *Exception / *Error types.
+EXCEPTION = re.compile(
+    r"(?<![\w.])((?:[A-Za-z_]\w*\.)*(?:[A-Za-z_]\w*(?:Exception|Error)|Exception|Error)):[ \t]*(.*)"
+)
 FRAME = re.compile(r"^\s*at\s+(.+)")
 MAX_LOG_BYTES = 16 * 1024 * 1024
 
 
-def added_text(now: Path, before: Path | None) -> str:
+def added_text(now: Path, baseline: Path | None) -> str:
     data = now.read_bytes()
     if len(data) > MAX_LOG_BYTES:
         raise ValueError(f"Log exceeds safety limit: {now.name}")
-    if before is not None and before.exists():
-        original = before.read_bytes()
-        if not data.startswith(original):
-            raise ValueError(f"Log changed before baseline boundary: {now.name}")
-        data = data[len(original):]
-    return data.decode("utf-8", errors="replace")
+    if baseline is None or not baseline.exists():
+        return data.decode("utf-8", errors="replace")
+    original = baseline.read_bytes()
+    if not data.startswith(original):
+        raise ValueError(f"Log changed before baseline boundary: {now.name}")
+    delta = data[len(original):].decode("utf-8", errors="replace")
+    if not original:
+        return delta
+
+    # A docker cp can snapshot the middle of a multi-line log entry. Ignore
+    # any continuation of that pre-campaign entry, and resume at the first
+    # complete NEW timestamped entry. Never classify the old tail as a case.
+    for line in delta.splitlines(keepends=True):
+        if ENTRY.match(line):
+            return delta[delta.index(line):]
+    return ""
 
 
 def entries(text: str):
@@ -35,12 +48,44 @@ def entries(text: str):
         elif record:
             record.append(line)
         elif line.strip():
-            raise ValueError("Log begins with an incomplete entry")
+            raise ValueError("New log begins with an incomplete entry")
     if record:
         yield record
 
 
+def validate_rules(rules: object) -> list[dict]:
+    if not isinstance(rules, list):
+        raise ValueError("Allowlist must be a JSON list")
+    for rule in rules:
+        required = {"type", "terminal_frame_regex", "reason"}
+        optional = {"message_regex"}
+        if (not isinstance(rule, dict) or
+                not required.issubset(rule) or
+                not set(rule).issubset(required | optional) or
+                not all(isinstance(value, str) and value for value in rule.values())):
+            raise ValueError("Each allowlist rule needs type, terminal_frame_regex and reason; message_regex is optional")
+        re.compile(rule["terminal_frame_regex"])
+        if "message_regex" in rule:
+            re.compile(rule["message_regex"])
+    return rules
+
+
+def classify(kind: str, message: str, frames: list[str], rules: list[dict]) -> dict | None:
+    if not frames:
+        return None
+    for rule in rules:
+        if kind != rule["type"]:
+            continue
+        if re.fullmatch(rule["terminal_frame_regex"], frames[-1]) is None:
+            continue
+        if "message_regex" in rule and re.fullmatch(rule["message_regex"], message) is None:
+            continue
+        return rule
+    return None
+
+
 def scan(log_dir: Path, baseline_dir: Path, allowlist: list[dict]) -> dict:
+    rules = validate_rules(allowlist)
     if not baseline_dir.is_dir():
         raise ValueError(f"Missing pre-campaign log baseline: {baseline_dir}")
     if not log_dir.is_dir():
@@ -48,30 +93,31 @@ def scan(log_dir: Path, baseline_dir: Path, allowlist: list[dict]) -> dict:
     files = sorted(log_dir.glob("*.log"))
     if not files:
         raise ValueError("No server log files found")
+    missing = {p.name for p in baseline_dir.glob("*.log")} - {p.name for p in files}
+    if missing:
+        raise ValueError(f"Pre-campaign log file disappeared: {', '.join(sorted(missing))}")
     findings = []
     records = 0
     for path in files:
         baseline = baseline_dir / path.name
-        for record in entries(added_text(path, baseline)):
+        for record in entries(added_text(path, baseline if baseline.exists() else None)):
             records += 1
-            for index, line in enumerate(record):
-                match = EXCEPTION.search(line)
-                if not match:
-                    continue
+            headers = [(index, match) for index, line in enumerate(record)
+                       if (match := EXCEPTION.search(line))]
+            for position, (index, match) in enumerate(headers):
+                end = headers[position + 1][0] if position + 1 < len(headers) else len(record)
                 kind, message = match.groups()
-                permitted = next((rule for rule in allowlist
-                                  if rule["type"] == kind
-                                  and re.search(rule["message_regex"], message)), None)
+                frames = [m.group(1) for line in record[index + 1:end]
+                          if (m := FRAME.match(line))]
+                allowed = classify(kind, message, frames, rules)
                 findings.append({
                     "log": path.name,
                     "timestamp": ENTRY.match(record[0]).group(1),
                     "timezone": ENTRY.match(record[0]).group(2),
-                    "type": kind,
-                    "message": message,
-                    "frames": [m.group(1) for tail in record[index + 1:]
-                               if (m := FRAME.match(tail))][:5],
-                    "allowed": permitted is not None,
-                    "reason": permitted["reason"] if permitted else None,
+                    "type": kind, "message": message,
+                    "frames": frames[:5], "terminal_frame": frames[-1] if frames else None,
+                    "allowed": allowed is not None,
+                    "reason": allowed["reason"] if allowed else None,
                 })
     unexpected = sum(not item["allowed"] for item in findings)
     return {"status": "failed" if unexpected else "passed",
@@ -85,16 +131,13 @@ def main() -> int:
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--allowlist", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--copy-exit", type=int, default=0,
+                        help="Exit status from docker cp; nonzero always fails the oracle")
     args = parser.parse_args()
     try:
-        rules = json.loads(args.allowlist.read_text())
-        if not isinstance(rules, list) or any(
-            not isinstance(rule, dict) or
-            set(rule) != {"type", "message_regex", "reason"} or
-            not all(isinstance(value, str) and value for value in rule.values())
-            for rule in rules
-        ):
-            raise ValueError("Every allowlist entry needs type, message_regex and reason")
+        if args.copy_exit != 0:
+            raise ValueError(f"Failed to copy server logs: docker cp exited {args.copy_exit}")
+        rules = validate_rules(json.loads(args.allowlist.read_text()))
         result = scan(args.logs, args.baseline, rules)
     except (OSError, ValueError, re.error) as error:
         result = {"status": "error", "reason": str(error)}
