@@ -35,6 +35,14 @@ Test("Invalid ordinary names remain rejected", () =>
     foreach (string name in new[] { ".example", "example.", "a..b", @"a\q.example", "bad!name.example" })
         Require(!DnsClient.IsDomainNameValid(name), $"Unexpectedly accepted '{name}'");
 });
+Test("Zone-file relative naming does not split an escaped label", () =>
+{
+    var rr = new DnsResourceRecord(@"a\.example", DnsResourceRecordType.A,
+        DnsClass.IN, 60, new DnsARecordData(System.Net.IPAddress.Parse("192.0.2.1")));
+    string entry = rr.ToZoneFileEntry("example");
+    Require(entry.StartsWith(@"a\.example.", StringComparison.Ordinal),
+        $"Zone file owner incorrectly relativized: {entry}");
+});
 Test("Encoded-domain length matches wire length", () =>
     Require(DnsDatagram.GetSerializeDomainNameLength(@"a\.b.example") == 13,
         "Wrong encoded name size"));
