@@ -14,6 +14,54 @@ from pathlib import Path
 ISSUES = ("bug01", "bug02", "bug04", "bug05", "bug06")
 
 
+
+def inspect(dll: Path, file: Path) -> dict:
+    response = subprocess.run(
+        ["dotnet", str(dll), "--inspect", str(file)],
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    if response.returncode:
+        return {"status": "inspection_failed", "diagnostic": response.stderr[-1000:]}
+    return json.loads(response.stdout)
+
+
+def replace_first_wire_name_dot(data: bytes) -> bytes | None:
+    """Preserve DNS name length bytes; replace only an octet 0x2e in a label."""
+    result = bytearray(data)
+    pos = 12
+    while pos < len(result):
+        length = result[pos]
+        if length == 0 or length & 0xC0:
+            break
+        pos += 1
+        if pos + length > len(result):
+            break
+        for index in range(pos, pos + length):
+            if result[index] == 0x2e:
+                result[index] = ord("-")
+                return bytes(result)
+        pos += length
+    return None
+
+
+def examine_serialization_cause(dll: Path, sample: Path) -> dict:
+    original = inspect(dll, sample)
+    changed = replace_first_wire_name_dot(sample.read_bytes())
+    detail = {"initial_parse": original, "literal_dot_in_first_name": changed is not None}
+    if changed is None:
+        return detail
+    alternative = sample.with_suffix(".dot-replaced.bin")
+    alternative.write_bytes(changed)
+    detail["dot_replaced_parse"] = inspect(dll, alternative)
+    replay = subprocess.run(
+        ["dotnet", str(dll), "--replay-target", "serialization", str(alternative)],
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    detail["dot_replaced_roundtrip_ok"] = replay.returncode == 0
+    detail["dot_replaced_diagnostic"] = (replay.stdout + replay.stderr)[-900:]
+    return detail
+
+
 def run_one(name: str, dll: Path, out_root: Path) -> dict:
     out = out_root / name
     cmd = ["python3", f"tests/repros/{name}/reproduce.py", "--dll", str(dll),
@@ -42,9 +90,12 @@ def run_one(name: str, dll: Path, out_root: Path) -> dict:
             continue
         key = case.get("case", case.get("name", "unknown"))
         log = out / (key + ".log")
-        relevant.append({"case": key, "recorded_marker_matched": case["expectation_met"],
-                         "diagnostic_excerpt": log.read_text(errors="replace")[-1500:]
-                         if log.exists() else None})
+        detail = {"case": key, "recorded_marker_matched": case["expectation_met"],
+                  "diagnostic_excerpt": log.read_text(errors="replace")[-1500:]
+                  if log.exists() else None}
+        if name in ("bug04", "bug05", "bug06"):
+            detail["cause_exploration"] = examine_serialization_cause(dll, out / (key + ".bin"))
+        relevant.append(detail)
     return {"finding": name, "status": status, "exit_code": result.returncode,
             "controls_ok": all(case["expectation_met"] for case in controls),
             "cases": relevant}
