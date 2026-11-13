@@ -422,9 +422,101 @@ namespace TechnitiumLibrary.Net.Dns
             return t;
         }
 
+        //A period preceded by a backslash is label data, not a separator.
+        //Escaped backslashes are also part of the label, not escape prefixes.
+        internal static int FindDomainLabelSeparator(ReadOnlySpan<char> domain)
+        {
+            for (int i = 0; i < domain.Length; i++)
+            {
+                if ((domain[i] == '\\') && (i + 1 < domain.Length) && ((domain[i + 1] == '.') || (domain[i + 1] == '\\')))
+                {
+                    i++;
+                    continue;
+                }
+
+                if (domain[i] == '.')
+                    return i;
+            }
+
+            return -1;
+        }
+
+        //Split only on unescaped presentation separators, preserving label contents.
+        internal static string[] SplitDomainNameLabels(string domain)
+        {
+            if (domain.Length == 0)
+                return [];
+
+            List<string> labels = [];
+            ReadOnlySpan<char> remaining = domain;
+            while (true)
+            {
+                int separator = FindDomainLabelSeparator(remaining);
+                if (separator < 0)
+                {
+                    labels.Add(remaining.ToString());
+                    return labels.ToArray();
+                }
+
+                labels.Add(remaining.Slice(0, separator).ToString());
+                remaining = remaining.Slice(separator + 1);
+            }
+        }
+
+        internal static int FindLastDomainLabelSeparator(ReadOnlySpan<char> domain)
+        {
+            int last = -1;
+            for (int i = 0; i < domain.Length; i++)
+            {
+                if ((domain[i] == '\\') && (i + 1 < domain.Length) && ((domain[i + 1] == '.') || (domain[i + 1] == '\\')))
+                {
+                    i++;
+                    continue;
+                }
+
+                if (domain[i] == '.')
+                    last = i;
+            }
+
+            return last;
+        }
+
+        //A textual suffix is a DNS parent only when its preceding period is
+        //an actual label separator, not a period escaped within a label.
+        internal static bool IsSubDomainName(string name, string parent)
+        {
+            if (string.IsNullOrEmpty(parent) || !name.EndsWith("." + parent, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            int separator = name.Length - parent.Length - 1;
+            return FindLastDomainLabelSeparator(name.AsSpan(0, separator + 1)) == separator;
+        }
+
+        //Undo the two escapes emitted by DeserializeDomainName, without
+        // interpreting an escaped period as a separator.
+        internal static string UnescapeDomainLabel(string label)
+        {
+            if (label.IndexOf('\\') < 0)
+                return label;
+
+            Span<char> decoded = stackalloc char[label.Length];
+            int length = 0;
+            for (int i = 0; i < label.Length; i++)
+            {
+                char c = label[i];
+                if ((c == '\\') && (i + 1 < label.Length) && ((label[i + 1] == '.') || (label[i + 1] == '\\')))
+                    c = label[++i];
+
+                decoded[length++] = c;
+            }
+
+            return new string(decoded.Slice(0, length));
+        }
+
         public static void SerializeDomainName(ReadOnlySpan<char> domain, Stream s, List<DnsDomainOffset> domainEntries = null, bool isEmailAddress = false)
         {
             Span<byte> labelBytes = stackalloc byte[63];
+            Span<char> unescapedLabel = stackalloc char[63];
             int labelBytesLength;
 
             ReadOnlySpan<char> label;
@@ -461,13 +553,13 @@ namespace TechnitiumLibrary.Net.Dns
                 {
                     i = domain.LastIndexOf('@');
                     if (i < 0)
-                        i = domain.IndexOf('.');
+                        i = FindDomainLabelSeparator(domain);
 
                     isEmailAddress = false;
                 }
                 else
                 {
-                    i = domain.IndexOf('.');
+                    i = FindDomainLabelSeparator(domain);
                 }
 
                 if (i < 0)
@@ -481,7 +573,20 @@ namespace TechnitiumLibrary.Net.Dns
                     domain = domain.Slice(i + 1);
                 }
 
-                if (!Encoding.Latin1.TryGetBytes(label, labelBytes, out labelBytesLength))
+                int unescapedLength = 0;
+                for (int j = 0; j < label.Length; j++)
+                {
+                    char c = label[j];
+                    if ((c == '\\') && (j + 1 < label.Length) && ((label[j + 1] == '.') || (label[j + 1] == '\\')))
+                        c = label[++j];
+
+                    if (unescapedLength == unescapedLabel.Length)
+                        throw new DnsClientException("Invalid domain name: label cannot exceed 63 bytes.");
+
+                    unescapedLabel[unescapedLength++] = c;
+                }
+
+                if (!Encoding.Latin1.TryGetBytes(unescapedLabel.Slice(0, unescapedLength), labelBytes, out labelBytesLength))
                     throw new DnsClientException("Invalid domain name: label cannot exceed 63 bytes.");
 
                 s.WriteByte((byte)labelBytesLength);
@@ -500,9 +605,12 @@ namespace TechnitiumLibrary.Net.Dns
             if (labelLength < 0)
                 throw new EndOfStreamException();
 
-            Span<char> domain = stackalloc char[256];
+            //Escaping a literal '.' or '\\' doubles its presentation length.
+            //512 chars accommodate every valid DNS name of at most 255 wire octets.
+            Span<char> domain = stackalloc char[512];
             Span<byte> buffer = stackalloc byte[63];
             int domainPosition = 0;
+            int wireNameLength = 1; //including the terminating root label
 
             while (labelLength > 0)
             {
@@ -519,9 +627,12 @@ namespace TechnitiumLibrary.Net.Dns
                     string domainSuffix = DeserializeDomainName(s, maxDepth - 1, ignoreMissingNullTermination, isEmailAddress);
                     if (domainSuffix.Length > 0)
                     {
-                        if (!domainSuffix.AsSpan().TryCopyTo(domain.Slice(domainPosition)))
+                        int suffixWireLength = GetSerializeDomainNameLength(domainSuffix);
+                        if (suffixWireLength - 1 > 255 - wireNameLength)
                             throw new DnsClientException("Error while reading domain name: domain name length cannot exceed 255 bytes.");
 
+                        wireNameLength += suffixWireLength - 1;
+                        domainSuffix.AsSpan().CopyTo(domain.Slice(domainPosition));
                         domainPosition += domainSuffix.Length;
                         domain[domainPosition++] = '.';
                     }
@@ -533,13 +644,20 @@ namespace TechnitiumLibrary.Net.Dns
                 if (labelLength > 63)
                     throw new DnsClientException("Error while reading domain name: label length cannot exceed 63 bytes.");
 
+                if (labelLength + 1 > 255 - wireNameLength)
+                    throw new DnsClientException("Error while reading domain name: domain name length cannot exceed 255 bytes.");
+
+                wireNameLength += labelLength + 1;
                 Span<byte> label = buffer.Slice(0, labelLength);
                 s.ReadExactly(label);
 
-                if (!Encoding.Latin1.TryGetChars(label, domain.Slice(domainPosition), out _))
-                    throw new DnsClientException("Error while reading domain name: domain name length cannot exceed 255 bytes.");
+                foreach (byte octet in label)
+                {
+                    if ((octet == (byte)'.') || (octet == (byte)'\\'))
+                        domain[domainPosition++] = '\\';
 
-                domainPosition += labelLength;
+                    domain[domainPosition++] = (char)octet;
+                }
 
                 if (isEmailAddress)
                 {
@@ -595,7 +713,17 @@ namespace TechnitiumLibrary.Net.Dns
             if (domain.Length == 0)
                 return 1;
 
-            return domain.Length + 2;
+            int length = domain.Length + 2;
+            for (int i = 0; i + 1 < domain.Length; i++)
+            {
+                if ((domain[i] == '\\') && ((domain[i + 1] == '.') || (domain[i + 1] == '\\')))
+                {
+                    length--;
+                    i++;
+                }
+            }
+
+            return length;
         }
 
         internal static string EncodeCharacterString(string value)
