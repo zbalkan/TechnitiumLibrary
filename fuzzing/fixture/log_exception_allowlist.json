@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "type": "TechnitiumLibrary.Net.Dns.DnsClientException",
+    "message_regex": "^Error while reading domain name: max depth for decompression reached$",
+    "reason": "Expected rejection of a DNS compression pointer loop; parser stores the error and server responds with FORMERR."
+  },
+  {
+    "type": "TechnitiumLibrary.Net.Dns.DnsClientException",
+    "message_regex": "^Error while reading domain name: label length cannot exceed 63 bytes\\.$",
+    "reason": "Expected rejection of a label longer than the DNS 63-byte limit; parser stores the error and server responds with FORMERR."
+  }
+]
