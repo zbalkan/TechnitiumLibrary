@@ -275,7 +275,7 @@ namespace TechnitiumLibrary.Net.Dns
                 return _originDomain;
             }
 
-            if (DnsDatagram.FindLastDomainLabelSeparator(domain) == domain.Length - 1)
+            if ((domain.Length > 0) && (DnsDatagram.FindLastDomainLabelSeparator(domain) == domain.Length - 1))
                 return domain.Substring(0, domain.Length - 1);
 
             if (_originDomain is null)
@@ -512,7 +512,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                     domain = _originDomain;
                 }
-                else if (DnsDatagram.FindLastDomainLabelSeparator(domain) == domain.Length - 1)
+                else if ((domain.Length > 0) && (DnsDatagram.FindLastDomainLabelSeparator(domain) == domain.Length - 1))
                 {
                     domain = domain.Substring(0, domain.Length - 1);
                 }
