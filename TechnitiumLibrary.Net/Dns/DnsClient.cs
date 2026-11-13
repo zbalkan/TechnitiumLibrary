@@ -784,7 +784,7 @@ namespace TechnitiumLibrary.Net.Dns
                                                 while (true)
                                                 {
                                                     //get parent domain
-                                                    int i = currentDomain.IndexOf('.');
+                                                    int i = DnsDatagram.FindDomainLabelSeparator(currentDomain);
                                                     if (i < 0)
                                                         break;
 
@@ -3349,7 +3349,7 @@ namespace TechnitiumLibrary.Net.Dns
             if (ownerName.Equals(dnsKeyOwnerName, StringComparison.OrdinalIgnoreCase) || ((dnsKeyOwnerName.Length > 0) && !ownerName.EndsWith("." + dnsKeyOwnerName, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException();
 
-            string[] labels = ownerName.Split('.');
+            string[] labels = DnsDatagram.SplitDomainNameLabels(ownerName);
             string nextDomain = null;
 
             for (int i = 0; i < labels.Length; i++)
