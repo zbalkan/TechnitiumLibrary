@@ -441,6 +441,67 @@ namespace TechnitiumLibrary.Net.Dns
             return -1;
         }
 
+        //Split only on unescaped presentation separators, preserving label contents.
+        internal static string[] SplitDomainNameLabels(string domain)
+        {
+            if (domain.Length == 0)
+                return [];
+
+            List<string> labels = [];
+            ReadOnlySpan<char> remaining = domain;
+            while (true)
+            {
+                int separator = FindDomainLabelSeparator(remaining);
+                if (separator < 0)
+                {
+                    labels.Add(remaining.ToString());
+                    return labels.ToArray();
+                }
+
+                labels.Add(remaining.Slice(0, separator).ToString());
+                remaining = remaining.Slice(separator + 1);
+            }
+        }
+
+        internal static int FindLastDomainLabelSeparator(ReadOnlySpan<char> domain)
+        {
+            int last = -1;
+            for (int i = 0; i < domain.Length; i++)
+            {
+                if ((domain[i] == '\\') && (i + 1 < domain.Length) && ((domain[i + 1] == '.') || (domain[i + 1] == '\\')))
+                {
+                    i++;
+                    continue;
+                }
+
+                if (domain[i] == '.')
+                    last = i;
+            }
+
+            return last;
+        }
+
+        //Undo the two escapes emitted by DeserializeDomainName, without
+        // interpreting an escaped period as a separator.
+        internal static string UnescapeDomainLabel(string label)
+        {
+            if (label.IndexOf('\\') < 0)
+                return label;
+
+            Span<char> decoded = stackalloc char[label.Length];
+            int length = 0;
+            for (int i = 0; i < label.Length; i++)
+            {
+                char c = label[i];
+                if ((c == '\\') && (i + 1 < label.Length) && ((label[i + 1] == '.') || (label[i + 1] == '\\')))
+                    c = label[++i];
+
+                decoded[length++] = c;
+            }
+
+            return new string(decoded.Slice(0, length));
+        }
+
         public static void SerializeDomainName(ReadOnlySpan<char> domain, Stream s, List<DnsDomainOffset> domainEntries = null, bool isEmailAddress = false)
         {
             Span<byte> labelBytes = stackalloc byte[63];
