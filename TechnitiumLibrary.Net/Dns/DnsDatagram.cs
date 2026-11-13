@@ -519,9 +519,11 @@ namespace TechnitiumLibrary.Net.Dns
                     string domainSuffix = DeserializeDomainName(s, maxDepth - 1, ignoreMissingNullTermination, isEmailAddress);
                     if (domainSuffix.Length > 0)
                     {
-                        if (!domainSuffix.AsSpan().TryCopyTo(domain.Slice(domainPosition)))
+                        //Keep room for the separator appended below, not just the suffix.
+                        if (domainSuffix.Length >= domain.Length - domainPosition)
                             throw new DnsClientException("Error while reading domain name: domain name length cannot exceed 255 bytes.");
 
+                        domainSuffix.AsSpan().CopyTo(domain.Slice(domainPosition));
                         domainPosition += domainSuffix.Length;
                         domain[domainPosition++] = '.';
                     }
@@ -536,9 +538,11 @@ namespace TechnitiumLibrary.Net.Dns
                 Span<byte> label = buffer.Slice(0, labelLength);
                 s.ReadExactly(label);
 
-                if (!Encoding.Latin1.TryGetChars(label, domain.Slice(domainPosition), out _))
+                //Reserve one extra character for the label separator.
+                if (labelLength >= domain.Length - domainPosition)
                     throw new DnsClientException("Error while reading domain name: domain name length cannot exceed 255 bytes.");
 
+                Encoding.Latin1.GetChars(label, domain.Slice(domainPosition));
                 domainPosition += labelLength;
 
                 if (isEmailAddress)
