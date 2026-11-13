@@ -25,6 +25,8 @@ base profile.
 | `verify.py` | Diffs settings and zone options against the profile, then queries each zone's SOA over UDP and TCP |
 | `restore.py` | Restore utility; not used by fuzzing CI until backup consistency is resolved |
 | `fuzz_dns.py` | Seeded malformed DNS packet campaign, UDP/TCP liveness oracle and JSON evidence |
+| `log_oracle.py` | Detect unexpected exception records added to server logs after provisioning; write JSON evidence and fail the job |
+| `log_exception_allowlist.json` | Explicit, reasoned exceptions permitted by the server-log oracle (currently empty) |
 | `tests/` | Unit and end-to-end tests against local fakes of the API and DNS listeners |
 
 ## Environment
@@ -73,3 +75,11 @@ API credentials and reaches the server only through its DNS listener
 `fuzz/**` branches that change the fixture, on relevant pull requests, and can
 be dispatched manually using the base profile. Signed UPDATE and AXFR/IXFR
 variants are deferred until the campaign actually exercises those operations. It validates the fixture and sends 80 deterministic malformed DNS inputs over both UDP and TCP from a container on the internal Docker network. Response timeouts and disconnects are counted, not automatically treated as server defects. A valid authoritative SOA probe checks service availability over both transports every ten inputs. JSON evidence includes the seed, outcome counts and, for a health failure, the triggering packet in hexadecimal. This is a bounded smoke campaign, not coverage-guided fuzzing or DNS protocol-conformance testing. The workflow does not restore from the backup while consistency is unresolved. The upstream checkout is pinned for reproducibility.
+
+## Server exception oracle (Phase 1.1)
+
+The fixture captures the server's `/etc/dns/logs` folder after provisioning and again after the DNS campaigns. The scanner compares each file against the pre-campaign byte prefix and examines only appended log entries. Newly created log files are also inspected. A missing log directory, missing baseline, changed prefix, or unexpected exception fails the scanner. Exception records include timestamp, type, message and up to five top stack frames in `log-oracle-evidence.json`.
+
+The allowlist is initially empty. If a documented expected rejection genuinely produces an exception log, add a rule with the fully qualified exception type, an anchored message regular expression, and a reason. Do not broadly allow exceptions solely because the server remains available.
+
+This is a log-based regression oracle, not packet attribution or a DNS response-semantics oracle. Phase 1.2 will attribute exceptions to individual inputs; Phase 1.5 will add a network-path negative control. The existing unit tests exercise a representative multiline exception record but do not replace the live negative control.
