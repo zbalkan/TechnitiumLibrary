@@ -42,6 +42,25 @@ Test("Ordinary names decode and serialize without changes", () =>
     CheckRoundTrip(Convert.FromHexString("03777777076578616d706c6503636f6d00")));
 Test("Literal period and backslash decode and serialize without changes", () =>
     CheckRoundTrip(Convert.FromHexString("05612e625c6300")));
+Test("Maximum wire name with escaped label octets", () =>
+{
+    using MemoryStream name = new();
+    foreach (int count in new[] {63, 63, 63, 61})
+    {
+        name.WriteByte((byte)count);
+        for (int i = 0; i < count; i++)
+            name.WriteByte((byte)'.');
+    }
+    name.WriteByte(0);
+    Require(name.Length == 255, "Test must construct maximum RFC 1035 name");
+    CheckRoundTrip(name.ToArray());
+});
+Test("BUG-04 invalid-label serialization regression", () =>
+    CheckDatagramRoundTrip("12340100000100000000000105576c61692e0475657374000001000100002c04010008000f0004c0000201"));
+Test("BUG-04 truncated serialization regression", () =>
+    CheckDatagramRoundTrip("123481400000000000010000052e6c61696e04746573740017010001c00c002a000152348180000100028080"));
+Test("BUG-06 RRSIG serialization regression", () =>
+    CheckDatagramRoundTrip("12348580000100010000000005706c61696e042e00010000002e0001c00c002e00010000003c005e696e773594230d020000003c010001e8000000000000000000123485800003000100000000050000000000000000000000000000000000000000010000003c005e00010d021300003c77359400713fb30004d205706c61696e0474657374"));
 Test("Random valid wire-name round trips", () =>
 {
     Random random = new(20261114);
@@ -96,4 +115,23 @@ static void CheckRoundTrip(byte[] original)
     DnsDatagram.SerializeDomainName(name, output);
     if (!output.ToArray().AsSpan().SequenceEqual(original))
         throw new InvalidOperationException($"Wire bytes changed: {Convert.ToHexString(original)} => {Convert.ToHexString(output.ToArray())}");
+}
+
+
+static void CheckDatagramRoundTrip(string hex)
+{
+    using MemoryStream input = new(Convert.FromHexString(hex), writable: false);
+    DnsDatagram parsed = DnsDatagram.ReadFrom(input);
+    Require(parsed.ParsingException is null, "Original DNS packet rejected");
+    using MemoryStream output = new();
+    parsed.WriteTo(output);
+    output.Position = 0;
+    DnsDatagram reparsed = DnsDatagram.ReadFrom(output);
+    Require(reparsed.ParsingException is null, "Serialized DNS packet rejected");
+    Require(parsed.Identifier == reparsed.Identifier &&
+        parsed.Question.Count == reparsed.Question.Count &&
+        parsed.Answer.Count == reparsed.Answer.Count &&
+        parsed.Authority.Count == reparsed.Authority.Count &&
+        parsed.Additional.Count == reparsed.Additional.Count,
+        "DNS header or section count changed");
 }
