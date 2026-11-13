@@ -65,6 +65,16 @@ class LogOracleTests(unittest.TestCase):
         self.assertEqual(result["exceptions"][0]["type"], "System.ArgumentOutOfRangeException")
         self.assertEqual(len(result["exceptions"][0]["frames"]), 2)
 
+    def test_ignores_other_colon_keys_and_long_dotted_tokens(self):
+        long_token = "a." * 20000 + "a: ordinary log field"
+        self.assertEqual(list(log_oracle._exception_headers([long_token])), [])
+        self.assertEqual(list(log_oracle._exception_headers(["Status: ready"])), [])
+        self.assertEqual(
+            [match.group(1) for _, match in log_oracle._exception_headers(
+                ["System.Exception: failed", "Exception: failed"])],
+            ["System.Exception", "Exception"],
+        )
+
     def test_catches_bare_exception_and_system_exception(self):
         self.write(PREFIX + "Exception: boom\n   at Foo.Bar()\n" +
                    PREFIX + "System.Exception: boom\n   at Foo.Bar()\n")
