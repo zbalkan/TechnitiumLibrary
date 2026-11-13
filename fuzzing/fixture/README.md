@@ -26,7 +26,7 @@ base profile.
 | `restore.py` | Restore utility; not used by fuzzing CI until backup consistency is resolved |
 | `fuzz_dns.py` | Seeded malformed DNS packet campaign, UDP/TCP liveness oracle and JSON evidence |
 | `log_oracle.py` | Detect unexpected exception records added to server logs after provisioning; write JSON evidence and fail the job |
-| `log_exception_allowlist.json` | Explicit, reasoned exceptions permitted by the server-log oracle (currently empty) |
+| `log_exception_allowlist.json` | Known parser-rejection types and terminal stack frames permitted by the server-log oracle |
 | `tests/` | Unit and end-to-end tests against local fakes of the API and DNS listeners |
 
 ## Environment
@@ -78,8 +78,35 @@ variants are deferred until the campaign actually exercises those operations. It
 
 ## Server exception oracle (Phase 1.1)
 
-The fixture captures the server's `/etc/dns/logs` folder after provisioning and again after the DNS campaigns. The scanner compares each file against the pre-campaign byte prefix and examines only appended log entries. Newly created log files are also inspected. A missing log directory, missing baseline, changed prefix, or unexpected exception fails the scanner. Exception records include timestamp, type, message and up to five top stack frames in `log-oracle-evidence.json`.
+The fixture copies `/etc/dns/logs` after provisioning and after its network
+campaigns. A byte-exact prefix is checked for each pre-existing log file;
+a missing baseline file, modified prefix, unreadable logs, or failed `docker cp`
+is a CI error. The final `docker cp` status is passed to the scanner, which
+still writes `log-oracle-evidence.json` on errors. A baseline captured during
+a multi-line record can end mid-record: the scanner ignores only that old
+record's trailing continuation, then resumes at the first new timestamped
+entry. Any new daily log file is scanned in full.
 
-The allowlist is initially empty. If a documented expected rejection genuinely produces an exception log, add a rule with the fully qualified exception type, an anchored message regular expression, and a reason. Do not broadly allow exceptions solely because the server remains available.
+The allowlist currently has one rule: `DnsClientException` with its last
+stack frame at `DnsDatagram.ReadFrom(Stream s)`. That pairing matches the
+malformed domain-name rejection cases observed in fixture CI. It avoids an
+unbounded list of rejection messages while still flagging unexpected parser
+exceptions, including `IndexOutOfRangeException`, `NullReferenceException`,
+and bare `Exception`. Inner exceptions are assessed independently. The
+scanner records the exception type, message, timestamp, first five frames,
+and terminal frame.
 
-This is a log-based regression oracle, not packet attribution or a DNS response-semantics oracle. Phase 1.2 will attribute exceptions to individual inputs; Phase 1.5 will add a network-path negative control. The existing unit tests exercise a representative multiline exception record but do not replace the live negative control.
+Each rule requires an exact exception type, a full-match regex for the
+terminal stack frame, and a written reason; a full-match message regex is
+optional for exceptional cases. No rule permits a stackless exception.
+Additional rejection types such as `FormatException` or
+`InvalidDataException` must be justified against observed server behavior
+before being added. Type and location alone are conservative heuristics,
+not a proof of semantic correctness, and the scanner only covers exceptions
+actually written to server logs.
+
+This is not a DNS response-semantics oracle or a definitive packet attribution
+system. Phase 1.2 will isolate triggering inputs, Phase 1.5 will introduce a
+live packet-triggered negative control, and Phase 1.6 will validate responses
+to known-good requests. The unit tests exercise the classifier; they cannot
+replace the network-path negative control.
