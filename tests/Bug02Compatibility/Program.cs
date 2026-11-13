@@ -25,7 +25,8 @@ Test("QNAME minimization preserves escaped label boundaries", () =>
     var binding = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
     var zoneCut = typeof(DnsQuestionRecord).GetProperty("ZoneCut", binding);
     var minimized = typeof(DnsQuestionRecord).GetProperty("MinimizedName", binding);
-    Require(zoneCut is not null && minimized is not null, "QNAME minimization accessors missing");
+    if (zoneCut is null || minimized is null)
+        throw new InvalidOperationException("QNAME minimization accessors missing");
     zoneCut.SetValue(q, "com");
     Require((string?)minimized.GetValue(q) == @"a\.b.com", "QNAME minimization split escaped label");
 });
@@ -56,15 +57,16 @@ Test("Zone-file relative naming does not split an escaped label", () =>
 Test("Zone-file parser treats escaped trailing period as label data", () =>
 {
     using StringReader reader = new(@"a\. 60 IN A 192.0.2.1");
-    var records = ZoneFile.ReadZoneFileFromAsync(reader, "example").GetAwaiter().GetResult();
+    var records = ZoneFile.ReadZoneFileFromAsync(reader, "example").GetAwaiter().GetResult()
+        ?? throw new InvalidOperationException("Zone parser returned null");
     Require(records.Count == 1 && records[0].Name == @"a\..example",
         "Escaped trailing period was misclassified as FQDN termination");
 });
 Test("DNS parent check ignores periods inside labels", () =>
 {
     var checker = typeof(DnsDatagram).GetMethod("IsSubDomainName",
-        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-    Require(checker is not null, "DNS parent helper is missing");
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("DNS parent helper is missing");
 
     bool IsChild(string name, string parent) =>
         (bool)checker.Invoke(null, [name, parent])!;
@@ -82,7 +84,8 @@ Test("Zone-file write and read preserve escaped owner name", () =>
     using StringWriter writer = new();
     ZoneFile.WriteZoneFileToAsync(writer, "example", [rr]).GetAwaiter().GetResult();
     using StringReader reader = new(writer.ToString());
-    var records = ZoneFile.ReadZoneFileFromAsync(reader, "example").GetAwaiter().GetResult();
+    var records = ZoneFile.ReadZoneFileFromAsync(reader, "example").GetAwaiter().GetResult()
+        ?? throw new InvalidOperationException("Zone parser returned null");
     Require(records.Count == 1 && records[0].Name == rr.Name,
         "Export/import changed escaped DNS owner name");
 });
