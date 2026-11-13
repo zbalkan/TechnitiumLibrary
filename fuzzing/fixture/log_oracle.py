@@ -7,9 +7,9 @@ import json
 import re
 from pathlib import Path
 
-ENTRY = re.compile(r"^\\[(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) (UTC|Local)\\] ")
-EXCEPTION = re.compile(r"(?<![\\w.])((?:[A-Za-z_]\\w*\\.)*[A-Za-z_]\\w*(?:Exception|Error)):\\s*(.*)")
-FRAME = re.compile(r"^\\s*at\\s+(.+)")
+ENTRY = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (UTC|Local)\] ")
+EXCEPTION = re.compile(r"(?<![\w.])((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*(?:Exception|Error)):\s*(.*)")
+FRAME = re.compile(r"^\s*at\s+(.+)")
 MAX_LOG_BYTES = 16 * 1024 * 1024
 
 
