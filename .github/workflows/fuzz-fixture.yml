@@ -129,11 +129,15 @@ jobs:
         if: always()
         run: |
           mkdir -p "${RUNNER_TEMP}/out/server-logs"
-          docker cp tdns:/etc/dns/logs/. "${RUNNER_TEMP}/out/server-logs/"
+          # Preserve docker cp's failure while still running the scanner so
+          # its JSON evidence records the infrastructure error.
+          copy_exit=0
+          docker cp tdns:/etc/dns/logs/. "${RUNNER_TEMP}/out/server-logs/" || copy_exit=$?
           python3 TechnitiumLibrary/fuzzing/fixture/log_oracle.py \
             --logs "${RUNNER_TEMP}/out/server-logs" \
             --baseline "${RUNNER_TEMP}/out/log-baseline" \
             --allowlist TechnitiumLibrary/fuzzing/fixture/log_exception_allowlist.json \
+            --copy-exit "${copy_exit}" \
             --output "${RUNNER_TEMP}/out/log-oracle-evidence.json"
 
       - name: Server log on failure
