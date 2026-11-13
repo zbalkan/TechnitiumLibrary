@@ -10,7 +10,7 @@ from pathlib import Path
 ENTRY = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (UTC|Local)\] ")
 # Scan a single identifier-like token, then filter the suffix in Python.
 # No nested quantifiers or overlapping alternatives: linear in the line length.
-EXCEPTION = re.compile(r"(?<![\w.])([A-Za-z_][A-Za-z_0-9.]*)[ \t]*:[ \t]*(.*)")
+EXCEPTION = re.compile(r"(?<![\w.])([A-Za-z_][A-Za-z_0-9.]*)[ \t]*:[ \t]*")
 FRAME = re.compile(r"^\s*at\s+(.+)")
 MAX_LOG_BYTES = 16 * 1024 * 1024
 
@@ -100,8 +100,13 @@ def _classify_record(record: list[str], source: str, rules: list[dict]) -> list[
     headers = list(_exception_headers(record))
     findings = []
     for position, (index, match) in enumerate(headers):
-        end = headers[position + 1][0] if position + 1 < len(headers) else len(record)
-        kind, message = match.groups()
+        next_index, next_match = headers[position + 1] if position + 1 < len(headers) else (None, None)
+        end = next_index if next_index is not None else len(record)
+        kind = match.group(1)
+        # A .NET inner exception can appear on the same physical log line.
+        # Do not let a greedy message capture consume its exception header.
+        message_end = next_match.start() if next_index == index else len(record[index])
+        message = record[index][match.end():message_end].rstrip()
         frames = [frame.group(1) for line in record[index + 1:end]
                   if (frame := FRAME.match(line))]
         rule = classify(kind, message, frames, rules)
