@@ -19,6 +19,22 @@ Test("DNS question uncompressed size accounts for escaping", () =>
 Test("NSEC canonical comparison ordinary names preserved", () =>
     Require(DnsNSECRecordData.CanonicalComparison("a.example", "b.example") < 0,
         "Ordinary comparison changed"));
+Test("NSEC3 next closer name respects escaped separators", () =>
+    Require(DnsNSEC3RecordData.GetNextCloserName(@"x.a\.b.example", "example") == @"a\.b.example",
+        "NSEC3 next closer name split a single DNS label"));
+Test("Public DNS question constructor accepts a decoded escaped name", () =>
+{
+    DnsQuestionRecord question = new(@"a\.b.example", DnsResourceRecordType.A, DnsClass.IN);
+    using MemoryStream output = new();
+    question.WriteTo(output, []);
+    Require(Convert.ToHexString(output.ToArray()) == "03612E62076578616D706C650000010001",
+        "Question constructor changed escaped DNS label bytes");
+});
+Test("Invalid ordinary names remain rejected", () =>
+{
+    foreach (string name in new[] { ".example", "example.", "a..b", @"a\q.example", "bad!name.example" })
+        Require(!DnsClient.IsDomainNameValid(name), $"Unexpectedly accepted '{name}'");
+});
 Test("Encoded-domain length matches wire length", () =>
     Require(DnsDatagram.GetSerializeDomainNameLength(@"a\.b.example") == 13,
         "Wrong encoded name size"));
