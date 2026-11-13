@@ -481,6 +481,17 @@ namespace TechnitiumLibrary.Net.Dns
             return last;
         }
 
+        //A textual suffix is a DNS parent only when its preceding period is
+        //an actual label separator, not a period escaped within a label.
+        internal static bool IsSubDomainName(string name, string parent)
+        {
+            if (string.IsNullOrEmpty(parent) || !name.EndsWith("." + parent, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            int separator = name.Length - parent.Length - 1;
+            return FindLastDomainLabelSeparator(name.AsSpan(0, separator + 1)) == separator;
+        }
+
         //Undo the two escapes emitted by DeserializeDomainName, without
         // interpreting an escaped period as a separator.
         internal static string UnescapeDomainLabel(string label)
