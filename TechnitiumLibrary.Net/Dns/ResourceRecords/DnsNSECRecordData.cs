@@ -186,7 +186,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 {
                     //found proof of cover
 
-                    if (nsec._nextDomainName.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase))
+                    if (DnsDatagram.IsSubDomainName(nsec._nextDomainName, domain))
                         return DnssecProofOfNonExistence.NoData; //domain is empty non-terminal (ENT) so proves NO DATA
 
                     if (wildcardAnswerValidation)
@@ -226,7 +226,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 {
                     //found proof of cover for wildcard domain
 
-                    if (nsec._nextDomainName.EndsWith("." + wildcardDomain, StringComparison.OrdinalIgnoreCase))
+                    if (DnsDatagram.IsSubDomainName(nsec._nextDomainName, wildcardDomain))
                         return DnssecProofOfNonExistence.NoData; //wildcard domain is empty non-terminal (ENT) so proves NO DATA
 
                     //proved that the actual domain does not exists since a wildcard does not exists
@@ -259,8 +259,8 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
             // abc.xyz.example.com
             // x.y.z.example.com
             // *.example.com
-            string[] labels1 = nsecOwnerName.Split('.');
-            string[] labels2 = nxDomain.Split('.');
+            string[] labels1 = DnsDatagram.SplitDomainNameLabels(nsecOwnerName);
+            string[] labels2 = DnsDatagram.SplitDomainNameLabels(nxDomain);
 
             int minCount;
 
