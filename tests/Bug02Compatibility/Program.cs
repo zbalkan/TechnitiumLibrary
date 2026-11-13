@@ -43,6 +43,13 @@ Test("Zone-file relative naming does not split an escaped label", () =>
     Require(entry.StartsWith(@"a\.example.", StringComparison.Ordinal),
         $"Zone file owner incorrectly relativized: {entry}");
 });
+Test("Zone-file parser treats escaped trailing period as label data", () =>
+{
+    using StringReader reader = new(@"a\. 60 IN A 192.0.2.1");
+    var records = ZoneFile.ReadZoneFileFromAsync(reader, "example").GetAwaiter().GetResult();
+    Require(records.Count == 1 && records[0].Name == @"a\..example",
+        "Escaped trailing period was misclassified as FQDN termination");
+});
 Test("Encoded-domain length matches wire length", () =>
     Require(DnsDatagram.GetSerializeDomainNameLength(@"a\.b.example") == 13,
         "Wrong encoded name size"));
