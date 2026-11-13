@@ -32,9 +32,11 @@ def added_text(now: Path, baseline: Path | None) -> str:
     # A docker cp can snapshot the middle of a multi-line log entry. Ignore
     # any continuation of that pre-campaign entry, and resume at the first
     # complete NEW timestamped entry. Never classify the old tail as a case.
+    offset = 0
     for line in delta.splitlines(keepends=True):
         if ENTRY.match(line):
-            return delta[delta.index(line):]
+            return delta[offset:]
+        offset += len(line)
     return ""
 
 
