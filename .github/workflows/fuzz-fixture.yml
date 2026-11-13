@@ -6,6 +6,13 @@ name: Fuzzing fixture
 
 on:
   workflow_dispatch:
+  # Validate this standalone implementation branch without opening a PR.
+  push:
+    branches:
+      - fuzz/fixture-negative-control
+    paths:
+      - "fuzzing/fixture/**"
+      - ".github/workflows/fuzz-fixture.yml"
   pull_request:
     paths:
       - "fuzzing/fixture/**"
@@ -100,6 +107,30 @@ jobs:
           sidecar wait_ready.py --timeout 120
           sidecar provision.py --profile "profiles/${PROFILE}" --backup /out/fixture-backup.zip
           sidecar verify.py --profile "profiles/${PROFILE}"
+      # This control must run before the fuzz campaign, and its log entries
+      # must not contaminate the campaign's production classification.
+      - name: Snapshot logs before network negative control
+        run: |
+          mkdir -p "${RUNNER_TEMP}/out/negative-control-baseline"
+          docker cp tdns:/etc/dns/logs/. "${RUNNER_TEMP}/out/negative-control-baseline/"
+
+      - name: Send malformed DNS negative control
+        run: |
+          docker run --rm --network fuzznet \
+            -v "${GITHUB_WORKSPACE}/TechnitiumLibrary/fuzzing/fixture:/fixture:ro" \
+            -v "${RUNNER_TEMP}/out:/out" \
+            -w /fixture "${PYTHON_IMAGE}" python network_negative_control.py send \
+            --host "${SERVER_IP}" --timeout 2 --output /out/negative-control-send.json
+
+      - name: Assert network-path negative control is detected
+        run: |
+          python3 TechnitiumLibrary/fuzzing/fixture/network_negative_control.py verify \
+            --container tdns \
+            --baseline "${RUNNER_TEMP}/out/negative-control-baseline" \
+            --allowlist TechnitiumLibrary/fuzzing/fixture/log_exception_allowlist.json \
+            --timeout 8 \
+            --output "${RUNNER_TEMP}/out/negative-control-verify.json"
+
       # Record a byte-exact pre-campaign baseline so provisioning exceptions do
       # not get attributed to the fuzz campaign.
       - name: Snapshot server logs before campaign
@@ -163,5 +194,7 @@ jobs:
             ${{ runner.temp }}/out/fuzz-evidence.json
             ${{ runner.temp }}/out/stateful-tcp-evidence.json
             ${{ runner.temp }}/out/log-oracle-evidence.json
+            ${{ runner.temp }}/out/negative-control-send.json
+            ${{ runner.temp }}/out/negative-control-verify.json
           if-no-files-found: warn
           retention-days: 7
