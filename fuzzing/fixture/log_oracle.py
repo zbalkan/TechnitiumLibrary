@@ -41,6 +41,8 @@ def entries(text: str):
 
 
 def scan(log_dir: Path, baseline_dir: Path, allowlist: list[dict]) -> dict:
+    if not baseline_dir.is_dir():
+        raise ValueError(f"Missing pre-campaign log baseline: {baseline_dir}")
     if not log_dir.is_dir():
         raise ValueError(f"Server log directory missing: {log_dir}")
     files = sorted(log_dir.glob("*.log"))
