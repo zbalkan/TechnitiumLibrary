@@ -456,8 +456,7 @@ namespace TechnitiumLibrary.Net.Dns.ResourceRecords
                 value = domain + ".";
             else if (domain.Equals(originDomain, StringComparison.OrdinalIgnoreCase))
                 value = "@";
-            else if (domain.EndsWith("." + originDomain, StringComparison.OrdinalIgnoreCase) &&
-                DnsDatagram.FindLastDomainLabelSeparator(domain.AsSpan(0, domain.Length - originDomain.Length)) == domain.Length - originDomain.Length - 1)
+            else if (DnsDatagram.IsSubDomainName(domain, originDomain))
                 value = domain.Substring(0, domain.Length - originDomain.Length - 1);
             else
                 value = domain + ".";
