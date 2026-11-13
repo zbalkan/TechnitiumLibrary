@@ -110,7 +110,7 @@ jobs:
         run: |
           docker run --rm --network fuzznet \
             -v "${GITHUB_WORKSPACE}/fixtures/fuzzing/fixture:/fixture:ro" \
-            -v "${GITHUB_WORKSPACE}/TechnitiumLibrary/tests/DnsLabelBoundaryRegression:/bug:ro" \
+            -v "${GITHUB_WORKSPACE}/TechnitiumLibrary/tests/Bug02Compatibility:/bug:ro" \
             -v "${RUNNER_TEMP}/out:/out" \
             -w /fixture "${PYTHON_IMAGE}" python /bug/server_probe.py \
             --host "${SERVER_IP}" --output /out/label-server.json
