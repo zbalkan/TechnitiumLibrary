@@ -8,10 +8,9 @@ import re
 from pathlib import Path
 
 ENTRY = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (UTC|Local)\] ")
-# Match bare Exception and System.Exception as well as concrete *Exception / *Error types.
-EXCEPTION = re.compile(
-    r"(?<![\w.])((?:[A-Za-z_]\w*\.)*(?:[A-Za-z_]\w*(?:Exception|Error)|Exception|Error)):[ \t]*(.*)"
-)
+# Scan a single identifier-like token, then filter the suffix in Python.
+# No nested quantifiers or overlapping alternatives: linear in the line length.
+EXCEPTION = re.compile(r"(?<![\w.])([A-Za-z_][A-Za-z_0-9.]*)[ \t]*:[ \t]*(.*)")
 FRAME = re.compile(r"^\s*at\s+(.+)")
 MAX_LOG_BYTES = 16 * 1024 * 1024
 
@@ -86,6 +85,49 @@ def classify(kind: str, message: str, frames: list[str], rules: list[dict]) -> d
     return None
 
 
+def _exception_headers(record: list[str]):
+    """Yield exception headers, including inner exceptions, excluding ordinary labels."""
+    for index, line in enumerate(record):
+        for match in EXCEPTION.finditer(line):
+            if match.group(1).endswith(("Exception", "Error")):
+                yield index, match
+
+
+def _classify_record(record: list[str], source: str, rules: list[dict]) -> list[dict]:
+    entry = ENTRY.match(record[0])
+    if entry is None:
+        raise ValueError(f"Invalid log record header in {source}")
+    headers = list(_exception_headers(record))
+    findings = []
+    for position, (index, match) in enumerate(headers):
+        end = headers[position + 1][0] if position + 1 < len(headers) else len(record)
+        kind, message = match.groups()
+        frames = [frame.group(1) for line in record[index + 1:end]
+                  if (frame := FRAME.match(line))]
+        rule = classify(kind, message, frames, rules)
+        findings.append({
+            "log": source,
+            "timestamp": entry.group(1),
+            "timezone": entry.group(2),
+            "type": kind, "message": message,
+            "frames": frames[:5], "terminal_frame": frames[-1] if frames else None,
+            "allowed": rule is not None,
+            "reason": rule["reason"] if rule else None,
+        })
+    return findings
+
+
+def _scan_log(path: Path, baseline_dir: Path, rules: list[dict]) -> tuple[int, list[dict]]:
+    baseline = baseline_dir / path.name
+    text = added_text(path, baseline if baseline.exists() else None)
+    records = 0
+    findings = []
+    for record in entries(text):
+        records += 1
+        findings.extend(_classify_record(record, path.name, rules))
+    return records, findings
+
+
 def scan(log_dir: Path, baseline_dir: Path, allowlist: list[dict]) -> dict:
     rules = validate_rules(allowlist)
     if not baseline_dir.is_dir():
@@ -98,29 +140,13 @@ def scan(log_dir: Path, baseline_dir: Path, allowlist: list[dict]) -> dict:
     missing = {p.name for p in baseline_dir.glob("*.log")} - {p.name for p in files}
     if missing:
         raise ValueError(f"Pre-campaign log file disappeared: {', '.join(sorted(missing))}")
+
     findings = []
     records = 0
     for path in files:
-        baseline = baseline_dir / path.name
-        for record in entries(added_text(path, baseline if baseline.exists() else None)):
-            records += 1
-            headers = [(index, match) for index, line in enumerate(record)
-                       if (match := EXCEPTION.search(line))]
-            for position, (index, match) in enumerate(headers):
-                end = headers[position + 1][0] if position + 1 < len(headers) else len(record)
-                kind, message = match.groups()
-                frames = [m.group(1) for line in record[index + 1:end]
-                          if (m := FRAME.match(line))]
-                allowed = classify(kind, message, frames, rules)
-                findings.append({
-                    "log": path.name,
-                    "timestamp": ENTRY.match(record[0]).group(1),
-                    "timezone": ENTRY.match(record[0]).group(2),
-                    "type": kind, "message": message,
-                    "frames": frames[:5], "terminal_frame": frames[-1] if frames else None,
-                    "allowed": allowed is not None,
-                    "reason": allowed["reason"] if allowed else None,
-                })
+        count, exceptions = _scan_log(path, baseline_dir, rules)
+        records += count
+        findings.extend(exceptions)
     unexpected = sum(not item["allowed"] for item in findings)
     return {"status": "failed" if unexpected else "passed",
             "records_scanned": records, "exceptions": findings,
