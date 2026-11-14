@@ -2,7 +2,7 @@ name: Validate BUG-02 compatibility
 
 on:
   push:
-    branches: [ "validation/bug02-compatibility" ]
+    branches: [ "validation/bug02-compatibility", "validation/bug02-independent-audit" ]
   workflow_dispatch:
 
 permissions:
