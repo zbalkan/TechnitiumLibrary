@@ -169,6 +169,31 @@ Test("Independent DNSSEC canonical ordering oracle", () =>
         Require(actual == expected, "Canonical NSEC order disagrees with raw-label oracle");
     }
 });
+Test("Random compressed suffixes preserve literal label octets", () =>
+{
+    Random random = new(18012026);
+    byte[] alphabet = [(byte)'a', (byte)'A', (byte)'b', (byte)'0',
+        (byte)'.', (byte)'\\', (byte)'-', (byte)'@', (byte)'*', 0];
+    for (int i = 0; i < 1024; i++)
+    {
+        byte[][] suffixLabels = RandomLabels(random);
+        for (int j = 0; j < suffixLabels.Length; j++)
+            for (int k = 0; k < suffixLabels[j].Length; k++)
+                suffixLabels[j][k] = alphabet[random.Next(alphabet.Length)];
+
+        string suffix = ReferencePresentation(suffixLabels);
+        string first = "x." + suffix;
+        string second = "y." + suffix;
+        using MemoryStream encoded = new();
+        List<DnsDomainOffset> offsets = [];
+        DnsDatagram.SerializeDomainName(first, encoded, offsets);
+        long secondOffset = encoded.Position;
+        DnsDatagram.SerializeDomainName(second, encoded, offsets);
+        encoded.Position = secondOffset;
+        string secondDecoded = DnsDatagram.DeserializeDomainName(encoded);
+        Require(secondDecoded == second, $"Compression corrupted escaped label. Expected {second}, got {secondDecoded}");
+    }
+});
 Test("Compression preserves case-sensitive high-octet DNS labels", () =>
 {
     // RFC 4343 treats octets outside ASCII A-Z as case-sensitive.
