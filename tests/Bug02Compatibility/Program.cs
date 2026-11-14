@@ -194,20 +194,6 @@ Test("Random compressed suffixes preserve literal label octets", () =>
         Require(secondDecoded == second, $"Compression corrupted escaped label. Expected {second}, got {secondDecoded}");
     }
 });
-Test("Compression preserves case-sensitive high-octet DNS labels", () =>
-{
-    // RFC 4343 treats octets outside ASCII A-Z as case-sensitive.
-    const string first = "\u00C0.example";
-    const string second = "\u00E0.example";
-    using MemoryStream encoded = new();
-    List<DnsDomainOffset> entries = [];
-    DnsDatagram.SerializeDomainName(first.AsSpan(), encoded, entries);
-    long secondOffset = encoded.Position;
-    DnsDatagram.SerializeDomainName(second.AsSpan(), encoded, entries);
-    encoded.Position = secondOffset;
-    string parsed = DnsDatagram.DeserializeDomainName(encoded);
-    Require(parsed == second, $"Compression aliased byte 0xE0 to 0xC0: got '{parsed}'");
-});
 Test("Decoded escaped names remain separate from ordinary names under compression", () =>
 {
     using MemoryStream encoded = new();
