@@ -137,6 +137,63 @@ Test("Random valid wire-name round trips", () =>
         CheckRoundTrip(encoded.ToArray());
     }
 });
+Test("Independent wire-label and presentation oracle", () =>
+{
+    Random random = new(15112026);
+    for (int n = 0; n < 1024; n++)
+    {
+        byte[][] labels = RandomLabels(random);
+        byte[] wire = EncodeWireLabels(labels);
+        string expected = ReferencePresentation(labels);
+        using MemoryStream input = new(wire, writable: false);
+        string actual = DnsDatagram.DeserializeDomainName(input);
+        Require(actual == expected, $"Presentation differs for {Convert.ToHexString(wire)}");
+        Require(DnsDatagram.GetSerializeDomainNameLength(actual) == wire.Length,
+            "Reported encoded size differs from reference");
+        using MemoryStream output = new();
+        DnsDatagram.SerializeDomainName(actual, output);
+        Require(output.ToArray().AsSpan().SequenceEqual(wire),
+            "Encoding differs from independently generated wire data");
+    }
+});
+Test("Independent DNSSEC canonical ordering oracle", () =>
+{
+    Random random = new(16712026);
+    for (int n = 0; n < 1024; n++)
+    {
+        byte[][] left = RandomLabels(random);
+        byte[][] right = RandomLabels(random);
+        int expected = Math.Sign(ReferenceCanonicalComparison(left, right));
+        int actual = Math.Sign(DnsNSECRecordData.CanonicalComparison(
+            ReferencePresentation(left), ReferencePresentation(right)));
+        Require(actual == expected, "Canonical NSEC order disagrees with raw-label oracle");
+    }
+});
+Test("Compression preserves case-sensitive high-octet DNS labels", () =>
+{
+    // RFC 4343 treats octets outside ASCII A-Z as case-sensitive.
+    const string first = "\u00C0.example";
+    const string second = "\u00E0.example";
+    using MemoryStream encoded = new();
+    List<DnsDomainOffset> entries = [];
+    DnsDatagram.SerializeDomainName(first.AsSpan(), encoded, entries);
+    long secondOffset = encoded.Position;
+    DnsDatagram.SerializeDomainName(second.AsSpan(), encoded, entries);
+    encoded.Position = secondOffset;
+    string parsed = DnsDatagram.DeserializeDomainName(encoded);
+    Require(parsed == second, $"Compression aliased byte 0xE0 to 0xC0: got '{parsed}'");
+});
+Test("Decoded escaped names remain separate from ordinary names under compression", () =>
+{
+    using MemoryStream encoded = new();
+    List<DnsDomainOffset> entries = [];
+    DnsDatagram.SerializeDomainName(@"a\.b.example", encoded, entries);
+    long secondOffset = encoded.Position;
+    DnsDatagram.SerializeDomainName("a.b.example", encoded, entries);
+    encoded.Position = secondOffset;
+    string parsed = DnsDatagram.DeserializeDomainName(encoded);
+    Require(parsed == "a.b.example", $"Compression merged label boundaries: '{parsed}'");
+});
 Console.WriteLine($"BUG-02 compatibility: {tests - failures}/{tests} passed");
 return failures == 0 ? 0 : 1;
 
@@ -188,4 +245,62 @@ static void CheckDatagramRoundTrip(string hex)
         parsed.Authority.Count == reparsed.Authority.Count &&
         parsed.Additional.Count == reparsed.Additional.Count,
         "DNS header or section count changed");
+}
+
+static byte[][] RandomLabels(Random random)
+{
+    int count = random.Next(1, 5);
+    byte[][] labels = new byte[count][];
+    for (int i = 0; i < count; i++)
+    {
+        labels[i] = new byte[random.Next(1, 16)];
+        random.NextBytes(labels[i]);
+    }
+    return labels;
+}
+static byte[] EncodeWireLabels(byte[][] labels)
+{
+    using MemoryStream output = new();
+    foreach (byte[] label in labels)
+    {
+        output.WriteByte((byte)label.Length);
+        output.Write(label);
+    }
+    output.WriteByte(0);
+    return output.ToArray();
+}
+static string ReferencePresentation(byte[][] labels)
+{
+    System.Text.StringBuilder text = new();
+    for (int i = 0; i < labels.Length; i++)
+    {
+        if (i > 0)
+            text.Append('.');
+        foreach (byte octet in labels[i])
+        {
+            if (octet is (byte)'.' or (byte)'\\')
+                text.Append('\\');
+            text.Append((char)octet);
+        }
+    }
+    return text.ToString();
+}
+static int ReferenceCanonicalComparison(byte[][] a, byte[][] b)
+{
+    int min = Math.Min(a.Length, b.Length);
+    for (int i = 1; i <= min; i++)
+    {
+        byte[] left = a[^i], right = b[^i];
+        int common = Math.Min(left.Length, right.Length);
+        for (int j = 0; j < common; j++)
+        {
+            int x = (left[j] >= 'A' && left[j] <= 'Z') ? left[j] + 32 : left[j];
+            int y = (right[j] >= 'A' && right[j] <= 'Z') ? right[j] + 32 : right[j];
+            if (x != y)
+                return x.CompareTo(y);
+        }
+        if (left.Length != right.Length)
+            return left.Length.CompareTo(right.Length);
+    }
+    return a.Length.CompareTo(b.Length);
 }
