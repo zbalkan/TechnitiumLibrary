@@ -422,20 +422,47 @@ namespace TechnitiumLibrary.Net.Dns
             return t;
         }
 
-        //A period preceded by a backslash is label data, not a separator.
-        //Escaped backslashes are also part of the label, not escape prefixes.
+        //A literal period or backslash inside a label uses a backslash escape.
+        private static bool IsEscapableDomainCharacter(char character)
+        {
+            return (character == '.') || (character == '\\');
+        }
+
+        internal static bool TryReadDomainNameEscape(ReadOnlySpan<char> text, ref int index, out char character)
+        {
+            if ((text[index] == '\\') && (index + 1 < text.Length) && IsEscapableDomainCharacter(text[index + 1]))
+            {
+                character = text[++index];
+                return true;
+            }
+
+            character = default;
+            return false;
+        }
+
+        //Only an even number of preceding backslashes leaves a period as a label separator.
+        private static bool IsDomainLabelSeparatorAt(ReadOnlySpan<char> domain, int index)
+        {
+            if (domain[index] != '.')
+                return false;
+
+            int backslashes = 0;
+            for (int i = index - 1; i >= 0 && domain[i] == '\\'; i--)
+                backslashes++;
+
+            return (backslashes & 1) == 0;
+        }
+
         internal static int FindDomainLabelSeparator(ReadOnlySpan<char> domain)
         {
-            for (int i = 0; i < domain.Length; i++)
+            int index = domain.IndexOf('.');
+            while (index >= 0)
             {
-                if ((domain[i] == '\\') && (i + 1 < domain.Length) && ((domain[i + 1] == '.') || (domain[i + 1] == '\\')))
-                {
-                    i++;
-                    continue;
-                }
+                if (IsDomainLabelSeparatorAt(domain, index))
+                    return index;
 
-                if (domain[i] == '.')
-                    return i;
+                int next = domain.Slice(index + 1).IndexOf('.');
+                index = next < 0 ? -1 : index + next + 1;
             }
 
             return -1;
@@ -465,31 +492,27 @@ namespace TechnitiumLibrary.Net.Dns
 
         internal static int FindLastDomainLabelSeparator(ReadOnlySpan<char> domain)
         {
-            int last = -1;
-            for (int i = 0; i < domain.Length; i++)
+            int index = domain.LastIndexOf('.');
+            while (index >= 0)
             {
-                if ((domain[i] == '\\') && (i + 1 < domain.Length) && ((domain[i + 1] == '.') || (domain[i + 1] == '\\')))
-                {
-                    i++;
-                    continue;
-                }
+                if (IsDomainLabelSeparatorAt(domain, index))
+                    return index;
 
-                if (domain[i] == '.')
-                    last = i;
+                index = domain.Slice(0, index).LastIndexOf('.');
             }
 
-            return last;
+            return -1;
         }
 
-        //A textual suffix is a DNS parent only when its preceding period is
-        //an actual label separator, not a period escaped within a label.
+        //Avoid constructing a string suffix for each cache or resolver comparison.
         internal static bool IsSubDomainName(string name, string parent)
         {
-            if (string.IsNullOrEmpty(parent) || !name.EndsWith("." + parent, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(parent) || name.Length <= parent.Length)
                 return false;
 
             int separator = name.Length - parent.Length - 1;
-            return FindLastDomainLabelSeparator(name.AsSpan(0, separator + 1)) == separator;
+            return IsDomainLabelSeparatorAt(name.AsSpan(), separator) &&
+                name.AsSpan(separator + 1).Equals(parent.AsSpan(), StringComparison.OrdinalIgnoreCase);
         }
 
         //Undo the two escapes emitted by DeserializeDomainName, without
@@ -504,8 +527,8 @@ namespace TechnitiumLibrary.Net.Dns
             for (int i = 0; i < label.Length; i++)
             {
                 char c = label[i];
-                if ((c == '\\') && (i + 1 < label.Length) && ((label[i + 1] == '.') || (label[i + 1] == '\\')))
-                    c = label[++i];
+                if (TryReadDomainNameEscape(label, ref i, out char unescaped))
+                    c = unescaped;
 
                 decoded[length++] = c;
             }
@@ -577,8 +600,8 @@ namespace TechnitiumLibrary.Net.Dns
                 for (int j = 0; j < label.Length; j++)
                 {
                     char c = label[j];
-                    if ((c == '\\') && (j + 1 < label.Length) && ((label[j + 1] == '.') || (label[j + 1] == '\\')))
-                        c = label[++j];
+                    if (TryReadDomainNameEscape(label, ref j, out char unescaped))
+                        c = unescaped;
 
                     if (unescapedLength == unescapedLabel.Length)
                         throw new DnsClientException("Invalid domain name: label cannot exceed 63 bytes.");
@@ -653,7 +676,7 @@ namespace TechnitiumLibrary.Net.Dns
 
                 foreach (byte octet in label)
                 {
-                    if ((octet == (byte)'.') || (octet == (byte)'\\'))
+                    if (IsEscapableDomainCharacter((char)octet))
                         domain[domainPosition++] = '\\';
 
                     domain[domainPosition++] = (char)octet;
@@ -716,11 +739,8 @@ namespace TechnitiumLibrary.Net.Dns
             int length = domain.Length + 2;
             for (int i = 0; i + 1 < domain.Length; i++)
             {
-                if ((domain[i] == '\\') && ((domain[i + 1] == '.') || (domain[i + 1] == '\\')))
-                {
+                if (TryReadDomainNameEscape(domain.AsSpan(), ref i, out _))
                     length--;
-                    i++;
-                }
             }
 
             return length;
