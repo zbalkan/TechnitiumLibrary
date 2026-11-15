@@ -2549,23 +2549,24 @@ namespace TechnitiumLibrary.Net.Dns
             if (domain.Length == 0)
                 return true; //domain is root zone
 
-            //Escaped literal periods and backslashes occupy one DNS octet each.
-            //Validate the actual wire length rather than the presentation length.
+            //Scan label spans without creating a label array or intermediate strings.
+            //Escaped periods/backslashes occupy one DNS octet each.
             int wireLength = 1; //terminating root label
-            foreach (string label in DnsDatagram.SplitDomainNameLabels(domain))
+            ReadOnlySpan<char> remaining = domain;
+            while (true)
             {
+                int separator = DnsDatagram.FindDomainLabelSeparator(remaining);
+                ReadOnlySpan<char> label = separator < 0 ? remaining : remaining.Slice(0, separator);
                 int labelLength = 0;
-                bool wildcard = label == "*";
+                bool wildcard = (label.Length == 1) && (label[0] == '*');
 
                 for (int i = 0; i < label.Length; i++)
                 {
                     int labelChar = label[i];
-                    bool escaped = (labelChar == '\\') && (i + 1 < label.Length) &&
-                        ((label[i + 1] == '.') || (label[i + 1] == '\\'));
 
-                    if (escaped)
+                    if (DnsDatagram.TryReadDomainNameEscape(label, ref i, out char unescaped))
                     {
-                        labelChar = label[++i];
+                        labelChar = unescaped;
                     }
                     else if (!wildcard)
                     {
@@ -2610,6 +2611,11 @@ namespace TechnitiumLibrary.Net.Dns
 
                     return false;
                 }
+
+                if (separator < 0)
+                    break;
+
+                remaining = remaining.Slice(separator + 1);
             }
 
             return true;
