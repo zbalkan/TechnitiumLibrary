@@ -205,6 +205,51 @@ Test("Decoded escaped names remain separate from ordinary names under compressio
     string parsed = DnsDatagram.DeserializeDomainName(encoded);
     Require(parsed == "a.b.example", $"Compression merged label boundaries: '{parsed}'");
 });
+Test("Ordinary DNS name validation performs no managed allocations", () =>
+{
+    const string name = "www.example.com";
+    for (int i = 0; i < 1000; i++)
+        Require(DnsClient.IsDomainNameValid(name), "Valid name unexpectedly rejected");
+
+    long before = GC.GetAllocatedBytesForCurrentThread();
+    for (int i = 0; i < 1000; i++)
+        if (!DnsClient.IsDomainNameValid(name))
+            throw new InvalidOperationException("Valid name unexpectedly rejected");
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+    Require(allocated == 0, $"Ordinary name validation allocated {allocated} bytes for 1,000 checks");
+});
+Test("DNS suffix matching performs no managed allocations", () =>
+{
+    var method = typeof(DnsDatagram).GetMethod("IsSubDomainName",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("DNS parent helper is missing");
+    var isSubdomain = method.CreateDelegate<Func<string, string, bool>>();
+    const string name = "www.example.com";
+    const string parent = "example.com";
+    for (int i = 0; i < 1000; i++)
+        Require(isSubdomain(name, parent), "Ordinary subdomain not recognized");
+
+    long before = GC.GetAllocatedBytesForCurrentThread();
+    for (int i = 0; i < 1000; i++)
+        if (!isSubdomain(name, parent))
+            throw new InvalidOperationException("Ordinary subdomain not recognized");
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+    Require(allocated == 0, $"Suffix matching allocated {allocated} bytes for 1,000 checks");
+});
+Test("Escaped separator parity in parent matching", () =>
+{
+    var method = typeof(DnsDatagram).GetMethod("IsSubDomainName",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("DNS parent helper is missing");
+    var isSubdomain = method.CreateDelegate<Func<string, string, bool>>();
+    Require(!isSubdomain(@"a\.example", "example"), "Single preceding slash must escape period");
+    Require(isSubdomain(@"a\\.example", "example"), "Two preceding slashes leave period unescaped");
+    Require(!isSubdomain(@"a\\\.example", "example"), "Three preceding slashes escape period");
+    Require(isSubdomain(@"a\\\\.example", "example"), "Four preceding slashes leave period unescaped");
+    Require(isSubdomain(@"a\.b.example", "example"), "Actual separator after escaped label should match");
+});
 Console.WriteLine($"BUG-02 compatibility: {tests - failures}/{tests} passed");
 return failures == 0 ? 0 : 1;
 
