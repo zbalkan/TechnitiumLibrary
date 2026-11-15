@@ -6,8 +6,8 @@ name: BUG-02 compatibility with isolated DNS server
 
 on:
   push:
-    branches: [ "validation/bug02-compatibility" ]
-    paths: [ "tests/Bug02Compatibility/**", "TechnitiumLibrary.Net/Dns/DnsDatagram.cs", ".github/workflows/bug02-server-validation.yml" ]
+    branches: [ "validation/bug02-compatibility", "validation/bug02-refinement" ]
+    paths: [ "tests/Bug02Compatibility/**", "TechnitiumLibrary.Net/Dns/**", ".github/workflows/bug02-server-validation.yml" ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
